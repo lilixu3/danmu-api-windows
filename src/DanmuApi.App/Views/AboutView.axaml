@@ -1,0 +1,46 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:vm="using:DanmuApi.App.ViewModels" x:Class="DanmuApi.App.Views.AboutView" x:DataType="vm:AboutPageViewModel">
+  <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+    <StackPanel MaxWidth="1000" Spacing="20" HorizontalAlignment="Stretch">
+      <ContentControl Content="{Binding Shell.ApplicationUpdates}" />
+      <Border Classes="dashboard-panel" Padding="32" CornerRadius="12">
+        <StackPanel Spacing="20">
+          <Border Width="64" Height="64" CornerRadius="18" Background="{DynamicResource AccentBrush}" HorizontalAlignment="Left">
+            <TextBlock Text="D" FontSize="36" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <StackPanel Spacing="8">
+            <TextBlock Text="弹幕 API · Windows" FontSize="30" FontWeight="SemiBold" TextWrapping="Wrap" />
+            <TextBlock Name="VersionText" Text="{Binding Version, StringFormat='应用版本 {0}'}" Classes="body-muted" TextWrapping="Wrap" />
+          </StackPanel>
+          <TextBlock Text="把电脑变成弹幕 API 服务器。" FontSize="20" TextWrapping="Wrap" />
+          <TextBlock Text="在桌面管理核心、连接播放器、配置弹幕服务，并查看请求与运行日志。" Classes="body-muted" TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+      <Border Classes="dashboard-panel" Padding="28" CornerRadius="12">
+        <StackPanel Spacing="18">
+          <TextBlock Text="一个桌面控制台，一套独立核心" Classes="section-title" TextWrapping="Wrap" />
+          <TextBlock Text="桌面端负责核心安装与更新、Node 进程管理和 Windows 集成。弹幕解析与接口由独立的 Node.js 核心提供。应用版本与核心版本分别管理。" TextWrapping="Wrap" />
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="24" RowDefinitions="Auto,Auto,Auto" RowSpacing="12">
+            <TextBlock Text="当前核心" Classes="body-muted" />
+            <TextBlock Grid.Column="1" Text="{Binding Shell.CoreVersionText}" TextWrapping="Wrap" />
+            <TextBlock Grid.Row="1" Text="稳定来源" Classes="body-muted" />
+            <SelectableTextBlock Grid.Row="1" Grid.Column="1" Text="huangxd-/danmu_api" TextWrapping="Wrap" />
+            <TextBlock Grid.Row="2" Text="开发来源" Classes="body-muted" />
+            <SelectableTextBlock Grid.Row="2" Grid.Column="1" Text="lilixu3/danmu_api" TextWrapping="Wrap" />
+          </Grid>
+          <WrapPanel>
+            <Button Content="管理核心" Classes="secondary-action" Command="{Binding Shell.NavigateCoreCommand}" Margin="0,0,12,8" />
+            <Button Content="打开运行目录" Classes="secondary-action" Command="{Binding Shell.OpenCoreRuntimeDirectoryCommand}" Margin="0,0,0,8" />
+          </WrapPanel>
+        </StackPanel>
+      </Border>
+      <Border Classes="dashboard-panel" Padding="28" CornerRadius="12">
+        <StackPanel Spacing="14">
+          <TextBlock Text="为 Windows 构建" Classes="section-title" />
+          <TextBlock Text="Windows x64 · Avalonia 11 · .NET 8 · Node.js" TextWrapping="Wrap" />
+          <TextBlock Text="支持桌面托盘、开机自启和局域网访问。与 Android 端对齐服务协议；不包含 Xposed、Root、无障碍保活或快捷磁贴等 Android 专有功能。" Classes="body-muted" TextWrapping="Wrap" />
+          <TextBlock Text="运行目录保存核心及其配置、日志等数据。分享日志或配置前，请移除 Token、Cookie 和 API Key。" Classes="body-muted" TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

@@ -1,0 +1,144 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:DanmuApi.App.ViewModels"
+             xmlns:services="using:DanmuApi.App.Services"
+             xmlns:views="using:DanmuApi.App.Views"
+             x:Class="DanmuApi.App.Views.OverviewView"
+             x:DataType="vm:OverviewPageViewModel">
+  <UserControl.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="OverviewPanel">#FAFCFA</SolidColorBrush>
+          <SolidColorBrush x:Key="OverviewInk">#28372E</SolidColorBrush>
+          <SolidColorBrush x:Key="OverviewMuted">#64776A</SolidColorBrush>
+          <SolidColorBrush x:Key="OverviewRule">#D6E0D7</SolidColorBrush>
+          <SolidColorBrush x:Key="OverviewInset">#EDF3ED</SolidColorBrush>
+          <SolidColorBrush x:Key="OverviewAccent">#946422</SolidColorBrush>
+          <SolidColorBrush x:Key="OverviewTint">#F3E8D3</SolidColorBrush>
+          <SolidColorBrush x:Key="OverviewService">#F5F2E7</SolidColorBrush>
+          <SolidColorBrush x:Key="OverviewServiceRule">#D9D4BC</SolidColorBrush>
+          <SolidColorBrush x:Key="OverviewTrend">#4A8067</SolidColorBrush>
+          <SolidColorBrush x:Key="OverviewAction">#D6A456</SolidColorBrush>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="OverviewPanel">#222A27</SolidColorBrush>
+          <SolidColorBrush x:Key="OverviewInk">#E1E6DA</SolidColorBrush>
+          <SolidColorBrush x:Key="OverviewMuted">#A0B0A3</SolidColorBrush>
+          <SolidColorBrush x:Key="OverviewRule">#36413B</SolidColorBrush>
+          <SolidColorBrush x:Key="OverviewInset">#29322B</SolidColorBrush>
+          <SolidColorBrush x:Key="OverviewAccent">#DFB16A</SolidColorBrush>
+          <SolidColorBrush x:Key="OverviewTint">#373A2C</SolidColorBrush>
+          <SolidColorBrush x:Key="OverviewService">#252A24</SolidColorBrush>
+          <SolidColorBrush x:Key="OverviewServiceRule">#4B503F</SolidColorBrush>
+          <SolidColorBrush x:Key="OverviewTrend">#A9C993</SolidColorBrush>
+          <SolidColorBrush x:Key="OverviewAction">#DFB16A</SolidColorBrush>
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </UserControl.Resources>
+  <UserControl.Styles>
+    <Style Selector="TextBlock"><Setter Property="Foreground" Value="{DynamicResource OverviewInk}" /></Style>
+    <Style Selector="TextBlock.caption"><Setter Property="Foreground" Value="{DynamicResource OverviewMuted}" /><Setter Property="FontSize" Value="11" /><Setter Property="TextWrapping" Value="Wrap" /></Style>
+    <Style Selector="TextBlock.section"><Setter Property="FontSize" Value="13" /><Setter Property="FontWeight" Value="Medium" /></Style>
+    <Style Selector="Path.icon"><Setter Property="Stroke" Value="{DynamicResource OverviewMuted}" /><Setter Property="StrokeThickness" Value="1.65" /><Setter Property="Width" Value="17" /><Setter Property="Height" Value="17" /><Setter Property="Stretch" Value="Uniform" /></Style>
+    <Style Selector="Border.panel"><Setter Property="Background" Value="{DynamicResource OverviewPanel}" /><Setter Property="BorderBrush" Value="{DynamicResource OverviewRule}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="15" /><Setter Property="Padding" Value="22,19" /></Style>
+    <Style Selector="Expander"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="{DynamicResource OverviewRule}" /><Setter Property="Foreground" Value="{DynamicResource OverviewInk}" /><Setter Property="FontSize" Value="11" /></Style>
+    <Style Selector="Expander /template/ ToggleButton"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="{DynamicResource OverviewRule}" /><Setter Property="Foreground" Value="{DynamicResource OverviewInk}" /></Style>
+    <Style Selector="Button.console"><Setter Property="MinHeight" Value="30" /><Setter Property="Padding" Value="10,5" /><Setter Property="CornerRadius" Value="6" /><Setter Property="Background" Value="{DynamicResource OverviewInset}" /><Setter Property="Foreground" Value="{DynamicResource OverviewInk}" /><Setter Property="BorderBrush" Value="{DynamicResource OverviewRule}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="FontSize" Value="11" /></Style>
+    <Style Selector="Button.console:pointerover /template/ ContentPresenter"><Setter Property="Background" Value="{DynamicResource OverviewTint}" /><Setter Property="Foreground" Value="{DynamicResource OverviewInk}" /></Style>
+    <Style Selector="Button.console:disabled /template/ ContentPresenter"><Setter Property="Background" Value="{DynamicResource OverviewInset}" /><Setter Property="Foreground" Value="{DynamicResource OverviewMuted}" /><Setter Property="Opacity" Value="1" /></Style>
+    <Style Selector="Button.serviceAction"><Setter Property="Height" Value="44" /><Setter Property="MinHeight" Value="44" /><Setter Property="HorizontalAlignment" Value="Stretch" /><Setter Property="Padding" Value="8,5" /><Setter Property="FontSize" Value="12" /><Setter Property="HorizontalContentAlignment" Value="Center" /></Style>
+    <Style Selector="Button.start"><Setter Property="Background" Value="{DynamicResource OverviewAction}" /><Setter Property="Foreground" Value="#28291D" /><Setter Property="BorderThickness" Value="0" /></Style>
+  </UserControl.Styles>
+  <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+    <StackPanel Name="OverviewContent" HorizontalAlignment="Stretch" Spacing="15">
+      <Grid ColumnDefinitions="*,Auto"><TextBlock Text="服务控制台" FontSize="14" /><Button Name="QuickActionsButton" Grid.Column="1" Classes="console" Content="快捷操作⌄"><Button.Flyout><MenuFlyout><MenuItem Header="修改 Token" Command="{Binding Shell.OpenTokenEditorCommand}" /><MenuItem Header="修改端口" Command="{Binding Shell.OpenPortEditorCommand}" /></MenuFlyout></Button.Flyout></Button></Grid>
+      <Grid Name="DetailColumns" ColumnDefinitions="300,*" RowDefinitions="Auto,Auto" ColumnSpacing="15" RowSpacing="15">
+        <Border Name="ServicePanel" Classes="panel" Padding="20" Background="{DynamicResource OverviewService}" BorderBrush="{DynamicResource OverviewServiceRule}" ClipToBounds="True">
+          <Grid>
+            <Canvas IsHitTestVisible="False" ClipToBounds="True">
+              <Ellipse Width="173" Height="173" Canvas.Left="126" Canvas.Top="-10" Stroke="{DynamicResource OverviewAccent}" StrokeThickness="1" Opacity="0.12" />
+              <Ellipse Width="223" Height="223" Canvas.Left="101" Canvas.Top="-35" Stroke="{DynamicResource OverviewAccent}" StrokeThickness="1" Opacity="0.06" />
+              <Ellipse Width="273" Height="273" Canvas.Left="76" Canvas.Top="-60" Stroke="{DynamicResource OverviewAccent}" StrokeThickness="1" Opacity="0.04" />
+            </Canvas>
+            <Grid Name="ControlBand" RowDefinitions="Auto,Auto,Auto,*,Auto">
+              <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource OverviewTint}" BorderBrush="{DynamicResource OverviewServiceRule}" BorderThickness="1" HorizontalAlignment="Left" Margin="0,0,0,10">
+                <Path Data="M12 3v9 M6 5 A9 9 0 1 0 18 5" Stroke="{DynamicResource OverviewAccent}" StrokeThickness="1.65" Width="21" Height="21" Stretch="Uniform" />
+              </Border>
+              <StackPanel Grid.Row="1" Spacing="10">
+                <TextBlock Text="弹幕 API 服务" Classes="caption" LetterSpacing="2" />
+                <TextBlock Text="{Binding ServiceTitle}" FontSize="30" FontWeight="Medium" Foreground="{DynamicResource OverviewAccent}" />
+                <Grid ColumnDefinitions="6,*" ColumnSpacing="7"><Ellipse Width="6" Height="6" Fill="{Binding Shell.StatusBrush}" VerticalAlignment="Top" Margin="0,5,0,0" /><TextBlock Grid.Column="1" Text="{Binding Shell.HealthFreshnessText}" Classes="caption" /></Grid>
+              </StackPanel>
+              <Border Grid.Row="2" BorderBrush="{DynamicResource OverviewServiceRule}" BorderThickness="0,1,0,0" Margin="0,16,0,0" Padding="0,12,0,0">
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+                  <StackPanel Name="PortSummary" Spacing="4"><TextBlock Text="监听端口" Classes="caption" /><TextBlock Text="{Binding Shell.PortText}" FontFamily="Consolas" FontSize="18" /></StackPanel>
+                  <StackPanel Name="HostSummary" Grid.Column="1" Spacing="4"><TextBlock Text="监听范围" Classes="caption" /><TextBlock Text="{Binding Shell.ListenHostText}" FontSize="12" TextWrapping="Wrap" /></StackPanel>
+                </Grid>
+              </Border>
+              <StackPanel Grid.Row="3" VerticalAlignment="Bottom" Margin="0,16,0,0" Spacing="9"><Grid Name="ServiceActions" ColumnDefinitions="*,*" ColumnSpacing="9">
+                <Button Name="StartServiceButton" Grid.ColumnSpan="2" Classes="console start serviceAction" Content="▷  启动服务" Command="{Binding Shell.StartCommand}" IsVisible="{Binding Shell.CanStart}" />
+                <Button Name="StopServiceButton" Classes="console start serviceAction" Content="□  停止服务" Command="{Binding Shell.StopCommand}" IsVisible="{Binding Shell.IsServiceRunning}" />
+                <Button Name="RestartServiceButton" Grid.Column="1" Classes="console serviceAction" Content="↻  重启服务" Command="{Binding Shell.RestartCommand}" IsVisible="{Binding ShowRestart}" />
+              </Grid>
+              <Button Name="CacheEntryButton" Classes="console" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Command="{Binding Shell.OpenCacheCommand}" IsVisible="{Binding Shell.IsServiceRunning}"><StackPanel Spacing="3"><TextBlock Text="缓存管理 →" FontSize="12" /><TextBlock Text="{Binding Shell.TodayRequestsText}" Classes="caption" /></StackPanel></Button>
+              </StackPanel>
+              <TextBlock Grid.Row="4" Text="{Binding Shell.CoreVersionText}" Classes="caption" Margin="0,12,0,0" />
+            </Grid>
+          </Grid>
+        </Border>
+        <StackPanel Name="RightPanels" Grid.Column="1" Spacing="15" VerticalAlignment="Top">
+        <Border Name="TrendPanel" Classes="panel" Padding="22,16">
+          <StackPanel Spacing="10">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10"><StackPanel Orientation="Horizontal" Spacing="8"><Path Classes="icon" Data="M3 12h4l3-8 4 16 3-8h4" /><TextBlock Text="请求趋势" Classes="section" /></StackPanel><TextBlock Grid.Column="1" Text="最近 60 次采样" Classes="caption" /></Grid>
+            <Grid ColumnDefinitions="*,*,*" ColumnSpacing="12">
+              <StackPanel Spacing="6"><TextBlock Text="累计请求 · 次" Classes="caption" /><TextBlock Text="{Binding Shell.RequestCountText}" FontSize="26" TextWrapping="Wrap" /></StackPanel>
+              <StackPanel Grid.Column="1" Spacing="6"><TextBlock Text="请求速率 · req/s" Classes="caption" /><TextBlock Name="RateText" Text="{Binding Trend.RateText}" FontSize="26" /></StackPanel>
+              <StackPanel Grid.Column="2" Spacing="6"><TextBlock Text="本次运行时长" Classes="caption" /><TextBlock Text="{Binding Shell.UptimeText}" FontSize="20" TextWrapping="Wrap" /></StackPanel>
+            </Grid>
+            <Grid MinHeight="120">
+              <views:RequestTrendControl Name="RequestTrend" Height="120" IsVisible="{Binding HasTrendSamples}" Points="{Binding Trend.Points}" LineBrush="{DynamicResource OverviewTrend}" LabelBrush="{DynamicResource OverviewMuted}" AutomationProperties.Name="请求速率趋势，最近60次真实采样，单位每秒请求数" />
+              <TextBlock Text="{Binding Trend.Status}" IsVisible="{Binding !HasTrendSamples}" Classes="caption" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Grid>
+            <TextBlock Name="TrendStatus" Text="含内部请求 · 每 5 秒采样 · 空缺表示无有效采样" Classes="caption" ToolTip.Tip="{Binding Trend.Status}" />
+          </StackPanel>
+        </Border>
+          <Border Name="DiagnosticsPanel" Classes="panel" Padding="22,16">
+            <Grid Name="RuntimeSummary" ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="12" RowSpacing="12">
+              <StackPanel Spacing="6"><StackPanel Orientation="Horizontal" Spacing="8"><Path Classes="icon" Data="M6 6h12v12H6Z M9 3v3 M15 3v3 M9 18v3 M15 18v3 M3 9h3 M3 15h3 M18 9h3 M18 15h3 M10 10h4v4h-4Z" /><TextBlock Text="当前核心" Classes="section" /></StackPanel><TextBlock Text="{Binding Shell.CoreVariantText}" Classes="caption" /></StackPanel>
+              <StackPanel Name="CoreActions" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"><Button Name="ManageCoreButton" Classes="console" Content="管理核心 →" Command="{Binding Shell.NavigateCoreCommand}" /><Button Name="OpenRuntimeDirectoryButton" Classes="console" Content="打开运行目录" Command="{Binding Shell.OpenCoreRuntimeDirectoryCommand}" /></StackPanel>
+              <StackPanel Name="CoreSummaryValue" Grid.Row="1" Grid.ColumnSpan="2" Spacing="6"><TextBlock Text="{Binding Shell.CoreVersionText}" FontSize="18" TextWrapping="Wrap" /><TextBlock Text="{Binding Shell.PidText, StringFormat='进程 / PID  {0}'}" Classes="caption" /></StackPanel>
+            </Grid>
+          </Border>
+        </StackPanel>
+        <Border Name="AddressDetailsPanel" Grid.Row="1" Grid.ColumnSpan="2" Classes="panel" Padding="22,14">
+          <StackPanel Spacing="6">
+            <StackPanel Orientation="Horizontal" Spacing="8"><Path Classes="icon" Data="M8 3h8v6H8Z M12 9v6 M4 18v-3h16v3 M2 18h7v3H2Z M15 18h7v3h-7Z" /><TextBlock Text="连接地址" Classes="section" /><Button Name="TokenEyeButton" Command="{Binding Shell.ToggleTokenVisibilityCommand}" ToolTip.Tip="{Binding Shell.TokenVisibilityActionText}" AutomationProperties.Name="{Binding Shell.TokenVisibilityActionText}" Background="Transparent" Padding="5" MinHeight="28"><Path Classes="icon" Data="M2 12 Q12 -2 22 12 Q12 26 2 12 M15 12 A3 3 0 1 1 9 12 A3 3 0 1 1 15 12" /></Button></StackPanel>
+            <Border Name="AllAddressesContent" Padding="0" Background="Transparent">
+              <ItemsControl ItemsSource="{Binding Shell.EndpointItems}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="services:EndpointItem">
+                    <Border BorderBrush="{DynamicResource OverviewRule}" BorderThickness="0,0,0,1" Padding="0,10">
+                      <Grid Classes="addressRow" ColumnDefinitions="90,*,82" ColumnSpacing="9">
+                        <TextBlock Text="{Binding Title}" Classes="caption" VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1" Spacing="5" VerticalAlignment="Center">
+                          <TextBlock Text="{Binding DisplayAddress}" IsVisible="{Binding HasAddress}" FontFamily="Consolas" FontSize="12" TextWrapping="Wrap" />
+                          <TextBlock Text="{Binding Hint}" Classes="caption" />
+                        </StackPanel>
+                        <Button Grid.Column="2" Classes="console" Content="复制地址" Command="{Binding CopyCommand}" IsEnabled="{Binding HasAddress}" HorizontalAlignment="Right" VerticalAlignment="Center" ToolTip.Tip="复制包含 Token 的完整 API 地址" />
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </Border>
+            <TextBlock Text="地址含 Token，仅分享给可信设备。" Classes="caption" Margin="0,4,0,0" />
+          </StackPanel>
+        </Border>
+      </Grid>
+      <TextBlock Name="DiagnosticsText" Text="{Binding Shell.DiagnosticText}" Classes="caption" IsVisible="{Binding HasFailure}" />
+      <TextBlock Text="配置与核心保存在本机" Classes="caption" Margin="3,0" />
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

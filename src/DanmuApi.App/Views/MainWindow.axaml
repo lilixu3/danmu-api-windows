@@ -1,0 +1,162 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:DanmuApi.App.ViewModels"
+        x:Class="DanmuApi.App.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Width="1280"
+        Height="800"
+        MinWidth="960"
+        MinHeight="640"
+        Icon="/Assets/danmuapi.ico"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaChromeHints="PreferSystemChrome"
+        ExtendClientAreaTitleBarHeightHint="32"
+        Title="弹幕 API">
+  <Grid Margin="{Binding $parent[Window].OffScreenMargin}" RowDefinitions="32,*">
+    <!-- 沉浸式标题栏条：背景延续侧栏与页头颜色，且不参与命中测试，整条都可拖动窗口。
+         系统标题栏按钮绘制在右侧，内容整体下移，控件不会落在拖拽区里。 -->
+    <Grid Grid.Row="0" x:Name="TitleBarStrip" ColumnDefinitions="Auto,*" IsHitTestVisible="False">
+      <Border Width="{Binding SidebarWidth}" Background="{DynamicResource SidebarBackgroundBrush}" />
+      <Border Grid.Column="1" Background="{DynamicResource SurfaceBrush}" />
+    </Grid>
+
+    <Grid Grid.Row="1" ColumnDefinitions="Auto,*">
+    <Border Width="{Binding SidebarWidth}"
+            Background="{DynamicResource SidebarBackgroundBrush}"
+            BorderBrush="{DynamicResource HairlineBrush}"
+            BorderThickness="0,0,1,0">
+      <Grid RowDefinitions="72,Auto,*,Auto" Margin="12,0">
+        <Grid ColumnDefinitions="40,*" ColumnSpacing="10" VerticalAlignment="Center">
+          <Border Width="34" Height="34" CornerRadius="8" Background="{DynamicResource AccentBrush}">
+            <TextBlock Text="D" Foreground="{DynamicResource AccentTextBrush}" FontSize="17" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <StackPanel Grid.Column="1" IsVisible="{Binding IsSidebarExpanded}" VerticalAlignment="Center" Spacing="1">
+            <TextBlock Text="弹幕 API" FontSize="16" FontWeight="SemiBold" />
+            <TextBlock Text="Windows 桌面端" Classes="overline" />
+          </StackPanel>
+        </Grid>
+
+        <Button Grid.Row="1"
+                Classes="ghost-action"
+                Command="{Binding ToggleSidebarCommand}"
+                HorizontalContentAlignment="Left"
+                ToolTip.Tip="折叠或展开导航"
+                AutomationProperties.Name="折叠或展开导航">
+          <Grid ColumnDefinitions="30,*" ColumnSpacing="9">
+            <TextBlock Text="≡" FontSize="20" HorizontalAlignment="Center" />
+            <TextBlock Grid.Column="1" Text="收起导航" IsVisible="{Binding IsSidebarExpanded}" VerticalAlignment="Center" />
+          </Grid>
+        </Button>
+
+        <ListBox Grid.Row="2"
+                 Classes="nav-list"
+                 ItemsSource="{Binding NavigationItems}"
+                 SelectedItem="{Binding SelectedNavigationItem}"
+                 Background="Transparent"
+                 BorderThickness="0"
+                 Margin="0,10,0,0">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:NavigationItem">
+              <Grid ColumnDefinitions="30,*" ColumnSpacing="9" Margin="9,9" ToolTip.Tip="{Binding Title}">
+                <TextBlock Text="{Binding Icon}" FontFamily="Segoe MDL2 Assets" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="1"
+                           Text="{Binding Title}"
+                           IsVisible="{Binding $parent[Window].DataContext.IsSidebarExpanded}"
+                           VerticalAlignment="Center"
+                           FontWeight="SemiBold" />
+              </Grid>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+
+        <Border Grid.Row="3" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,1,0,0" Padding="8,14" Margin="0,8,0,4">
+          <StackPanel Spacing="10">
+            <Button Content="软件有更新" Classes="primary-action" Command="{Binding OpenApplicationUpdatesCommand}" IsVisible="{Binding ApplicationUpdates.HasUpdate}" ToolTip.Tip="查看软件更新" />
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="9">
+            <Ellipse Width="8" Height="8" Fill="{Binding StatusBrush}" VerticalAlignment="Center" />
+            <StackPanel Grid.Column="1" IsVisible="{Binding IsSidebarExpanded}" Spacing="1">
+              <TextBlock Text="{Binding StatusText}" FontSize="12" FontWeight="SemiBold" />
+              <TextBlock Text="{Binding CoreVersionShortText, StringFormat='核心 {0}'}" Classes="body-muted" FontSize="11" />
+            </StackPanel>
+          </Grid>
+          </StackPanel>
+        </Border>
+      </Grid>
+    </Border>
+
+    <Grid Grid.Column="1" RowDefinitions="72,Auto,*">
+      <Border Background="{DynamicResource SurfaceBrush}"
+              BorderBrush="{DynamicResource HairlineBrush}"
+              BorderThickness="0,0,0,1"
+              Padding="26,0">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+          <StackPanel VerticalAlignment="Center" Spacing="2">
+            <TextBlock Text="{Binding SelectedPageTitle}" FontSize="21" FontWeight="SemiBold" />
+            <TextBlock Text="{Binding SelectedPageDescription}" Classes="page-subtitle" />
+          </StackPanel>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+          <Button x:Name="ThemeToggleButton"
+                  Classes="theme-toggle"
+                  DataContext="{Binding SettingsPage}"
+                  x:DataType="vm:SettingsPageViewModel"
+                  Command="{Binding ToggleThemeCommand}"
+                  IsEnabled="{Binding IsThemeAvailable}"
+                  ToolTip.Tip="{Binding ThemeToggleTooltip}"
+                  AutomationProperties.Name="切换浅色或深色主题">
+            <Panel Width="18" Height="18">
+              <Viewbox Width="18" Height="18" IsVisible="{Binding !IsDarkTheme}">
+                <Grid Width="24" Height="24">
+                  <Ellipse Width="8.4"
+                           Height="8.4"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           Stroke="{DynamicResource TextPrimaryBrush}"
+                           StrokeThickness="2" />
+                  <Path Stroke="{DynamicResource TextPrimaryBrush}"
+                        StrokeThickness="2"
+                        StrokeLineCap="Round"
+                        Data="M12 2.2v2.1 M12 19.7v2.1 M4.63 4.63l1.49 1.49 M17.88 17.88l1.49 1.49 M2.2 12h2.1 M19.7 12h2.1 M4.63 19.37l1.49-1.49 M17.88 6.12l1.49-1.49" />
+                </Grid>
+              </Viewbox>
+              <Viewbox Width="18" Height="18" IsVisible="{Binding IsDarkTheme}">
+                <Path Stroke="{DynamicResource TextPrimaryBrush}"
+                      StrokeThickness="2"
+                      StrokeLineCap="Round"
+                      StrokeJoin="Round"
+                      Data="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+              </Viewbox>
+            </Panel>
+          </Button>
+          <Border
+                  Background="{DynamicResource SurfaceMutedBrush}"
+                  BorderBrush="{DynamicResource HairlineBrush}"
+                  BorderThickness="1"
+                  CornerRadius="6"
+                  Padding="12,7"
+                  VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Ellipse Width="8" Height="8" Fill="{Binding StatusBrush}" VerticalAlignment="Center" />
+              <TextBlock Text="{Binding StatusText}" FontWeight="SemiBold" FontSize="12" />
+              <TextBlock Text="{Binding PortText, StringFormat=':{0}'}" Classes="body-muted" FontFamily="Cascadia Mono,Consolas" />
+            </StackPanel>
+          </Border>
+          </StackPanel>
+        </Grid>
+      </Border>
+
+      <Border Grid.Row="1" IsVisible="{Binding ShowPreparation}" Background="{DynamicResource SurfaceMutedBrush}" Padding="26,12">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+          <StackPanel Spacing="8">
+            <TextBlock Text="{Binding PreparationMessage}" TextWrapping="Wrap" AutomationProperties.Name="运行环境准备状态" />
+            <ProgressBar IsVisible="{Binding PreparationBusy}" IsIndeterminate="{Binding PreparationIndeterminate}" Value="{Binding PreparationProgress}" Minimum="0" Maximum="100" Height="4" />
+          </StackPanel>
+          <Button Grid.Column="1" Content="修复并重新准备" Command="{Binding RepairPreparationCommand}" IsVisible="{Binding CanRepairPreparation}" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+      <Border Grid.Row="2" Background="{DynamicResource AppBackgroundBrush}" Padding="26,22,26,24">
+        <ContentControl Content="{Binding CurrentPage}" />
+      </Border>
+    </Grid>
+    </Grid>
+  </Grid>
+</Window>

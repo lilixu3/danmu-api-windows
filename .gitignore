@@ -1,0 +1,42 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+artifacts/
+publish/
+
+# Avalonia
+*.axaml.cs.bak
+
+# 测试与临时
+*.log
+TestResults/
+*.tmp
+
+# 运行时资产（不随仓库分发，构建时下载或由用户提供）
+node.exe
+node-v*/
+nodejs-project/
+
+# 内部资料：开发交接、协议规格、旧实现参考与设计预览工具，不随开源仓库分发
+AGENTS.md
+docs/HANDOFF.md
+docs/DESIGN-*.md
+docs/REVIEW-*.md
+docs/specs/
+docs/reference/
+docs/WINDOWS_RELEASE.md
+docs/RUNTIME-PACK-REUSE.md
+docs/APPLICATION_UPDATES.md
+reference/
+tools/
+
+# 应用数据（正常位于 %LOCALAPPDATA%\DanmuApi，若被误建在仓库根目录则忽略）
+DanmuApi/
+
+# 本地工具状态与本机临时文件
+.workbuddy/
+.zcode/
+_local-scratch/

@@ -1,0 +1,32 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:vm="using:DanmuApi.App.ViewModels" x:Class="DanmuApi.App.Views.ApplicationUpdateView" x:DataType="vm:ApplicationUpdateViewModel">
+  <Border Classes="dashboard-panel" Padding="28" CornerRadius="12">
+    <StackPanel Spacing="16">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+        <StackPanel Spacing="6">
+          <TextBlock Text="软件更新" Classes="section-title" FontSize="20" />
+          <TextBlock Text="GitHub 测试通道 · 与弹幕核心更新独立" Classes="body-muted" TextWrapping="Wrap" />
+        </StackPanel>
+        <Button Grid.Column="1" Content="检查更新" Command="{Binding CheckForUpdatesCommand}" Classes="secondary-action" IsEnabled="{Binding !IsBusy}" />
+      </Grid>
+      <TextBlock Text="{Binding Status}" TextWrapping="Wrap" />
+      <ToggleSwitch Content="自动检查软件测试版（每 6 小时）" IsChecked="{Binding AutomaticChecks}" OnContent="开启" OffContent="关闭" />
+      <StackPanel Spacing="12" IsVisible="{Binding HasUpdate}">
+        <TextBlock Text="{Binding AvailableVersion, StringFormat='新版本  {0}'}" FontSize="24" FontWeight="SemiBold" />
+        <TextBlock Text="{Binding PublishedText}" Classes="body-muted" />
+        <TextBlock Text="{Binding PackageText}" Classes="body-muted" TextWrapping="Wrap" />
+        <Expander Header="发行说明" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" IsExpanded="True">
+          <ScrollViewer MaxHeight="260" HorizontalScrollBarVisibility="Disabled">
+            <SelectableTextBlock Text="{Binding ReleaseNotes}" TextWrapping="Wrap" Margin="0,12" />
+          </ScrollViewer>
+        </Expander>
+        <WrapPanel>
+          <Button Content="下载更新" Command="{Binding DownloadUpdateCommand}" Classes="primary-action" IsEnabled="{Binding !IsBusy}" Margin="0,0,10,8" />
+          <Button Content="更新并重启" Command="{Binding InstallUpdateCommand}" Classes="primary-action" IsVisible="{Binding CanInstall}" IsEnabled="{Binding !IsBusy}" Margin="0,0,10,8" />
+          <Button Content="跳过此版本" Command="{Binding SkipVersionCommand}" Classes="ghost-action" IsEnabled="{Binding !IsBusy}" Margin="0,0,10,8" />
+        </WrapPanel>
+      </StackPanel>
+      <ProgressBar Value="{Binding ProgressPercent}" Minimum="0" Maximum="100" IsVisible="{Binding IsDownloading}" />
+      <Button Content="取消" Command="{Binding CancelCommand}" IsVisible="{Binding IsBusy}" Classes="secondary-action" HorizontalAlignment="Left" />
+    </StackPanel>
+  </Border>
+</UserControl>

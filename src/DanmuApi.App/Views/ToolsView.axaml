@@ -1,0 +1,30 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:DanmuApi.App.ViewModels"
+             x:Class="DanmuApi.App.Views.ToolsView"
+             x:DataType="vm:ToolsPageViewModel">
+  <Grid RowDefinitions="Auto,*" RowSpacing="12">
+    <StackPanel Spacing="3">
+      <TextBlock Text="工具工作台" Classes="page-title" />
+      <TextBlock Text="弹幕测试、接口调试、请求记录与设备日志管理；选择分类开始。" Classes="page-subtitle" TextWrapping="Wrap" />
+    </StackPanel>
+    <Grid x:Name="ToolsWorkspace" Grid.Row="1" ColumnDefinitions="208,*" RowDefinitions="Auto,*" ColumnSpacing="20">
+      <Border x:Name="SectionSidebar" Grid.RowSpan="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1" CornerRadius="8" Padding="8">
+        <Grid RowDefinitions="Auto,*" RowSpacing="8">
+          <TextBlock Text="工具分类" Classes="overline" Margin="10,8,10,4" />
+          <ListBox Grid.Row="1" Classes="settings-list" ItemsSource="{Binding SectionOptions}" SelectedItem="{Binding SelectedSectionOption, Mode=TwoWay}" Background="Transparent" BorderThickness="0">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:ToolsSectionOption">
+                <StackPanel Spacing="3" Margin="10,9">
+                  <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
+                  <TextBlock Text="{Binding Description}" Classes="body-muted" FontSize="11" TextWrapping="Wrap" />
+                </StackPanel>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </Grid>
+      </Border>
+      <ContentControl x:Name="ToolContent" Grid.Column="1" Grid.RowSpan="2" Content="{Binding CurrentSection}" />
+    </Grid>
+  </Grid>
+</UserControl>

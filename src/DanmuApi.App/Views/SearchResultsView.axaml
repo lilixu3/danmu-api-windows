@@ -1,0 +1,53 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:DanmuApi.App.ViewModels"
+             x:Class="DanmuApi.App.Views.SearchResultsView"
+             x:DataType="vm:SearchResultsPageViewModel">
+  <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <StackPanel Spacing="12">
+      <Button Content="返回手动匹配" Classes="back-action" Command="{Binding BackCommand}" HorizontalAlignment="Left" />
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+        <StackPanel Spacing="3">
+          <TextBlock Text="搜索结果" Classes="section-title" />
+          <TextBlock Text="{Binding Keyword, StringFormat='关键词：{0}'}" Classes="body-muted" />
+          <TextBlock Text="{Binding FavoriteCapabilityText}" Classes="body-muted" TextWrapping="Wrap" />
+        </StackPanel>
+        <Button x:Name="FavoriteSnapshotButton" Grid.Column="1"
+                Content="{Binding FavoriteActionText}"
+                Classes="secondary-action"
+                Command="{Binding ToggleFavoriteCommand}"
+                IsEnabled="{Binding CanToggleFavorite}"
+                VerticalAlignment="Center" />
+      </Grid>
+      <Border Classes="notice-panel" IsVisible="{Binding HasDiagnostic}">
+        <TextBlock Text="{Binding Diagnostic}" TextWrapping="Wrap" />
+      </Border>
+      <ItemsControl ItemsSource="{Binding Rows}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <WrapPanel Orientation="Horizontal" />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:SearchResultRowViewModel">
+            <Button Classes="anime-card" Width="140" Margin="0,0,10,10" Padding="8"
+                    Command="{Binding $parent[ItemsControl].DataContext.SelectAnimeCommand}" CommandParameter="{Binding Anime}">
+              <StackPanel Spacing="6">
+                <Grid Width="120" Height="150">
+                  <Image Source="{Binding Poster}" IsVisible="{Binding HasPoster}" Stretch="UniformToFill" />
+                  <Border IsVisible="{Binding ShowPosterPlaceholder}" CornerRadius="8" Background="{DynamicResource AccentSoftBrush}">
+                    <TextBlock Text="{Binding PosterFallbackText}" FontSize="30" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                  </Border>
+                </Grid>
+                <TextBlock Text="{Binding DisplayTitle}" FontWeight="SemiBold" TextWrapping="Wrap" MaxHeight="42" TextTrimming="CharacterEllipsis" />
+                <TextBlock Text="{Binding SourceText}" Foreground="{DynamicResource AccentBrush}" FontSize="12" TextTrimming="CharacterEllipsis" />
+                <TextBlock Text="{Binding MetaText}" Classes="body-muted" FontSize="11" TextTrimming="CharacterEllipsis" />
+                <TextBlock Text="{Binding Anime.TypeDescription}" Classes="body-muted" TextTrimming="CharacterEllipsis" />
+              </StackPanel>
+            </Button>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

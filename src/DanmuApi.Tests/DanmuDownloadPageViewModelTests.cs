@@ -1,0 +1,654 @@
+using System.Text;
+using System.Text.Json;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Headless.XUnit;
+using Avalonia.VisualTree;
+using DanmuApi.App.Services;
+using DanmuApi.App.ViewModels;
+using DanmuApi.App.Views;
+using DanmuApi.Platform;
+using DanmuApi.Runtime;
+
+namespace DanmuApi.Tests;
+
+public sealed class DanmuDownloadPageViewModelTests : IDisposable
+{
+    private readonly string _root = Path.Combine(Path.GetTempPath(), $"danmu-dlvm-{Guid.NewGuid():N}");
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_root))
+        {
+            Directory.Delete(_root, recursive: true);
+        }
+    }
+
+    private const string SampleXml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<i><d p=\"1.5,1,16777215,[qq]\">hello</d></i>";
+
+    private sealed class DownloadFixture : IDisposable
+    {
+        public string Root { get; } = Path.Combine(Path.GetTempPath(), $"danmu-dlvm-{Guid.NewGuid():N}");
+        public RecordingDialogService Dialogs { get; } = new();
+        public RecordingDiagnostics Diagnostics { get; } = new();
+        public FakeDownloadClient Client { get; } = new();
+        public StubEnvClient EnvClient { get; } = new();
+        public DanmuDownloadStore Store { get; }
+        public DanmuDownloadFileService Service { get; }
+        public string SaveDirectory { get; }
+
+        public DownloadFixture(string saveDirectory = "")
+        {
+            Directory.CreateDirectory(Root);
+            SaveDirectory = string.IsNullOrEmpty(saveDirectory) ? Path.Combine(Root, "save") : saveDirectory;
+            Store = new DanmuDownloadStore(Root);
+            Store.SaveSettings(new DanmuDownloadSettings(SaveDirectory: SaveDirectory));
+            Service = new DanmuDownloadFileService(Store, () => Client);
+        }
+
+        public DanmuDownloadPageViewModel CreateViewModel() =>
+            new(CreateContext(), Client, EnvClient, Store, Service, Dialogs, Diagnostics, new PosterImageService());
+
+        public RuntimeApiContext CreateContext()
+        {
+            var paths = new AppPaths(Root, Path.Combine(Root, "appdata"));
+            return new RuntimeApiContext(paths, new StubRuntimeController(), new StubAdminSessionService(true, true, "admin-token"));
+        }
+
+        public void Dispose()
+        {
+            if (Directory.Exists(Root))
+            {
+                Directory.Delete(Root, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task PickDirectoryPersistsSetting()
+    {
+        using var fixture = new DownloadFixture();
+        var target = Path.Combine(fixture.Root, "chosen");
+        fixture.Dialogs.PickedFolder = target;
+        var viewModel = fixture.CreateViewModel();
+
+        await viewModel.PickDirectoryCommand.ExecuteAsync(null);
+
+        Assert.Equal(target, fixture.Store.Settings.SaveDirectory);
+        Assert.Equal(target, viewModel.Settings.SaveDirectory);
+        Assert.Contains("保存目录已更新", viewModel.OperationMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SearchPopulatesRowsWithHistoryAndOpenLoadsEpisodes()
+    {
+        using var fixture = new DownloadFixture();
+        fixture.Store.AppendRecord(new DanmuDownloadRecord(
+            1, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), "测试番剧 from qq", "第1集", 11, 1, "qq", "xml",
+            DownloadRecordStatus.Success.Key(), "a.xml", "测试番剧/a.xml", Path.Combine(fixture.SaveDirectory, "a.xml"), 5, 10, 1, 200, null, 9));
+        var viewModel = fixture.CreateViewModel();
+        viewModel.Keyword = "测试番剧";
+
+        await viewModel.SearchCommand.ExecuteAsync(null);
+
+        var row = Assert.Single(viewModel.AnimeRows);
+        Assert.Equal(9, row.AnimeId);
+        Assert.Contains("已下载", row.HistoryText, StringComparison.Ordinal);
+
+        await viewModel.OpenAnimeCommand.ExecuteAsync(row);
+
+        Assert.Equal(3, viewModel.EpisodeRows.Count);
+        Assert.Equal(EpisodeDownloadState.Success, viewModel.EpisodeRows[0].State.State);
+        Assert.Equal("全部来源", viewModel.SelectedSourceFilter);
+    }
+
+    [Fact]
+    public async Task SearchWithoutServiceReportsExplicitError()
+    {
+        using var fixture = new DownloadFixture();
+        var paths = new AppPaths(fixture.Root, Path.Combine(fixture.Root, "appdata"));
+        var context = new RuntimeApiContext(paths, new StoppedRuntimeController(), new StubAdminSessionService());
+        var viewModel = new DanmuDownloadPageViewModel(context, fixture.Client, fixture.EnvClient, fixture.Store, fixture.Service, fixture.Dialogs, fixture.Diagnostics);
+        viewModel.Keyword = "测试番剧";
+
+        await viewModel.SearchCommand.ExecuteAsync(null);
+
+        Assert.Contains("服务未运行", viewModel.ErrorMessage, StringComparison.Ordinal);
+        Assert.Equal(0, fixture.Client.SearchCalls);
+    }
+
+    [AvaloniaFact]
+    public async Task StartDownloadEnqueuesRunsQueueAndRecordsSuccess()
+    {
+        using var fixture = new DownloadFixture();
+        var viewModel = fixture.CreateViewModel();
+        viewModel.Keyword = "测试番剧";
+        await viewModel.SearchCommand.ExecuteAsync(null);
+        await viewModel.OpenAnimeCommand.ExecuteAsync(viewModel.AnimeRows[0]);
+        viewModel.EpisodeRows[0].IsSelected = true;
+        var view = new DanmuDownloadView { DataContext = viewModel };
+        var window = new Window { Width = 1280, Height = 800, Content = view };
+        window.Show();
+        window.Measure(new Size(1280, 800));
+        window.Arrange(new Rect(0, 0, 1280, 800));
+        var startButton = view.FindControl<Button>("StartDownloadButton");
+        Assert.NotNull(startButton);
+        Assert.True(startButton!.IsEnabled);
+
+        Assert.NotNull(startButton.Command);
+        Assert.True(startButton.Command!.CanExecute(startButton.CommandParameter));
+        startButton.Command.Execute(startButton.CommandParameter);
+        await WaitUntilAsync(() => !viewModel.IsDownloading);
+
+        var task = Assert.Single(fixture.Store.QueueTasks);
+        Assert.Equal(DownloadQueueStatus.Success, task.StatusEnum);
+        Assert.Contains("已保存", task.LastDetail, StringComparison.Ordinal);
+        Assert.Equal(EpisodeDownloadState.Success, viewModel.EpisodeRows[0].State.State);
+        var record = Assert.Single(fixture.Store.Records);
+        Assert.Equal(DownloadRecordStatus.Success, record.StatusEnum);
+        Assert.True(File.Exists(record.FilePath));
+        Assert.Contains("队列执行完成", viewModel.ProgressSummary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task StartDownloadWithoutDirectoryReportsVisibleErrorAndDoesNotEnqueue()
+    {
+        using var fixture = new DownloadFixture();
+        fixture.Store.SaveSettings(new DanmuDownloadSettings(SaveDirectory: string.Empty));
+        var viewModel = fixture.CreateViewModel();
+        await SeedEpisodesAsync(viewModel);
+        viewModel.EpisodeRows[0].IsSelected = true;
+
+        viewModel.StartDownloadCommand.Execute(null);
+
+        Assert.Contains("选择保存目录", viewModel.ErrorMessage, StringComparison.Ordinal);
+        Assert.Empty(fixture.Store.QueueTasks);
+        Assert.False(viewModel.IsDownloading);
+    }
+
+    [Fact]
+    public async Task DownloadFailureMarksEpisodeFailedAndTaskFailed()
+    {
+        using var fixture = new DownloadFixture();
+        fixture.Client.DownloadShouldFail = true;
+        var viewModel = fixture.CreateViewModel();
+        await SeedEpisodesAsync(viewModel);
+
+        viewModel.EpisodeRows[0].IsSelected = true;
+        viewModel.StartDownloadCommand.Execute(null);
+        await WaitUntilAsync(() => !viewModel.IsDownloading);
+
+        var task = Assert.Single(fixture.Store.QueueTasks);
+        Assert.Equal(DownloadQueueStatus.Failed, task.StatusEnum);
+        Assert.Contains("episode not found", task.LastDetail, StringComparison.Ordinal);
+        Assert.Equal(EpisodeDownloadState.Failed, viewModel.EpisodeRows[0].State.State);
+    }
+
+    [Fact]
+    public async Task RetryFailedQueueTasksResetsAndReruns()
+    {
+        using var fixture = new DownloadFixture();
+        fixture.Client.DownloadShouldFail = true;
+        var viewModel = fixture.CreateViewModel();
+        await SeedEpisodesAsync(viewModel);
+        viewModel.EpisodeRows[0].IsSelected = true;
+        viewModel.StartDownloadCommand.Execute(null);
+        await WaitUntilAsync(() => !viewModel.IsDownloading);
+        Assert.Equal(DownloadQueueStatus.Failed, fixture.Store.QueueTasks[0].StatusEnum);
+
+        fixture.Client.DownloadShouldFail = false;
+        viewModel.RetryFailedQueueTasksCommand.Execute(null);
+        await WaitUntilAsync(() => !viewModel.IsDownloading);
+
+        Assert.Equal(DownloadQueueStatus.Success, fixture.Store.QueueTasks[0].StatusEnum);
+    }
+
+    [Fact]
+    public async Task PauseDownloadWithoutRunnerReportsMessage()
+    {
+        using var fixture = new DownloadFixture();
+        var viewModel = fixture.CreateViewModel();
+
+        viewModel.PauseDownloadCommand.Execute(null);
+
+        Assert.Contains("当前没有正在执行的下载", viewModel.OperationMessage, StringComparison.Ordinal);
+        await Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task ClearAndClearCompletedQueueManipulateStore()
+    {
+        using var fixture = new DownloadFixture();
+        fixture.Store.EnqueueTasks([NewInput(1), NewInput(2)]);
+        var viewModel = fixture.CreateViewModel();
+        fixture.Store.SetTaskStatus(fixture.Store.QueueTasks[0].TaskId, DownloadQueueStatus.Success, "done");
+
+        viewModel.ClearCompletedQueueTasksCommand.Execute(null);
+        Assert.Single(fixture.Store.QueueTasks);
+
+        viewModel.ClearQueueTasksCommand.Execute(null);
+        Assert.Empty(fixture.Store.QueueTasks);
+        Assert.Contains("队列已清空", viewModel.OperationMessage, StringComparison.Ordinal);
+        await Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task DeleteSelectedRemovesRecordsAndFiles()
+    {
+        using var fixture = new DownloadFixture();
+        Directory.CreateDirectory(fixture.SaveDirectory);
+        var filePath = Path.Combine(fixture.SaveDirectory, "a.xml");
+        await File.WriteAllTextAsync(filePath, SampleXml);
+        fixture.Store.AppendRecord(new DanmuDownloadRecord(
+            1, 1, "番剧", "第1集", 11, 1, "qq", "xml", "success", "a.xml", "番剧/a.xml", filePath, 1, 10, 1, 200, null, 9));
+        var viewModel = fixture.CreateViewModel();
+        await viewModel.StartupSyncTask;
+        fixture.Dialogs.Confirmation = true;
+
+        Assert.Single(viewModel.RecordGroups);
+        var episodeGroup = Assert.Single(viewModel.RecordGroups[0].Episodes);
+        Assert.True(episodeGroup.CanPreview);
+
+        await viewModel.OpenPreviewCommand.ExecuteAsync(episodeGroup);
+        Assert.True(viewModel.IsPreviewOpen);
+        Assert.NotNull(viewModel.Preview);
+        Assert.Single(viewModel.PreviewRows);
+
+        episodeGroup.IsSelected = true;
+        await viewModel.DeleteSelectedCommand.ExecuteAsync(null);
+
+        Assert.Empty(fixture.Store.Records);
+        Assert.False(File.Exists(filePath));
+        Assert.Contains("已清理 1 条记录", viewModel.OperationMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SyncDirectoryImportsExistingFiles()
+    {
+        using var fixture = new DownloadFixture();
+        var viewModel = fixture.CreateViewModel();
+        await viewModel.StartupSyncTask;
+
+        var importDirectory = Path.Combine(fixture.Root, "already");
+        Directory.CreateDirectory(Path.Combine(importDirectory, "番剧"));
+        await File.WriteAllTextAsync(Path.Combine(importDirectory, "番剧", "E01.xml"), SampleXml);
+        fixture.Store.SaveSettings(new DanmuDownloadSettings(SaveDirectory: importDirectory));
+
+        await viewModel.SyncDirectoryCommand.ExecuteAsync(null);
+
+        Assert.Single(fixture.Store.Records);
+        Assert.Contains("新增 1 条记录", viewModel.OperationMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ThrottlePresetAndCustomConfigPersist()
+    {
+        using var fixture = new DownloadFixture();
+        var viewModel = fixture.CreateViewModel();
+
+        viewModel.SelectedThrottle = DownloadThrottlePresetKind.Fast;
+        Assert.Equal("fast", fixture.Store.Settings.ThrottlePreset);
+
+        viewModel.CustomBaseDelayMs = "700";
+        viewModel.ApplyCustomThrottleCommand.Execute(null);
+
+        Assert.Equal("custom", fixture.Store.Settings.ThrottlePreset);
+        Assert.Equal(DownloadThrottlePresetKind.Custom, viewModel.SelectedThrottle);
+        Assert.Equal(700, fixture.Store.Settings.CustomBaseDelayMs);
+        await Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task FormatAndConflictSelectionPersist()
+    {
+        using var fixture = new DownloadFixture();
+        var viewModel = fixture.CreateViewModel();
+
+        viewModel.SelectedFormat = DanmuDownloadFormat.DplayerJson;
+        viewModel.SelectedConflict = DownloadConflictPolicy.Overwrite;
+
+        Assert.Equal("dplayer.json", fixture.Store.Settings.DefaultFormat);
+        Assert.Equal("overwrite", fixture.Store.Settings.ConflictPolicy);
+        await Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task SelectFailedAndUnfinishedPickExpectedRows()
+    {
+        using var fixture = new DownloadFixture();
+        fixture.Store.EnqueueTasks([NewInput(1), NewInput(2), NewInput(3)]);
+        var viewModel = fixture.CreateViewModel();
+        fixture.Store.SetTaskStatus(fixture.Store.QueueTasks[0].TaskId, DownloadQueueStatus.Success, "done");
+        fixture.Store.SetTaskStatus(fixture.Store.QueueTasks[1].TaskId, DownloadQueueStatus.Failed, "下载失败：HTTP 404");
+
+        viewModel.Keyword = "测试番剧";
+        await viewModel.SearchCommand.ExecuteAsync(null);
+        await viewModel.OpenAnimeCommand.ExecuteAsync(viewModel.AnimeRows[0]);
+        Assert.Equal(EpisodeDownloadState.Success, viewModel.EpisodeRows[0].State.State);
+        Assert.Equal(EpisodeDownloadState.Failed, viewModel.EpisodeRows[1].State.State);
+
+        viewModel.SelectFailedCommand.Execute(null);
+        Assert.True(viewModel.EpisodeRows[1].IsSelected);
+        Assert.False(viewModel.EpisodeRows[0].IsSelected);
+
+        viewModel.SelectUnfinishedCommand.Execute(null);
+        Assert.False(viewModel.EpisodeRows[0].IsSelected);
+        Assert.True(viewModel.EpisodeRows[1].IsSelected);
+        Assert.True(viewModel.EpisodeRows[2].IsSelected);
+    }
+
+    private static async Task SeedEpisodesAsync(DanmuDownloadPageViewModel viewModel)
+    {
+        viewModel.Keyword = "测试番剧";
+        await viewModel.SearchCommand.ExecuteAsync(null);
+        await viewModel.OpenAnimeCommand.ExecuteAsync(viewModel.AnimeRows[0]);
+        Assert.Equal(3, viewModel.EpisodeRows.Count);
+    }
+
+    private static DanmuDownloadInput NewInput(long episodeId) => new(
+        string.Empty, "测试番剧", $"第{episodeId}集", episodeId, (int)episodeId, "qq",
+        DanmuDownloadFormat.Xml, DanmuDownloadDefaults.FileNameTemplate, DownloadConflictPolicy.Rename, 9);
+
+    private static async Task WaitUntilAsync(Func<bool> predicate)
+    {
+        for (var attempt = 0; attempt < 200 && !predicate(); attempt++)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.True(predicate(), "下载队列未在测试窗口内完成");
+    }
+
+    [Fact]
+    public async Task SelectingEpisodeEnablesStartDownloadImmediately()
+    {
+        using var fixture = new DownloadFixture();
+        var viewModel = fixture.CreateViewModel();
+        await SeedEpisodesAsync(viewModel);
+
+        Assert.False(viewModel.CanStartDownload);
+        Assert.False(viewModel.HasSelection);
+        viewModel.EpisodeRows[0].IsSelected = true;
+
+        Assert.True(viewModel.HasSelection);
+        Assert.True(viewModel.CanStartDownload);
+        viewModel.EpisodeRows[0].IsSelected = false;
+        Assert.False(viewModel.CanStartDownload);
+        await Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task OpenAnimeSwitchesToEpisodeStageAndBackRestoresList()
+    {
+        using var fixture = new DownloadFixture();
+        var viewModel = fixture.CreateViewModel();
+        Assert.Equal(DownloadSearchStage.AnimeList, viewModel.CurrentStage);
+        await SeedEpisodesAsync(viewModel);
+
+        Assert.Equal(DownloadSearchStage.EpisodeList, viewModel.CurrentStage);
+        Assert.True(viewModel.HasEpisodeRows);
+
+        viewModel.BackToAnimeListCommand.Execute(null);
+
+        Assert.Equal(DownloadSearchStage.AnimeList, viewModel.CurrentStage);
+        Assert.Empty(viewModel.EpisodeRows);
+    }
+
+    [Fact]
+    public async Task SearchRowsExposeSourceAndIdWithoutFromSuffix()
+    {
+        using var fixture = new DownloadFixture();
+        var viewModel = fixture.CreateViewModel();
+        viewModel.Keyword = "测试番剧";
+        await viewModel.SearchCommand.ExecuteAsync(null);
+
+        var row = Assert.Single(viewModel.AnimeRows);
+        Assert.Equal("测试番剧", row.DisplayTitle);
+        Assert.Equal("来源：qq", row.SourceText);
+        Assert.Equal("ID：9 · 3 集", row.MetaText);
+        Assert.Equal("尚无下载记录", row.HistoryText);
+        Assert.False(row.HasHistory);
+    }
+
+    [Fact]
+    public async Task RecordLibraryUsesSeparateEpisodeStage()
+    {
+        using var fixture = new DownloadFixture();
+        Directory.CreateDirectory(fixture.SaveDirectory);
+        var filePath = Path.Combine(fixture.SaveDirectory, "a.xml");
+        await File.WriteAllTextAsync(filePath, SampleXml);
+        fixture.Store.AppendRecord(new DanmuDownloadRecord(
+            1, 1, "番剧", "第1集", 11, 1, "qq", "xml", "success", "a.xml", "番剧/a.xml", filePath, 1, 10, 1, 200, null, 9));
+        var viewModel = fixture.CreateViewModel();
+        await viewModel.StartupSyncTask;
+
+        Assert.Equal(DownloadRecordStage.AnimeList, viewModel.CurrentRecordStage);
+        var group = Assert.Single(viewModel.RecordGroups);
+        viewModel.OpenRecordGroupCommand.Execute(group);
+
+        Assert.Equal(DownloadRecordStage.EpisodeList, viewModel.CurrentRecordStage);
+        Assert.Same(group, viewModel.SelectedRecordGroup);
+        Assert.True(viewModel.HasSelectedRecordGroup);
+
+        viewModel.BackToRecordAnimeListCommand.Execute(null);
+        Assert.Equal(DownloadRecordStage.AnimeList, viewModel.CurrentRecordStage);
+        Assert.Null(viewModel.SelectedRecordGroup);
+    }
+
+    [Fact]
+    public void FavoriteVisibleListReusesWrappers()
+    {
+        var item = new DanmuFavoriteItem("生万物_S01", "生万物", "qq", ["qq"], "", 12, 3, 1, 1, null);
+        using var fixture = new DownloadFixture();
+        var root = new DanmuTestPageViewModel(
+            fixture.CreateContext(),
+            new FakeDownloadClient(),
+            fixture.Dialogs,
+            fixture.Diagnostics);
+        var favorites = new FavoritesPageViewModel(root, fixture.CreateContext(), new FakeDownloadClient(), fixture.Dialogs, fixture.Diagnostics);
+        favorites.Favorites = [item];
+        var first = Assert.Single(favorites.VisibleFavorites);
+        favorites.SearchText = "不存在";
+        Assert.Empty(favorites.VisibleFavorites);
+        favorites.SearchText = "生万物";
+        var second = Assert.Single(favorites.VisibleFavorites);
+        Assert.Same(first, second);
+    }
+
+    [Fact]
+    public async Task SourceFilterShowsExplicitEmptyState()
+    {
+        using var fixture = new DownloadFixture();
+        var viewModel = fixture.CreateViewModel();
+        await SeedEpisodesAsync(viewModel);
+
+        viewModel.SourceOptions.Add("不存在的来源");
+        viewModel.SelectedSourceFilter = "不存在的来源";
+
+        Assert.False(viewModel.HasEpisodeRows);
+        Assert.True(viewModel.ShowEmptyEpisodes);
+        Assert.DoesNotContain(viewModel.EpisodeRows, row => row.IsVisible);
+    }
+
+    [Fact]
+    public void EpisodeStateCanEnterRunningAgainForExplicitRetry()
+    {
+        var row = new EpisodeRowViewModel(11, 1, "第1集", "qq", "", new EpisodeUiState(), () => { });
+
+        row.UpdateState(new EpisodeUiState(EpisodeDownloadState.Failed, 1, "下载失败"));
+        row.UpdateState(new EpisodeUiState(EpisodeDownloadState.Running, 0, "开始重试"));
+
+        Assert.Equal(EpisodeDownloadState.Running, row.State.State);
+        Assert.Equal("开始重试", row.Detail);
+    }
+
+    [AvaloniaFact]
+    public void DanmuDownloadViewRendersSearchSectionWithRealViewModel()
+    {
+        using var fixture = new DownloadFixture();
+        var viewModel = fixture.CreateViewModel();
+        var view = new DanmuDownloadView { DataContext = viewModel };
+        var window = new Window { Width = 1280, Height = 800, Content = view };
+        window.Show();
+        window.Measure(new Size(1280, 800));
+        window.Arrange(new Rect(0, 0, 1280, 800));
+
+        var search = view.FindControl<ScrollViewer>("SearchPanel");
+        var queue = view.FindControl<ScrollViewer>("QueuePanel");
+        var records = view.FindControl<ScrollViewer>("RecordsPanel");
+        var settings = view.FindControl<ScrollViewer>("SettingsPanel");
+        var animeListStage = view.FindControl<StackPanel>("AnimeListStage");
+        var episodeStage = view.FindControl<StackPanel>("EpisodeStage");
+        Assert.NotNull(search);
+        Assert.NotNull(queue);
+        Assert.NotNull(records);
+        Assert.NotNull(settings);
+        Assert.NotNull(animeListStage);
+        Assert.NotNull(episodeStage);
+        Assert.True(search!.IsVisible, "搜索分区应可见");
+        Assert.False(queue!.IsVisible);
+        Assert.False(records!.IsVisible);
+        Assert.False(settings!.IsVisible);
+        Assert.True(animeListStage!.IsVisible, "动漫列表阶段应可见");
+        Assert.False(episodeStage!.IsVisible, "剧集阶段应隐藏");
+        Assert.True(view.GetVisualDescendants().Count() > 20,
+            "视图应渲染出可视子节点；实际 " + view.GetVisualDescendants().Count() +
+            "；Content=" + view.Content?.GetType().FullName +
+            "；子节点=" + string.Join(",", view.GetVisualDescendants().Select(item => item.GetType().Name).Take(15)));
+
+        var sectionList = view.FindControl<ListBox>("SectionList");
+        Assert.NotNull(sectionList);
+        Assert.Equal(4, viewModel.SectionOptions.Count);
+        Assert.NotNull(viewModel.SelectedSectionOption);
+
+        viewModel.CurrentStage = DownloadSearchStage.EpisodeList;
+        Assert.False(animeListStage.IsVisible, "切换后动漫列表阶段应隐藏");
+        Assert.True(episodeStage.IsVisible, "切换后剧集阶段应可见");
+
+        var recordAnimeStage = view.FindControl<StackPanel>("RecordAnimeStage");
+        var recordEpisodeStage = view.FindControl<StackPanel>("RecordEpisodeStage");
+        Assert.NotNull(recordAnimeStage);
+        Assert.NotNull(recordEpisodeStage);
+        viewModel.SelectedSectionOption = viewModel.SectionOptions[2];
+        Assert.True(recordAnimeStage!.IsVisible, "记录剧列表阶段应可见");
+        Assert.False(recordEpisodeStage!.IsVisible, "记录分集阶段应隐藏");
+        viewModel.CurrentRecordStage = DownloadRecordStage.EpisodeList;
+        Assert.False(recordAnimeStage.IsVisible, "切换后记录剧列表应隐藏");
+        Assert.True(recordEpisodeStage.IsVisible, "切换后记录分集应可见");
+    }
+
+    private sealed class StubRuntimeController : IRuntimeController
+    {
+        public RuntimeSnapshot Snapshot { get; } = new(DesktopRuntimeState.Running, 9321, 1, "test");
+        event EventHandler<RuntimeSnapshot>? IRuntimeController.SnapshotChanged { add { } remove { } }
+        public Task StartAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<AdoptionResult> AdoptAsync(CancellationToken cancellationToken = default) => Task.FromResult(AdoptionResult.Success(Snapshot));
+        public string? ReconcileLiveness() => null;
+        public Task StopAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task RestartAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task ShutdownAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class StoppedRuntimeController : IRuntimeController
+    {
+        public RuntimeSnapshot Snapshot { get; } = new(DesktopRuntimeState.Stopped);
+        event EventHandler<RuntimeSnapshot>? IRuntimeController.SnapshotChanged { add { } remove { } }
+        public Task StartAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<AdoptionResult> AdoptAsync(CancellationToken cancellationToken = default) => Task.FromResult(AdoptionResult.Failure(AdoptionFailureKind.NotFound, Snapshot, "unused"));
+        public string? ReconcileLiveness() => null;
+        public Task StopAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task RestartAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task ShutdownAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class RecordingDiagnostics : IAppDiagnostics
+    {
+        public string? LastDiagnostic { get; private set; }
+        public void Record(string message, Exception? error = null) =>
+            LastDiagnostic = error is null ? message : $"{message}: {error.Message}";
+    }
+
+    private sealed class StubEnvClient : ICoreEnvClient
+    {
+        public Task<CoreEnvDeleteResult> DeleteAsync(string host, int port, string? token, string? adminToken, string key, CancellationToken cancellationToken = default) =>
+            Task.FromResult(CoreEnvDeleteResult.Success());
+
+        public Task<CoreEnvSetResult> SetAsync(string host, int port, string? token, string? adminToken, string key, string value, CancellationToken cancellationToken = default)
+        {
+            SetCalls.Add((key, value));
+            return Task.FromResult(CoreEnvSetResult.Success());
+        }
+
+        public Task<CoreEnvValueResult> ReadConfigValueAsync(string host, int port, string? token, string? adminToken, string key, CancellationToken cancellationToken = default) =>
+            Task.FromResult(CoreEnvValueResult.Success("5"));
+
+        public List<(string Key, string Value)> SetCalls { get; } = [];
+    }
+
+    private sealed class FakeDownloadClient : IDanmuApiClient
+    {
+        public int SearchCalls { get; private set; }
+        public bool DownloadShouldFail { get; set; }
+
+        public Task<DanmuDownloadPayload> DownloadCommentAsync(string host, int port, string? token, long episodeId, string formatValue, TimeSpan? requestTimeout = null, CancellationToken cancellationToken = default)
+        {
+            if (DownloadShouldFail)
+            {
+                throw new DanmuApiException(DanmuApiFailureKind.NotFound, "episode not found", statusCode: 404);
+            }
+
+            return Task.FromResult(new DanmuDownloadPayload(
+                200,
+                "application/xml",
+                Encoding.UTF8.GetBytes(DanmuDownloadPageViewModelTests.SampleXml),
+                formatValue,
+                1));
+        }
+
+        public Task<DanmuRawApiResponse> SendRawAsync(string host, int port, string? token, string apiKey, IReadOnlyDictionary<string, string?> parameters, string? jsonBody = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<DanmuSearchAnimeResult> SearchAnimeAsync(string host, int port, string? token, string keyword, CancellationToken cancellationToken = default)
+        {
+            SearchCalls++;
+            var animes = new List<DanmuAnime>();
+            var episodeCount = keyword == "测试番剧" ? 3 : 1;
+            animes.Add(new DanmuAnime(9, "b", "测试番剧", "tv", "TV", "", "", episodeCount, 0, false, "qq", []));
+            return Task.FromResult(new DanmuSearchAnimeResult(true, animes));
+        }
+
+        public Task<DanmuSearchEpisodesResult> SearchEpisodesAsync(string host, int port, string? token, string anime, string? episode = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<DanmuMatchResult> MatchAsync(string host, int port, string? token, string fileName, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<DanmuBangumiResult> GetBangumiAsync(string host, int port, string? token, int animeId, CancellationToken cancellationToken = default)
+        {
+            var episodes = new List<DanmuEpisode>();
+            for (var index = 1; index <= 3; index++)
+            {
+                episodes.Add(new DanmuEpisode("s1", 10 + index, $"【qq】第{index}集", index.ToString(System.Globalization.CultureInfo.InvariantCulture), "", $"https://example.invalid/{index}"));
+            }
+
+            return Task.FromResult(new DanmuBangumiResult(true, new DanmuBangumi(9, "b", "测试番剧", "", false, 0, false, 0, "tv", "TV", [], episodes)));
+        }
+
+        public Task<DanmuResult> GetCommentAsync(string host, int port, string? token, int commentId, bool includeDuration = true, string format = "json", CancellationToken cancellationToken = default, bool segmentFlag = false) =>
+            throw new NotSupportedException();
+
+        public Task<DanmuResult> GetCommentByUrlAsync(string host, int port, string? token, string videoUrl, bool includeDuration = true, string format = "json", CancellationToken cancellationToken = default, bool segmentFlag = false) =>
+            throw new NotSupportedException();
+
+        public Task<DanmuResult> GetSegmentCommentAsync(string host, int port, string? token, JsonElement segment, string format = "json", CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<DanmuFavoriteListResult> GetFavoritesAsync(string host, int port, string? token, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<string> AddFavoriteAsync(string host, int port, string? token, string? adminToken, string keyword, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<string> RemoveFavoriteAsync(string host, int port, string? token, string? adminToken, string keyword, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<string> RefreshFavoriteAsync(string host, int port, string? token, string? adminToken, string keyword, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<string> SetFavoriteScheduleAsync(string host, int port, string? token, string? adminToken, string keyword, DanmuFavoriteSchedule? schedule, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+}

@@ -1,0 +1,193 @@
+using Avalonia.Controls;
+using Avalonia.Headless.XUnit;
+using DanmuApi.App.Controls;
+using DanmuApi.App.Services;
+using DanmuApi.App.Views;
+using DanmuApi.Core;
+using DanmuApi.Runtime;
+
+namespace DanmuApi.Tests;
+
+public sealed class ConfigurationEditorControlTests
+{
+    [AvaloniaFact]
+    public void MergeSourcePairsEditorKeepsMultipleGroupsAndAllowsSharedSource()
+    {
+        var definition = Definition(
+            "MERGE_SOURCE_PAIRS",
+            options: ["bilibili", "dandan", "animeko"]);
+        var editor = new MergeSourcePairsEditor(
+            definition.Options,
+            [new MergeSourceGroup("bilibili", ["dandan"])]);
+
+        Assert.True(editor.Picker.AddStagedValue("bilibili"));
+        Assert.True(editor.Picker.AddStagedValue("animeko"));
+        Assert.True(editor.ConfirmStaging());
+        Assert.Equal(2, editor.Groups.Count);
+        Assert.Equal("bilibili", editor.Groups[0].Primary);
+        Assert.Equal(["dandan"], editor.Groups[0].Secondaries);
+        Assert.Equal("bilibili", editor.Groups[1].Primary);
+        Assert.Equal(["animeko"], editor.Groups[1].Secondaries);
+    }
+
+    [AvaloniaFact]
+    public void ColorPaletteEditorHandlesEmptyInputWithoutThrowing()
+    {
+        var editor = new ColorPaletteEditor(
+            Definition("COLOR_POOL"),
+            string.Empty);
+
+        Assert.False(editor.TryAddInputColor(string.Empty));
+        Assert.Contains("请输入", editor.ErrorMessage, StringComparison.Ordinal);
+        Assert.Empty(editor.Colors);
+        Assert.Equal(string.Empty, editor.GetValue());
+    }
+
+    [AvaloniaFact]
+    public void ColorPaletteEditorAddsHexDecimalAndBatchColors()
+    {
+        var editor = new ColorPaletteEditor(
+            Definition("COLOR_POOL"),
+            string.Empty);
+
+        Assert.True(editor.TryAddInputColor("#FF6600"));
+        Assert.True(editor.TryAddBatch("65280, #0000FF"));
+
+        Assert.Equal([0xFF6600u, 0x00FF00u, 0x0000FFu], editor.Colors);
+        Assert.Equal("16737792,65280,255", editor.GetValue());
+    }
+
+    [AvaloniaFact]
+    public void ExtractedStructuredEditorsExposeStrictModels()
+    {
+        string[] sources = ["bilibili", "dandan", "animeko"];
+        var custom = new CustomMergeRulesEditor(
+            sources,
+            [new CustomMergeRule(
+                new CustomMergeEntity("副源", null, ["bilibili"]),
+                false,
+                new CustomMergeEntity("主源", 2, ["dandan"]),
+                [new EpisodeRoute(new EpisodeRange(1, 1), new EpisodeRange(1, 1))])]);
+        var customValue = CoreEnvStructuredValues.FormatCustomMergeRules(custom.Rules);
+        Assert.Equal("副源@bilibili -> 主源/S02@dandan | E01>E01", customValue);
+
+        var mappings = new AutoMatchMappingEditor(
+            sources,
+            [new AutoMatchMappingRule("源", 1, 1, 3, "目标 (2024)【番剧】", 1, 1, 3, "bilibili")]);
+        var mappingDefinition = Definition("AUTO_MATCH_MAPPING_TABLE", options: sources);
+        var mappingValue = CoreEnvStructuredValues.FormatAutoMatchMappings(mappingDefinition, mappings.Rules);
+        Assert.Single(CoreEnvStructuredValues.ParseAutoMatchMappings(mappingDefinition, mappingValue));
+
+        var offsets = new DanmuOffsetEditor(
+            sources,
+            [new DanmuOffsetRule("番剧", null, null, [], true, false, 1.5m)]);
+        Assert.Equal("番剧@all:1.5", CoreEnvStructuredValues.FormatDanmuOffsets(offsets.Rules));
+
+        var blacklist = new IpBlacklistEditor(
+            [new IpBlacklistEntry(IpBlacklistEntryType.Cidr, "10.0.0.0/8")]);
+        Assert.Equal("10.0.0.0/8", CoreEnvStructuredValues.FormatIpBlacklist(blacklist.Entries));
+    }
+
+    [AvaloniaFact]
+    public void DanmuOffsetEditorRejectsConcreteSourcesTogetherWithAllSources()
+    {
+        Assert.Throws<FormatException>(() => new DanmuOffsetEditor(
+            ["bilibili"],
+            [new DanmuOffsetRule("番剧", null, null, ["bilibili"], true, false, 1m)]));
+    }
+
+    [AvaloniaFact]
+    public void OrderedTagsEditorSeparatesSourceAndPlatformCombinationRules()
+    {
+        var sourceOrder = new OrderedTagsEditor(["bilibili", "dandan"], [], allowComposites: false);
+        Assert.False(sourceOrder.TryAddComposite("bilibili&dandan"));
+        Assert.Empty(sourceOrder.Values);
+
+        var platformOrder = new OrderedTagsEditor(["bilibili", "dandan"], [], allowComposites: true);
+        Assert.True(platformOrder.TryAddComposite("bilibili&dandan"));
+        Assert.False(platformOrder.TryAddComposite("dandan&bilibili"));
+        Assert.Equal(["bilibili&dandan"], platformOrder.Values);
+    }
+
+    [AvaloniaFact]
+    public void ExtractedListEditorsPreserveConfigurationFormats()
+    {
+        var vod = new VodServersEditor("主站@https://example.com,https://backup.example.com");
+        Assert.Equal("主站@https://example.com,https://backup.example.com", vod.Value);
+
+        var mappings = new MappingTableEditor("原名->新名;第二个->另一个");
+        Assert.Equal("原名->新名;第二个->另一个", mappings.Value);
+
+        var lines = new LineListEditor("屏蔽词一,屏蔽词二", ",");
+        Assert.Equal("屏蔽词一,屏蔽词二", lines.Value);
+    }
+
+    [AvaloniaFact]
+    public void GradientEditorRejectsOneCustomColorAndAcceptsSkin()
+    {
+        var definition = Definition("GRADIENT_COLORS");
+        var editor = new ColorPaletteEditor(definition, string.Empty);
+
+        editor.AddColor(0xFF0000);
+        Assert.Throws<FormatException>(() => editor.GetValue());
+
+        editor.ResetColors();
+        Assert.True(editor.IsSkinMode == false);
+        Assert.True(editor.TryAddBatch("16711680,255"));
+        Assert.Equal("16711680,255", editor.GetValue());
+    }
+
+    [AvaloniaFact]
+    public void ConfigurationEditorWindowUsesHeaderScrollAndFooterRows()
+    {
+        var window = new ConfigurationEditorWindow(
+            "测试编辑器",
+            "说明",
+            new StackPanel { Children = { new TextBlock { Text = "内容" } } });
+        var layout = Assert.IsType<Grid>(window.Content);
+
+        Assert.Equal(3, layout.RowDefinitions.Count);
+        Assert.Equal(GridLength.Auto, layout.RowDefinitions[0].Height);
+        Assert.Equal(GridLength.Star, layout.RowDefinitions[1].Height);
+        Assert.Equal(GridLength.Auto, layout.RowDefinitions[2].Height);
+        Assert.Equal(SizeToContent.WidthAndHeight, window.SizeToContent);
+        Assert.True(double.IsNaN(window.Width));
+        Assert.True(double.IsNaN(window.Height));
+        Assert.Equal(920, window.MaxWidth);
+        Assert.Equal(720, window.MaxHeight);
+        Assert.Contains(layout.Children, child => child is ScrollViewer { MaxHeight: 520 });
+        Assert.Contains(layout.Children, child => child is StackPanel panel && panel.Children.OfType<Button>().Any(button => button.Content?.ToString() == "保存"));
+        Assert.Equal("清空", window.ClearActionButton.Content);
+        Assert.Equal("恢复默认", window.ResetActionButton.Content);
+        Assert.False(window.CanReset);
+    }
+
+    [AvaloniaFact]
+    public void ConfigurationEditorWindowReturnsDistinctClearAndResetActions()
+    {
+        var clearWindow = new ConfigurationEditorWindow("编辑", "说明", new TextBox());
+        clearWindow.ClearActionButton.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Assert.Equal(CoreEnvEditAction.Set, clearWindow.Result.Action);
+        Assert.Equal(string.Empty, clearWindow.Result.Value);
+
+        var resetWindow = new ConfigurationEditorWindow("编辑", "说明", new TextBox()) { CanReset = true };
+        resetWindow.ResetActionButton.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Assert.Equal(CoreEnvEditAction.Delete, resetWindow.Result.Action);
+    }
+
+    private static CoreEnvDefinition Definition(
+        string key,
+        IReadOnlyList<string>? options = null) =>
+        new(
+            key,
+            "test",
+            CoreEnvType.Text,
+            key,
+            options ?? [],
+            options ?? [],
+            null,
+            null,
+            null,
+            false,
+            false);
+}

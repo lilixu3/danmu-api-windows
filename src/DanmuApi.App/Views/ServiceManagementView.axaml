@@ -1,0 +1,48 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:DanmuApi.App.ViewModels"
+             xmlns:runtime="using:DanmuApi.Runtime"
+             x:Class="DanmuApi.App.Views.ServiceManagementView"
+             x:DataType="vm:ServiceManagementPageViewModel">
+  <ScrollViewer>
+    <StackPanel Spacing="12" Margin="4">
+      <TextBlock Text="设备与访问控制" FontSize="22" FontWeight="SemiBold" />
+      <TextBlock Text="查看访问过本服务的设备，设置 IP 黑名单。支持 IPv4 / IPv6，不支持白名单、CIDR 或正则规则。" TextWrapping="Wrap" />
+      <WrapPanel>
+        <Button Content="刷新设备" Command="{Binding RefreshCommand}" Margin="0,0,8,4" />
+        <Button Content="保存访问控制" Command="{Binding SaveCommand}" Margin="0,0,8,4" />
+        <Button Content="保存并清除设备记录…" Command="{Binding ClearDevicesCommand}" Margin="0,0,8,4" />
+      </WrapPanel>
+      <TextBlock Text="{Binding Statistics}" TextWrapping="Wrap" />
+      <CheckBox Content="启用黑名单拦截" IsChecked="{Binding BlacklistEnabled}" IsEnabled="{Binding HasSnapshot}" />
+      <TextBlock Text="黑名单 IP（每行一条，也可用逗号分隔）" />
+      <TextBox Text="{Binding BlacklistText}" AcceptsReturn="True" MinHeight="100" MaxHeight="220" TextWrapping="Wrap" IsEnabled="{Binding HasSnapshot}" Watermark="192.168.1.20" />
+      <TextBlock Text="关闭拦截会保留规则。本机回环访问始终放行。修改前请先刷新。" TextWrapping="Wrap" />
+      <ListBox ItemsSource="{Binding Devices}" MaxHeight="320" MinHeight="80">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="runtime:AccessDevice">
+            <StackPanel Spacing="3">
+              <TextBlock Text="{Binding Ip}" FontWeight="SemiBold" />
+              <WrapPanel>
+                <TextBlock Text="请求 / 允许 / 拦截：" />
+                <TextBlock Text="{Binding TotalRequests}" />
+                <TextBlock Text=" / " /><TextBlock Text="{Binding AllowedRequests}" />
+                <TextBlock Text=" / " /><TextBlock Text="{Binding BlockedRequests}" />
+              </WrapPanel>
+              <WrapPanel>
+                <TextBlock Text="黑名单：" /><TextBlock Text="{Binding InBlacklist}" Margin="0,0,12,0" />
+                <TextBlock Text="正在拦截：" /><TextBlock Text="{Binding EffectiveBlocked}" />
+              </WrapPanel>
+            </StackPanel>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+      <Separator />
+      <TextBlock Text="日志清理" FontSize="20" FontWeight="SemiBold" />
+      <TextBlock Text="仅清空核心内存日志；宿主日志与磁盘日志文件保留。可在活动日志页查看核心日志。" TextWrapping="Wrap" />
+      <Button Content="清空核心内存日志…" Command="{Binding ClearLogsCommand}" HorizontalAlignment="Left" />
+      <TextBlock Text="{Binding Diagnostic}" TextWrapping="Wrap" />
+      <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsBusy}" Height="3" />
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

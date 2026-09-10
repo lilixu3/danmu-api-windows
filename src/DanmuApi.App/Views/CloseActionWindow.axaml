@@ -1,0 +1,50 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="DanmuApi.App.Views.CloseActionWindow"
+        Width="520"
+        SizeToContent="Height"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Title="关闭弹幕 API">
+  <StackPanel Spacing="16" Margin="26">
+    <StackPanel Spacing="4">
+      <TextBlock Text="关闭弹幕 API" FontSize="21" FontWeight="SemiBold" />
+      <TextBlock Text="选择关闭主窗口后的处理方式。"
+                 TextWrapping="Wrap"
+                 Classes="body-muted" />
+    </StackPanel>
+
+    <Border Classes="dashboard-panel" Padding="14">
+      <RadioButton x:Name="ExitOption"
+                   GroupName="CloseAction"
+                   IsChecked="True">
+        <StackPanel Spacing="3" Margin="6,2">
+          <TextBlock Text="退出并关闭服务" FontWeight="SemiBold" />
+          <TextBlock Text="停止 Node 进程树，然后退出桌面应用。" Classes="body-muted" />
+        </StackPanel>
+      </RadioButton>
+    </Border>
+    <Border Classes="dashboard-panel" Padding="14">
+      <RadioButton x:Name="TrayOption" GroupName="CloseAction">
+        <StackPanel Spacing="3" Margin="6,2">
+          <TextBlock Text="后台运行" FontWeight="SemiBold" />
+          <TextBlock Text="隐藏主窗口，服务和托盘继续运行。" Classes="body-muted" />
+        </StackPanel>
+      </RadioButton>
+    </Border>
+
+    <CheckBox x:Name="RememberChoice" Content="记住我的选择，不再提示" />
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button x:Name="CancelButton"
+              Classes="secondary-action"
+              Content="取消"
+              MinWidth="80"
+              IsCancel="True" />
+      <Button x:Name="ConfirmButton"
+              Classes="primary-action"
+              Content="确定"
+              MinWidth="80"
+              IsDefault="True" />
+    </StackPanel>
+  </StackPanel>
+</Window>

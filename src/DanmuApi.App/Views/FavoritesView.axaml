@@ -1,0 +1,78 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:DanmuApi.App.ViewModels"
+             x:Class="DanmuApi.App.Views.FavoritesView"
+             x:DataType="vm:FavoritesPageViewModel">
+  <UserControl.Styles>
+    <Style Selector="Border.favorite-row">
+      <Setter Property="Padding" Value="10" />
+      <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+    </Style>
+    <Style Selector="TextBlock.favorite-meta">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+  </UserControl.Styles>
+
+  <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <StackPanel Spacing="12" MaxWidth="960">
+      <StackPanel Spacing="3">
+        <TextBlock Text="收藏" Classes="section-title" />
+        <TextBlock Text="收藏会保存关键词对应的搜索结果快照；写入、刷新和删除遵守核心能力与管理员权限。" Classes="body-muted" TextWrapping="Wrap" />
+      </StackPanel>
+      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+        <TextBox Text="{Binding SearchText, Mode=TwoWay}" Watermark="过滤收藏关键词" />
+        <Button Grid.Column="1" Content="添加收藏" Classes="primary-action" Command="{Binding AddCommand}" IsEnabled="{Binding CanWrite}" />
+        <Button Grid.Column="2" Content="刷新列表" Classes="secondary-action" Command="{Binding LoadCommand}" />
+      </Grid>
+      <Border Classes="notice-panel" IsVisible="{Binding HasSupportMessage}">
+        <TextBlock Text="{Binding Capabilities.SupportMessage}" Classes="body-muted" TextWrapping="Wrap" />
+      </Border>
+      <TextBlock Text="{Binding Diagnostic}" Classes="body-muted" TextWrapping="Wrap" IsVisible="{Binding HasDiagnostic}" />
+
+      <ItemsControl ItemsSource="{Binding VisibleFavorites}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:FavoriteItemViewModel">
+            <Border Classes="favorite-row" Margin="0,0,0,8">
+              <Grid ColumnDefinitions="68,*,Auto" ColumnSpacing="12">
+                <Button Grid.Column="0" Background="Transparent" BorderThickness="0" Padding="0"
+                        Command="{Binding $parent[ItemsControl].DataContext.OpenCommand}" CommandParameter="{Binding}">
+                  <Grid Width="68" Height="92">
+                    <Image Source="{Binding Poster}" IsVisible="{Binding HasPoster}" Stretch="UniformToFill" />
+                    <Border IsVisible="{Binding ShowPosterPlaceholder}" CornerRadius="6" Background="{DynamicResource AccentSoftBrush}">
+                      <TextBlock Text="{Binding PosterFallbackText}" FontSize="24" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                  </Grid>
+                </Button>
+                <Button Grid.Column="1" Background="Transparent" BorderThickness="0" HorizontalContentAlignment="Left" Padding="0"
+                        Command="{Binding $parent[ItemsControl].DataContext.OpenCommand}" CommandParameter="{Binding}">
+                  <StackPanel Spacing="3" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Title}" Classes="section-title" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding MetaLine}" Classes="favorite-meta" />
+                    <TextBlock Text="{Binding CollectedText}" Classes="favorite-meta" />
+                    <TextBlock Text="{Binding LastRefreshText}" Classes="favorite-meta" />
+                    <TextBlock Text="{Binding ScheduleSummaryText}" Classes="favorite-meta" />
+                    <TextBlock Text="{Binding ScheduleDetailText}" Classes="favorite-meta" IsVisible="{Binding HasSchedule}" />
+                  </StackPanel>
+                </Button>
+                <WrapPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right" MaxWidth="240">
+                  <Button Content="定时" Classes="secondary-action" Margin="0,0,6,0" MinWidth="68" IsVisible="{Binding !HasSchedule}" Command="{Binding $parent[ItemsControl].DataContext.ScheduleCommand}" CommandParameter="{Binding}" IsEnabled="{Binding $parent[ItemsControl].DataContext.CanSchedule}" />
+                  <Button Content="修改定时" Classes="secondary-action" Margin="0,0,6,0" MinWidth="76" IsVisible="{Binding HasSchedule}" Command="{Binding $parent[ItemsControl].DataContext.ScheduleCommand}" CommandParameter="{Binding}" IsEnabled="{Binding $parent[ItemsControl].DataContext.CanSchedule}" />
+                  <Button Content="关闭定时" Classes="ghost-action" Margin="0,0,6,0" MinWidth="76" IsVisible="{Binding HasSchedule}" Command="{Binding $parent[ItemsControl].DataContext.DisableScheduleCommand}" CommandParameter="{Binding}" IsEnabled="{Binding $parent[ItemsControl].DataContext.CanSchedule}" />
+                  <Button Content="刷新" Classes="secondary-action" Margin="0,0,6,0" MinWidth="68" Command="{Binding $parent[ItemsControl].DataContext.RefreshCommand}" CommandParameter="{Binding}" IsEnabled="{Binding $parent[ItemsControl].DataContext.CanWrite}" />
+                  <Button Content="删除" Classes="danger-action" MinWidth="68" Command="{Binding $parent[ItemsControl].DataContext.RemoveCommand}" CommandParameter="{Binding}" IsEnabled="{Binding $parent[ItemsControl].DataContext.CanWrite}" />
+                </WrapPanel>
+              </Grid>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <Border Classes="dashboard-panel" Padding="20" IsVisible="{Binding !HasFavorites}">
+        <TextBlock Text="暂无收藏；在手动匹配中搜索后可收藏当前关键词的整组结果。" Classes="body-muted" HorizontalAlignment="Center" TextWrapping="Wrap" />
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

@@ -1,0 +1,87 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:DanmuApi.App.ViewModels" x:Class="DanmuApi.App.Views.RequestRecordsView"
+             x:DataType="vm:RequestRecordsPageViewModel">
+  <UserControl.Styles>
+    <Style Selector="Border.records-surface">
+      <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+      <Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="12" />
+      <Setter Property="Padding" Value="16" />
+    </Style>
+    <Style Selector="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="Padding" Value="8,7" /></Style>
+  </UserControl.Styles>
+  <Grid RowDefinitions="Auto,*" RowSpacing="14">
+    <ScrollViewer MaxHeight="270" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Spacing="12">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+          <StackPanel Spacing="4"><TextBlock Text="请求记录" FontSize="22" FontWeight="SemiBold" />
+            <TextBlock Text="本会话与核心请求历史 · 详情均已脱敏" Classes="body-muted" TextWrapping="Wrap" /></StackPanel>
+          <Button x:Name="RefreshRecordsButton" Grid.Column="1" Content="刷新" Classes="secondary-action" Command="{Binding RefreshCommand}" IsEnabled="{Binding !IsBusy}" VerticalAlignment="Center" />
+        </Grid>
+        <Border Classes="records-surface" Padding="14,10">
+          <WrapPanel>
+            <StackPanel MinWidth="100" Margin="0,0,20,4"><TextBlock Text="匹配记录" Classes="metric-label" /><TextBlock Text="{Binding Insights.Total}" FontSize="22" FontWeight="SemiBold" /></StackPanel>
+            <StackPanel MinWidth="100" Margin="0,0,20,4"><TextBlock Text="已知结果失败率" Classes="metric-label" /><TextBlock Text="{Binding FailureRateText}" FontSize="22" FontWeight="SemiBold" /></StackPanel>
+            <StackPanel MinWidth="100" Margin="0,0,20,4"><TextBlock Text="P95 耗时" Classes="metric-label" /><TextBlock Text="{Binding P95Text}" FontSize="22" FontWeight="SemiBold" /></StackPanel>
+            <StackPanel MinWidth="80" Margin="0,0,0,4"><TextBlock Text="核心客户端" Classes="metric-label" /><TextBlock Text="{Binding Insights.UniqueClients}" FontSize="22" FontWeight="SemiBold" /></StackPanel>
+          </WrapPanel>
+        </Border>
+        <TextBox x:Name="RecordSearchBox" Text="{Binding SearchQuery, Mode=TwoWay}" Watermark="搜索接口、来源、状态码或错误" AutomationProperties.Name="搜索请求记录" />
+        <WrapPanel>
+          <ComboBox x:Name="OutcomeFilter" Width="140" Margin="0,0,8,6" ItemsSource="{Binding OutcomeFilters}" SelectedItem="{Binding SelectedOutcomeFilter, Mode=TwoWay}" AutomationProperties.Name="请求结果" />
+          <ComboBox x:Name="MethodFilter" Width="120" Margin="0,0,8,6" ItemsSource="{Binding MethodFilters}" SelectedItem="{Binding SelectedMethodFilter, Mode=TwoWay}" AutomationProperties.Name="请求方法" />
+          <ComboBox x:Name="TimeRangeFilter" Width="120" Margin="0,0,8,6" ItemsSource="{Binding TimeRanges}" SelectedItem="{Binding SelectedTimeRange, Mode=TwoWay}" AutomationProperties.Name="请求时间" />
+          <Button x:Name="ClearRecordsButton" Content="清空当前列表" Classes="ghost-action" Command="{Binding ClearCommand}" ToolTip.Tip="清空本地会话记录；核心历史将在下次刷新重新读取。" />
+        </WrapPanel>
+        <TextBlock Text="{Binding TopFailureText}" IsVisible="{Binding HasInsightWarning}" TextWrapping="Wrap" />
+        <Border Classes="notice-panel" IsVisible="{Binding HasDiagnostic}"><TextBlock Text="{Binding Diagnostic}" TextWrapping="Wrap" /></Border>
+      </StackPanel>
+    </ScrollViewer>
+    <Grid x:Name="RecordsWorkspace" Grid.Row="1" ColumnDefinitions="*,340" RowDefinitions="*,*" ColumnSpacing="14">
+      <Border x:Name="RecordTablePanel" Grid.RowSpan="2" Classes="records-surface" Padding="10">
+        <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="8">
+          <TextBlock Text="{Binding SummaryText}" Classes="body-muted" TextWrapping="Wrap" />
+          <Grid Grid.Row="1" ColumnDefinitions="64,*,110" Margin="8,0"><TextBlock Text="方法" Classes="body-muted" /><TextBlock Grid.Column="1" Text="接口 / 时间与来源" Classes="body-muted" /><TextBlock Grid.Column="2" Text="结果 / 耗时" Classes="body-muted" /></Grid>
+          <Grid Grid.Row="2">
+            <ListBox x:Name="RecordsList" ItemsSource="{Binding Records}" SelectedItem="{Binding SelectedRecord, Mode=TwoWay}" Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="请求记录列表">
+              <ListBox.ItemsPanel><ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate></ListBox.ItemsPanel>
+              <ListBox.ItemTemplate><DataTemplate x:DataType="vm:RequestRecordListItem">
+                <Border BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,0,1" Padding="0,3,0,9">
+                  <Grid ColumnDefinitions="64,*,110" ColumnSpacing="0">
+                    <TextBlock Text="{Binding Method}" FontWeight="SemiBold" FontSize="12" />
+                    <StackPanel Grid.Column="1" Spacing="4" Margin="0,0,8,0"><TextBlock Text="{Binding Interface}" Classes="mono-text" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Interface}" /><TextBlock Text="{Binding TimestampDisplay}" FontSize="11" Classes="body-muted" /><TextBlock Text="{Binding Source}" FontSize="11" Classes="body-muted" TextTrimming="CharacterEllipsis" /></StackPanel>
+                    <StackPanel Grid.Column="2" Spacing="4"><TextBlock Text="{Binding OutcomeDisplay}" FontSize="11" TextWrapping="Wrap" /><TextBlock Text="{Binding DurationDisplay}" Classes="body-muted" FontSize="11" /></StackPanel>
+                  </Grid>
+                </Border>
+              </DataTemplate></ListBox.ItemTemplate>
+            </ListBox>
+            <TextBlock Text="{Binding EmptyStateText}" IsVisible="{Binding !HasRecords}" Classes="body-muted" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Grid>
+          <WrapPanel Grid.Row="3"><TextBlock Text="{Binding LastUpdatedText}" Classes="body-muted" Margin="0,0,16,0" /><TextBlock Text="{Binding TodayRequestCountText}" Classes="body-muted" /></WrapPanel>
+        </Grid>
+      </Border>
+      <Border x:Name="RecordDetailsPanel" Grid.Column="1" Grid.RowSpan="2" Classes="records-surface">
+        <Grid RowDefinitions="Auto,*" RowSpacing="12">
+          <TextBlock Text="请求详情" FontSize="18" FontWeight="SemiBold" />
+          <TextBlock Grid.Row="1" Text="选择一条记录查看脱敏详情。核心未返回的结果与耗时会标记为未提供。" IsVisible="{Binding !HasSelectedRecord}" Classes="body-muted" TextWrapping="Wrap" />
+          <ScrollViewer Grid.Row="1" IsVisible="{Binding HasSelectedRecord}" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="12">
+              <Button Content="复制脱敏 URL" Classes="compact-action" Command="{Binding CopyUrlCommand}" CommandParameter="{Binding SelectedRecord}" HorizontalAlignment="Left" />
+              <StackPanel DataContext="{Binding SelectedRecord}" x:DataType="vm:RequestRecordListItem" Spacing="10">
+                <SelectableTextBlock Text="{Binding Interface}" FontFamily="Cascadia Mono,Consolas" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding Method}" FontWeight="SemiBold" /><TextBlock Text="{Binding TimestampDisplay}" Classes="body-muted" />
+                <TextBlock Text="{Binding Source}" Classes="body-muted" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding OutcomeDisplay}" /><TextBlock Text="{Binding DurationDisplay}" Classes="body-muted" />
+                <SelectableTextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap" IsVisible="{Binding HasError}" />
+                <TextBlock Text="请求参数结构" FontWeight="SemiBold" IsVisible="{Binding HasParameters}" />
+                <SelectableTextBlock Text="{Binding ParametersDisplay}" FontFamily="Cascadia Mono,Consolas" TextWrapping="Wrap" IsVisible="{Binding HasParameters}" />
+                <TextBlock Text="响应结构" FontWeight="SemiBold" IsVisible="{Binding HasResponseSummary}" />
+                <SelectableTextBlock Text="{Binding ResponseSummaryDisplay}" FontFamily="Cascadia Mono,Consolas" TextWrapping="Wrap" IsVisible="{Binding HasResponseSummary}" />
+              </StackPanel>
+            </StackPanel>
+          </ScrollViewer>
+        </Grid>
+      </Border>
+    </Grid>
+  </Grid>
+</UserControl>

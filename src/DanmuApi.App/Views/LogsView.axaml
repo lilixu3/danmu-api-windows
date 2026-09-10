@@ -1,0 +1,143 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:DanmuApi.App.ViewModels"
+             xmlns:core="using:DanmuApi.Core"
+             xmlns:views="using:DanmuApi.App.Views"
+             x:Class="DanmuApi.App.Views.LogsView"
+             x:DataType="vm:LogsPageViewModel">
+  <UserControl.Resources>
+    <views:LogLevelBrushConverter x:Key="LogLevelBrush" />
+    <views:BoolToTextWrappingConverter x:Key="BoolToWrapping" />
+  </UserControl.Resources>
+
+  <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="10">
+    <Border Classes="dashboard-panel">
+      <Grid RowDefinitions="Auto,Auto" RowSpacing="10">
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+          <ComboBox ItemsSource="{Binding Sources}"
+                    SelectedItem="{Binding SelectedSource, Mode=TwoWay}"
+                    Width="160"
+                    VerticalAlignment="Center" />
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+            <TextBlock Text="{Binding MatchSummaryText}" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding LastUpdatedText}" Classes="body-muted" VerticalAlignment="Center" />
+            <TextBlock Text="每 5 秒自动刷新" Classes="body-muted" VerticalAlignment="Center" />
+          </StackPanel>
+          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+            <Button Content="刷新" Classes="secondary-action" Command="{Binding RefreshCommand}" />
+            <Button Content="打开日志目录" Classes="ghost-action" Command="{Binding OpenLogDirectoryCommand}" IsEnabled="{Binding CanOpenLogDirectory}" />
+            <Button Content="{Binding ExportButtonText}" Classes="secondary-action" Command="{Binding ExportCommand}" />
+            <Button Content="{Binding CopyButtonText}" Classes="primary-action" Command="{Binding CopyCommand}" />
+          </StackPanel>
+        </Grid>
+        <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="14">
+          <TextBox Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                   Watermark="搜索当前日志来源"
+                   VerticalContentAlignment="Center" />
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+            <CheckBox Content="区分大小写" IsChecked="{Binding CaseSensitive, Mode=TwoWay}" />
+            <CheckBox Content="跟随最新" IsChecked="{Binding AutoScroll, Mode=TwoWay}" />
+            <CheckBox Content="自动换行" IsChecked="{Binding WordWrap, Mode=TwoWay}" />
+            <Button Content="清除筛选" Classes="ghost-action" Command="{Binding ClearFiltersCommand}" IsEnabled="{Binding IsFilterActive}" />
+          </StackPanel>
+        </Grid>
+      </Grid>
+    </Border>
+
+    <StackPanel Grid.Row="1" Spacing="8">
+      <ItemsControl ItemsSource="{Binding LevelOptions}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <WrapPanel />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:LogLevelFilterOption">
+            <Button Classes="chip"
+                    Content="{Binding}"
+                    Command="{Binding ((vm:LogsPageViewModel)DataContext).SelectLevelCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                    CommandParameter="{Binding Value}"
+                    Margin="0,0,6,0" />
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <ItemsControl ItemsSource="{Binding Categories}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <WrapPanel />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="core:LogCategoryCount">
+            <Button Classes="chip"
+                    Content="{Binding DisplayText}"
+                    Command="{Binding ((vm:LogsPageViewModel)DataContext).SelectCategoryCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                    CommandParameter="{Binding Name}"
+                    ToolTip.Tip="{Binding Name}"
+                    Margin="0,0,6,0" />
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
+
+    <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="12">
+      <TextBlock Text="{Binding CopyStatusHint}" Classes="body-muted" TextWrapping="Wrap" VerticalAlignment="Center" />
+      <Button Grid.Column="1"
+              Content="{Binding NewLogsButtonText}"
+              Command="{Binding ViewLatestCommand}"
+              Classes="primary-action"
+              IsVisible="{Binding HasPendingNewLogs}" />
+    </Grid>
+
+    <Border Grid.Row="3" Classes="log-terminal">
+      <Grid>
+        <ListBox x:Name="LogList"
+                 ItemsSource="{Binding FilteredEntries}"
+                 Background="Transparent"
+                 BorderThickness="0"
+                 SelectionMode="Single"
+                 Padding="0">
+          <ListBox.ItemsPanel>
+            <ItemsPanelTemplate>
+              <VirtualizingStackPanel />
+            </ItemsPanelTemplate>
+          </ListBox.ItemsPanel>
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="core:LogEntry">
+              <Grid ColumnDefinitions="58,152,58,*" ColumnSpacing="10" Margin="0,1">
+                <TextBlock Text="{Binding SequenceText}"
+                           Classes="log-seq"
+                           Foreground="{DynamicResource LogMutedBrush}"
+                           HorizontalAlignment="Right" />
+                <TextBlock Grid.Column="1" Text="{Binding TimestampText}" Classes="log-time" />
+                <TextBlock Grid.Column="2"
+                           Text="{Binding LevelText}"
+                           Classes="log-level"
+                           Foreground="{Binding Level, Converter={StaticResource LogLevelBrush}}" />
+                <views:HighlightTextBlock Grid.Column="3"
+                                          Text="{Binding Message}"
+                                          SearchTerm="{Binding ((vm:LogsPageViewModel)DataContext).SearchText, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                          HighlightBrush="{DynamicResource LogHighlightBrush}"
+                                          HighlightForegroundBrush="{DynamicResource LogHighlightTextBrush}"
+                                          FontFamily="Cascadia Mono,Consolas"
+                                          FontSize="12.5"
+                                          Foreground="{DynamicResource LogTextBrush}"
+                                          TextWrapping="{Binding ((vm:LogsPageViewModel)DataContext).WordWrap, RelativeSource={RelativeSource AncestorType=ListBox}, Converter={StaticResource BoolToWrapping}}" />
+              </Grid>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+
+        <Border IsVisible="{Binding IsEmpty}"
+                Background="{DynamicResource LogSurfaceBrush}"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch">
+          <StackPanel Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <TextBlock Text="{Binding EmptyStateText}" Classes="body-muted" HorizontalAlignment="Center" TextWrapping="Wrap" />
+            <Button Content="刷新" Classes="secondary-action" Command="{Binding RefreshCommand}" HorizontalAlignment="Center" />
+          </StackPanel>
+        </Border>
+      </Grid>
+    </Border>
+  </Grid>
+</UserControl>

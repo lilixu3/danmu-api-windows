@@ -1,0 +1,18 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:DanmuApi.App.ViewModels"
+             x:Class="DanmuApi.App.Views.PlaceholderView"
+             x:DataType="vm:PlaceholderPageViewModel">
+  <Border Classes="dashboard-panel" HorizontalAlignment="Stretch" Padding="26">
+    <Grid ColumnDefinitions="44,*" ColumnSpacing="14">
+      <Border Width="36" Height="36" CornerRadius="8" Background="{DynamicResource AccentSoftBrush}">
+        <TextBlock Text="{Binding Icon}" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+      </Border>
+      <StackPanel Grid.Column="1" Spacing="5" MaxWidth="620">
+        <TextBlock Text="{Binding Title}" Classes="section-title" />
+        <TextBlock Text="{Binding Description}" Classes="body-muted" TextWrapping="Wrap" />
+        <TextBlock Text="{Binding StatusText}" Classes="overline" Margin="0,6,0,0" />
+      </StackPanel>
+    </Grid>
+  </Border>
+</UserControl>

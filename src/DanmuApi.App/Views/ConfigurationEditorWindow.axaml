@@ -1,0 +1,62 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="DanmuApi.App.Views.ConfigurationEditorWindow"
+        SizeToContent="WidthAndHeight"
+        MinWidth="520"
+        MaxWidth="920"
+        MaxHeight="720"
+        CanResize="True"
+        WindowStartupLocation="CenterOwner">
+  <Grid Margin="24"
+        MinWidth="472"
+        MaxWidth="872"
+        RowDefinitions="Auto,*,Auto"
+        RowSpacing="12">
+    <StackPanel x:Name="HeaderPanel" Spacing="6">
+      <TextBlock x:Name="TitleBlock"
+                 FontSize="20"
+                 FontWeight="SemiBold" />
+      <TextBlock x:Name="DescriptionBlock"
+                 Classes="body-muted"
+                 TextWrapping="Wrap" />
+      <TextBlock x:Name="ErrorBlock"
+                 Classes="danger-text"
+                 TextWrapping="Wrap"
+                 IsVisible="False" />
+    </StackPanel>
+
+    <ScrollViewer Grid.Row="1"
+                  MaxHeight="520"
+                  VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled">
+      <ContentControl x:Name="EditorHost"
+                      HorizontalContentAlignment="Stretch"
+                      VerticalContentAlignment="Top" />
+    </ScrollViewer>
+
+    <StackPanel Grid.Row="2"
+                Orientation="Horizontal"
+                HorizontalAlignment="Right"
+                Spacing="8">
+      <Button x:Name="ResetButton"
+              Classes="danger-action"
+              Content="恢复默认"
+              MinWidth="96"
+              IsVisible="False" />
+      <Button x:Name="ClearButton"
+              Classes="secondary-action"
+              Content="清空"
+              MinWidth="86" />
+      <Button x:Name="CancelButton"
+              Classes="secondary-action"
+              Content="取消"
+              MinWidth="86"
+              IsCancel="True" />
+      <Button x:Name="SaveButton"
+              Classes="primary-action"
+              Content="保存"
+              MinWidth="86"
+              IsDefault="True" />
+    </StackPanel>
+  </Grid>
+</Window>

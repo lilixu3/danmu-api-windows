@@ -1,0 +1,24 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:DanmuApi.App.ViewModels"
+             x:Class="DanmuApi.App.Views.DanmuTestView"
+             x:DataType="vm:DanmuTestPageViewModel">
+  <Grid RowDefinitions="Auto,*" RowSpacing="12">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1" CornerRadius="8" Padding="4">
+      <ListBox x:Name="DanmuTabSelector" Classes="settings-list" ItemsSource="{Binding TabOptions}" SelectedItem="{Binding SelectedTabOption, Mode=TwoWay}" Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+        <ListBox.ItemsPanel>
+          <ItemsPanelTemplate><UniformGrid Columns="3" /></ItemsPanelTemplate>
+        </ListBox.ItemsPanel>
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:DanmuTestTabOption">
+            <StackPanel Spacing="3" Margin="14,9">
+              <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
+              <TextBlock Text="{Binding Description}" Classes="body-muted" FontSize="11" TextWrapping="Wrap" />
+            </StackPanel>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </Border>
+    <ContentControl Grid.Row="1" Content="{Binding CurrentPage}" />
+  </Grid>
+</UserControl>

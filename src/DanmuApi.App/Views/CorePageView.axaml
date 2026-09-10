@@ -1,0 +1,412 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:DanmuApi.App.ViewModels"
+             xmlns:core="using:DanmuApi.Core"
+             x:Class="DanmuApi.App.Views.CorePageView"
+             x:DataType="vm:CorePageViewModel">
+  <UserControl.Styles>
+    <!-- 变体卡片内部的图标与文字；选中态由 Button.variant-card.selected 承担。 -->
+    <Style Selector="TextBlock.variant-icon">
+      <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+      <Setter Property="FontSize" Value="16" />
+      <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.variant-card.selected TextBlock.variant-icon">
+      <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+    </Style>
+    <Style Selector="TextBlock.variant-title">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="Button.variant-card.selected TextBlock.variant-title">
+      <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+    </Style>
+    <Style Selector="TextBlock.variant-note">
+      <Setter Property="FontSize" Value="10.5" />
+      <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="TextBlock.wb-caption">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.wb-faint">
+      <Setter Property="FontSize" Value="10.5" />
+      <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <!-- 身份带眉标：与设计稿 .who .eyebrow 对齐，是这一带唯一的主色文字。 -->
+    <Style Selector="TextBlock.wb-eyebrow">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+    </Style>
+    <Style Selector="TextBlock.wb-heading">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+    </Style>
+    <Style Selector="TextBlock.wb-key">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <!-- 像「依赖健康」这样的分带标题：比正文小一档、更淡，只做归类不做强调。 -->
+    <Style Selector="TextBlock.wb-bar-label">
+      <Setter Property="FontSize" Value="10.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
+    </Style>
+    <Style Selector="Button.wb-button">
+      <Setter Property="MinHeight" Value="26" />
+      <Setter Property="Margin" Value="0,0,6,0" />
+    </Style>
+    <Style Selector="Border.record-row">
+      <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+      <Setter Property="Padding" Value="0,12" />
+    </Style>
+    <Style Selector="Expander.inline-expander">
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <!-- Fluent 深色模板给折叠头一块近黑底，与卡片底色不一致；改为透明并只保留悬停反馈。 -->
+    <Style Selector="Expander.inline-expander /template/ ToggleButton#ExpanderHeader">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Expander.inline-expander /template/ ToggleButton#ExpanderHeader /template/ Border#ToggleButtonBackground">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Expander.inline-expander /template/ ToggleButton#ExpanderHeader:pointerover /template/ Border#ToggleButtonBackground">
+      <Setter Property="Background" Value="{DynamicResource SurfaceHoverBrush}" />
+    </Style>
+    <Style Selector="Expander.inline-expander /template/ ToggleButton#ExpanderHeader /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Padding" Value="0,7" />
+      <Setter Property="MinHeight" Value="32" />
+    </Style>
+  </UserControl.Styles>
+
+  <Grid RowDefinitions="Auto,Auto,*" RowSpacing="10" IsEnabled="{Binding !IsBusy}">
+    <!-- 页面标题由 MainWindow 头部统一承担（设计稿的 .head 只画在页面列里），此处不再重复一行「核心」。 -->
+    <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="10" IsVisible="{Binding !IsOverviewPage}">
+      <TextBlock Name="PageSubtitleText" Classes="wb-faint" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+        <Button Classes="ghost-action" Content="刷新状态" Command="{Binding RefreshInstallationCommand}" />
+        <Button Content="本地版本历史" Classes="ghost-action" Command="{Binding OpenHistoryPageCommand}" IsVisible="{Binding IsInstalled}" />
+      </StackPanel>
+    </Grid>
+
+    <!-- 变体选择条：本页的主开关，两个运行变体一屏可见，不再藏进下拉框。
+         上游只提供稳定与自定义两种变体，「开发核心」在有对应渠道前不占位。 -->
+    <Border Grid.Row="1" Classes="workbench" IsVisible="{Binding IsOverviewPage}">
+      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12" Margin="14,8">
+        <TextBlock Text="管理对象" Classes="wb-faint" VerticalAlignment="Center" />
+        <ItemsControl Grid.Column="1" ItemsSource="{Binding VariantOptions}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <UniformGrid Rows="1" />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:CoreVariantOption">
+              <Button Classes="variant-card"
+                      Classes.selected="{Binding IsSelected}"
+                      Command="{Binding $parent[ItemsControl].((vm:CorePageViewModel)DataContext).SelectVariantCommand}"
+                      CommandParameter="{Binding}"
+                      Margin="3,0"
+                      HorizontalAlignment="Stretch"
+                      AutomationProperties.Name="{Binding Label}">
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="9">
+                  <TextBlock Classes="variant-icon" Text="{Binding Icon}" />
+                  <StackPanel Grid.Column="1" Spacing="0">
+                    <TextBlock Classes="variant-title" Text="{Binding Label}" />
+                    <TextBlock Classes="variant-note" Text="{Binding Summary}" />
+                  </StackPanel>
+                  <Ellipse Grid.Column="2" Classes="variant-mark" Classes.selected="{Binding IsSelected}" />
+                </Grid>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </Grid>
+    </Border>
+
+    <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <StackPanel Spacing="10">
+        <!-- 核心总览 -->
+        <StackPanel Name="OverviewStage" IsVisible="{Binding IsOverviewPage}" Spacing="10">
+          <StackPanel Spacing="10">
+            <!-- 未安装：安装表单 -->
+            <Border Name="InstallPanel" Classes="workbench" IsVisible="{Binding IsNotInstalled}">
+              <StackPanel Margin="14">
+                <StackPanel Spacing="4" Margin="0,0,0,12">
+                  <TextBlock Text="准备核心" Classes="wb-heading" />
+                  <TextBlock Text="{Binding InstallDescription}" Classes="wb-caption" />
+                </StackPanel>
+                <StackPanel IsVisible="{Binding CanInstallOfficial}" Spacing="9">
+                  <TextBlock Text="官方上游 · huangxd-/danmu_api" TextWrapping="Wrap" FontSize="12" />
+                  <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                    <TextBlock Text="指定分支（可选）" Classes="wb-key" />
+                    <TextBox Grid.Column="1" Text="{Binding BranchText, Mode=TwoWay}" Watermark="留空使用仓库默认分支" AutomationProperties.Name="稳定核心分支" />
+                  </Grid>
+                  <Button Name="InstallOfficialButton" Content="安装稳定核心" Classes="primary-action" Command="{Binding InstallOfficialCommand}" HorizontalAlignment="Left" />
+                </StackPanel>
+                <StackPanel IsVisible="{Binding CanInstallCustom}" Spacing="9">
+                  <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                    <TextBlock Text="GitHub 仓库地址" Classes="wb-key" />
+                    <TextBox Grid.Column="1" Text="{Binding RepositoryText, Mode=TwoWay}" Watermark="https://github.com/owner/repository/tree/branch" AutomationProperties.Name="自定义核心仓库地址" />
+                  </Grid>
+                  <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                    <TextBlock Text="指定分支（可选）" Classes="wb-key" />
+                    <TextBox Grid.Column="1" Text="{Binding BranchText, Mode=TwoWay}" Watermark="留空使用地址中的分支或仓库默认分支" AutomationProperties.Name="自定义核心分支" />
+                  </Grid>
+                  <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                    <TextBlock Text="显示名称" Classes="wb-key" />
+                    <TextBox Grid.Column="1" Text="{Binding DisplayName, Mode=TwoWay}" AutomationProperties.Name="自定义核心显示名称" />
+                  </Grid>
+                  <Button Name="InstallCustomButton" Content="安装自定义核心" Classes="primary-action" Command="{Binding InstallCustomCommand}" HorizontalAlignment="Left" />
+                </StackPanel>
+              </StackPanel>
+            </Border>
+
+            <!-- 工作台：身份 / 来源与探索 / 依赖健康 / 操作，一张卡内用分隔线分带 -->
+            <Border Name="WorkbenchPanel" Classes="workbench" IsVisible="{Binding IsInstalled}">
+              <StackPanel>
+                <!-- 身份带 -->
+                <!-- 身份带：第一行是「当前运行 · 变体 · 显示名 · 仓库」的眉标，
+                     第二行是分支/提交/安装时间，与设计稿 facts-strip 的两级层次一致。 -->
+                <Border Name="IdentityPanel" Classes="wb-strip">
+                  <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="16">
+                    <StackPanel Spacing="2" VerticalAlignment="Center">
+                      <TextBlock Text="{Binding IdentityEyebrow}" Classes="wb-eyebrow" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Text="{Binding IdentityMetaText}" Classes="wb-faint" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Spacing="0" VerticalAlignment="Center">
+                      <TextBlock Text="{Binding VersionDisplay}" FontFamily="Cascadia Mono,Consolas" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                      <StackPanel Orientation="Horizontal" Spacing="5" HorizontalAlignment="Right" Margin="0,3,0,0">
+                        <Border Classes="status-pill" Classes.healthy="{Binding IsInstalled}" IsVisible="{Binding IsInstalled}">
+                          <TextBlock Text="{Binding InstallationStatusText}" />
+                        </Border>
+                        <Border Classes="status-pill warning" IsVisible="{Binding HasUpdate}">
+                          <TextBlock Text="{Binding UpdateLabelText}" />
+                        </Border>
+                      </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                      <Button Name="CheckUpdateButton" Content="检查更新" Classes="secondary-action" Command="{Binding CheckUpdateCommand}" />
+                      <Button Name="ApplyUpdateButton" Content="应用更新" Classes="primary-action" Command="{Binding ApplyUpdateCommand}" IsVisible="{Binding HasUpdate}" IsEnabled="{Binding CanApplyUpdate}" />
+                      <Button Content="更新详情" Classes="ghost-action" Command="{Binding ShowUpdateDetailsCommand}" IsVisible="{Binding HasUpdate}" />
+                    </StackPanel>
+                  </Grid>
+                </Border>
+
+                <!-- 来源与探索：左栏四行（标题 + 仓库/分支/提交），分支行内联切换控件；
+                     右栏两张卡片用 *,* 均分列高，两栏底部因此天然对齐。 -->
+                <Border Name="SourcePanel" Classes="wb-strip">
+                  <Grid Name="SourceGrid" ColumnDefinitions="1.55*,1*" RowDefinitions="Auto,Auto" ColumnSpacing="18" RowSpacing="10">
+                    <Grid Name="SourceColumn" Grid.Row="0" ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="6">
+                      <TextBlock Text="来源与分支" Classes="wb-heading" Grid.Row="0" Grid.ColumnSpan="3" Margin="0,0,0,2" />
+                      <TextBlock Grid.Row="1" Text="仓库" Classes="wb-key" />
+                      <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding RepositoryDisplay}" Classes="mono-text" FontSize="11.5" TextWrapping="Wrap" />
+                      <TextBlock Grid.Row="2" Text="分支" Classes="wb-key" />
+                      <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding BranchDisplay}" FontWeight="SemiBold" FontSize="11.5" TextWrapping="Wrap" VerticalAlignment="Center" />
+                      <StackPanel Grid.Row="2" Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                        <ComboBox Name="BranchSelector" MinWidth="112" ItemsSource="{Binding Branches}" SelectedItem="{Binding SelectedBranch, Mode=TwoWay}" DisplayMemberBinding="{Binding Name}" PlaceholderText="切换分支" DropDownOpened="OnBranchComboBoxDropDownOpened" AutomationProperties.Name="目标分支" />
+                        <Button Name="SwitchBranchButton" Content="切换" Classes="secondary-action wb-button" Command="{Binding SwitchSelectedBranchCommand}" IsEnabled="{Binding CanSwitchSelectedBranch}" ToolTip.Tip="安装所选分支的最新提交并替换当前核心" />
+                      </StackPanel>
+                      <TextBlock Grid.Row="3" Text="提交" Classes="wb-key" />
+                      <SelectableTextBlock Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding CommitDisplay}" FontFamily="Cascadia Mono,Consolas" FontSize="11.5" TextWrapping="Wrap" />
+                      <!-- 下拉打开时会静默刷新分支列表；刷新中/失败在这里显示，不打断选择。 -->
+                      <TextBlock Name="BranchStatusText" Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Classes="wb-faint" TextWrapping="Wrap" Text="{Binding BranchStatusText}" IsVisible="{Binding HasBranchStatus}" />
+                    </Grid>
+
+                    <Grid Name="ExploreColumn" Grid.Column="1" RowDefinitions="Auto,*,*" RowSpacing="6" VerticalAlignment="Stretch">
+                      <TextBlock Text="版本探索" Classes="wb-heading" Margin="0,0,0,2" />
+                      <Button Name="OpenCommitsButton" Grid.Row="1" Classes="row-entry" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" VerticalContentAlignment="Center" Command="{Binding OpenCommitsPageCommand}">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                          <StackPanel Spacing="1" VerticalAlignment="Center">
+                            <TextBlock Text="提交历史" FontSize="12" FontWeight="SemiBold" />
+                            <TextBlock Text="查看代码变更，回退到指定提交" Classes="wb-faint" TextWrapping="Wrap" />
+                          </StackPanel>
+                          <TextBlock Grid.Column="1" Text="&#xE72A;" FontFamily="Segoe MDL2 Assets" FontSize="11" Foreground="{DynamicResource TextFaintBrush}" VerticalAlignment="Center" />
+                        </Grid>
+                      </Button>
+                      <Button Name="OpenPullRequestsButton" Grid.Row="2" Classes="row-entry" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" VerticalContentAlignment="Center" Command="{Binding OpenPullRequestsPageCommand}">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                          <StackPanel Spacing="1" VerticalAlignment="Center">
+                            <TextBlock Text="PR 实验室" FontSize="12" FontWeight="SemiBold" />
+                            <TextBlock Text="预览未合并变更，安装为自定义实验核心" Classes="wb-faint" TextWrapping="Wrap" />
+                          </StackPanel>
+                          <TextBlock Grid.Column="1" Text="&#xE72A;" FontFamily="Segoe MDL2 Assets" FontSize="11" Foreground="{DynamicResource TextFaintBrush}" VerticalAlignment="Center" />
+                        </Grid>
+                      </Button>
+                    </Grid>
+                  </Grid>
+                </Border>
+
+                <!-- 运行状态：只读信息，标签固定宽度对齐、值与胶囊在右；整条没有任何按钮。 -->
+                <Border Name="StatusBar" Classes="wb-strip muted">
+                  <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16">
+                    <TextBlock Text="运行状态" Classes="wb-bar-label" VerticalAlignment="Center" MinWidth="48" />
+                    <WrapPanel Grid.Column="1" Orientation="Horizontal" ItemSpacing="20" LineSpacing="8">
+                      <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                        <TextBlock Text="运行环境" Classes="wb-key" />
+                        <Border Classes="status-pill" Classes.healthy="{Binding IsRuntimeEnvironmentHealthy}" Classes.failed="{Binding IsRuntimeEnvironmentFailed}">
+                          <TextBlock Name="RuntimeEnvironmentStatus" Text="{Binding RuntimeEnvironmentStatusText}" />
+                        </Border>
+                      </StackPanel>
+                      <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                        <TextBlock Text="核心依赖" Classes="wb-key" />
+                        <Border Classes="status-pill" Classes.healthy="{Binding IsCoreDependencyHealthy}" Classes.failed="{Binding IsCoreDependencyFailed}">
+                          <TextBlock Name="CoreDependencyStatus" Text="{Binding CoreDependencyStatusText}" />
+                        </Border>
+                      </StackPanel>
+                      <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" IsVisible="{Binding ShowOptionalRedisStatus}">
+                        <TextBlock Text="可选 Redis" Classes="wb-key" />
+                        <Border Classes="status-pill" Classes.healthy="{Binding IsOptionalRedisHealthy}" Classes.failed="{Binding IsOptionalRedisFailed}">
+                          <TextBlock Name="OptionalRedisStatus" Text="{Binding OptionalRedisStatusText}" />
+                        </Border>
+                      </StackPanel>
+                      <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                        <TextBlock Text="GitHub 配额" Classes="wb-key" />
+                        <TextBlock Text="{Binding RateLimitText}" Classes="wb-faint" VerticalAlignment="Center" ToolTip.Tip="{Binding RateLimitText}" />
+                      </StackPanel>
+                    </WrapPanel>
+                  </Grid>
+                </Border>
+
+                <!-- 维护：与上一带同一套左标签；常规动作是有边框的按钮（不再像散落的文字），
+                     破坏性动作用一条竖分隔线隔开并单独推到最右。 -->
+                <Border Classes="wb-strip actions">
+                  <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="14">
+                    <TextBlock Text="维护" Classes="wb-bar-label" VerticalAlignment="Center" MinWidth="48" />
+                    <WrapPanel Grid.Column="1" Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
+                      <Button Content="配置 GitHub Token" Classes="secondary-action" Command="{Binding ConfigureGithubTokenCommand}" ToolTip.Tip="配置后接口配额更高" />
+                      <Button Content="修改名称" Classes="secondary-action" Command="{Binding RenameCoreCommand}" />
+                      <Button Content="重新安装" Classes="secondary-action" Command="{Binding ReinstallCommand}" />
+                    </WrapPanel>
+                    <Border Grid.Column="2" Width="1" Background="{DynamicResource HairlineStrongBrush}" Margin="0,4" />
+                    <Button Grid.Column="3" Name="DeleteCoreButton" Content="删除核心" Classes="danger-action" Command="{Binding DeleteCommand}" VerticalAlignment="Center" />
+                  </Grid>
+                </Border>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </StackPanel>
+
+        <StackPanel>
+          <!-- 本地版本历史 -->
+          <Border Classes="workbench" IsVisible="{Binding IsHistoryPage}">
+            <StackPanel Margin="14" Spacing="10">
+              <Button Content="← 返回核心总览" Classes="back-action" Command="{Binding BackToOverviewCommand}" HorizontalAlignment="Left" />
+              <StackPanel Spacing="3">
+                <TextBlock Text="本地版本历史" FontSize="16" FontWeight="SemiBold" />
+                <TextBlock Text="从本机保留的核心版本恢复，不需要重新下载。恢复前会确认并安全停止当前服务。" Classes="wb-caption" />
+              </StackPanel>
+              <TextBlock Text="暂时没有本地历史。安装或更新核心后，保留的历史版本会出现在这里。" Classes="wb-caption" IsVisible="{Binding !HasLocalHistory}" />
+              <ItemsControl ItemsSource="{Binding History}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="core:CoreVersionRecord">
+                    <Border Classes="record-row">
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel Spacing="3" VerticalAlignment="Center">
+                          <TextBlock Text="{Binding Manifest.DisplayName}" FontWeight="SemiBold" />
+                          <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock Text="{Binding Manifest.Version}" FontSize="11.5" />
+                            <TextBlock Text="{Binding Manifest.ShortSha}" Classes="mono-text wb-faint" />
+                            <TextBlock Text="{Binding Manifest.InstalledAt}" Classes="wb-faint" />
+                          </StackPanel>
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="恢复此本地版本" Classes="secondary-action" Command="{Binding ((vm:CorePageViewModel)DataContext).RollbackCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" VerticalAlignment="Center" />
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
+          <!-- 提交历史 -->
+          <Border Name="CommitsStage" Classes="workbench" IsVisible="{Binding IsCommitsPage}">
+            <StackPanel Margin="14" Spacing="10">
+              <Button Content="← 返回核心总览" Classes="back-action" Command="{Binding BackToOverviewCommand}" HorizontalAlignment="Left" />
+              <StackPanel Spacing="3">
+                <TextBlock Text="提交历史" FontSize="16" FontWeight="SemiBold" />
+                <TextBlock Text="查看当前分支的代码变更，进入详情核对后可回退到指定版本。" Classes="wb-caption" />
+                <TextBlock Text="{Binding BranchDisplay, StringFormat='当前分支 · {0}'}" Classes="wb-caption" />
+              </StackPanel>
+              <ItemsControl Name="CommitList" ItemsSource="{Binding Commits}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="core:GithubCommit">
+                    <Border Classes="record-row">
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel Spacing="4" VerticalAlignment="Center">
+                          <TextBlock Text="{Binding Title}" FontSize="12.5" FontWeight="SemiBold" TextWrapping="Wrap" />
+                          <TextBlock Text="{Binding Sha}" Classes="mono-text wb-faint" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                          <Button Content="查看变更" Classes="compact-action" Command="{Binding ((vm:CorePageViewModel)DataContext).ShowCommitDetailsCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" />
+                          <Button Content="回退到此版本" Classes="secondary-action" Command="{Binding ((vm:CorePageViewModel)DataContext).RollbackToCommitCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" />
+                        </StackPanel>
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <Grid ColumnDefinitions="Auto,*,Auto" IsVisible="{Binding HasCommits}">
+                <Button Content="上一页" Classes="ghost-action" Command="{Binding PreviousCommitPageCommand}" IsEnabled="{Binding HasCommitPreviousPage}" />
+                <TextBlock Grid.Column="1" Text="{Binding PageSummaryText}" Classes="wb-caption" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                <Button Grid.Column="2" Content="下一页" Classes="ghost-action" Command="{Binding NextCommitPageCommand}" IsEnabled="{Binding HasCommitNextPage}" />
+              </Grid>
+            </StackPanel>
+          </Border>
+
+          <!-- PR 实验室 -->
+          <Border Name="PullRequestsStage" Classes="workbench" IsVisible="{Binding IsPullRequestsPage}">
+            <StackPanel Margin="14" Spacing="10">
+              <Button Content="← 返回核心总览" Classes="back-action" Command="{Binding BackToOverviewCommand}" HorizontalAlignment="Left" />
+              <StackPanel Spacing="3">
+                <TextBlock Text="PR 实验室" FontSize="16" FontWeight="SemiBold" />
+                <TextBlock Text="PR 从贡献者仓库安装到自定义核心，并标记为实验版本。" Classes="wb-caption" />
+              </StackPanel>
+              <ItemsControl Name="PullRequestList" ItemsSource="{Binding PullRequests}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="core:GithubPullRequest">
+                    <Border Classes="record-row">
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel Spacing="4" VerticalAlignment="Center">
+                          <TextBlock Text="{Binding Number, StringFormat='PR #{0} · 实验版本'}" Classes="wb-faint" />
+                          <TextBlock Text="{Binding Title}" FontSize="12.5" FontWeight="SemiBold" TextWrapping="Wrap" />
+                          <TextBlock Text="{Binding HeadRepository}" Classes="mono-text wb-faint" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                          <Button Content="查看变更" Classes="compact-action" Command="{Binding ((vm:CorePageViewModel)DataContext).ShowPullRequestDetailsCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" />
+                          <Button Content="安装 PR" Classes="secondary-action" Command="{Binding ((vm:CorePageViewModel)DataContext).InstallSelectedPullRequestCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" />
+                        </StackPanel>
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <Grid ColumnDefinitions="Auto,*,Auto" IsVisible="{Binding HasPullRequests}">
+                <Button Content="上一页" Classes="ghost-action" Command="{Binding PreviousPullRequestPageCommand}" IsEnabled="{Binding HasPullRequestPreviousPage}" />
+                <TextBlock Grid.Column="1" Text="{Binding PullRequestPageSummaryText}" Classes="wb-caption" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                <Button Grid.Column="2" Content="下一页" Classes="ghost-action" Command="{Binding NextPullRequestPageCommand}" IsEnabled="{Binding HasPullRequestNextPage}" />
+              </Grid>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</UserControl>
