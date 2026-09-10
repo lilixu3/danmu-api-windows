@@ -1,9 +1,21 @@
 # 弹幕 API · Windows 桌面端
 
-把 Windows 电脑变成**弹幕 API 服务器**的桌面应用。
+**让 [`huangxd-/danmu_api`](https://github.com/huangxd-/danmu_api) 这个弹幕 API 项目在 Windows 上本地跑起来。**
 
-它是 [弹幕 API](https://github.com/huangxd-/danmu_api) 的 Windows 客户端：应用本身负责「装什么、怎么配、跑没跑起来」，
-真正提供接口的弹幕核心是一个 Node.js 程序，由本应用下载、启动并看护。
+上游 `danmu_api` 是一个 Node.js 写的弹幕接口服务，自己动手跑起来要做这些事：装 Node、
+把代码拉下来、照着文档配 `.env`、处理端口和监听地址、起进程还得盯着它别挂。
+
+本应用把这一整套收进一个 Windows 桌面程序里：
+
+| 自己做 | 用本应用 |
+|---|---|
+| 手动装 Node、拉代码、跑 npm | 内置 Node 与依赖，在界面里选仓库点「安装」 |
+| 对着文档手写 `config/.env` | 读取核心自带的变量清单，生成表单，保存即热重载 |
+| 自己起 `node.exe`、看日志、重启 | 启动 / 停止 / 重启、健康检查、失败时直接显示核心日志尾部 |
+| 自己配开机自启、防火墙、托盘 | 一键开关，首次启动服务会引导防火墙授权 |
+| 自己记版本、手动换分支回退 | 分支 / 提交 / PR 切换，本地版本历史一键回退 |
+
+应用本身**不包含、也不修改**上游代码：核心由你在应用内自行安装，始终是独立的一份。
 
 > 界面语言为简体中文，支持 Windows 10 / 11 64 位。
 
@@ -18,7 +30,8 @@
 
 ## 它能做什么
 
-- **一键装核心**：在应用里从 GitHub 直接安装弹幕核心，也可以填任意仓库地址装自定义核心。
+- **一键装核心**：在应用里从 GitHub 安装 `huangxd-/danmu_api`（稳定核心），
+  也可以填任意仓库地址装自定义核心。
 - **版本随你挑**：切换分支、安装指定提交、安装 PR 里的实验版本，还能回退到本机保留的历史版本。
 - **图形化配置**：配置页读取当前核心自带的变量清单，自动生成表单（下拉、开关、列表、映射表等），
   写入 `config/.env` 后核心热重载，不必重启服务。密钥类变量在界面上默认打码。
@@ -121,12 +134,12 @@ dotnet publish src/DanmuApi.App/DanmuApi.App.csproj -c Release --runtime win-x64
 
 ## 相关项目
 
-- 稳定核心：[`huangxd-/danmu_api`](https://github.com/huangxd-/danmu_api)
-- 开发核心：[`lilixu3/danmu_api`](https://github.com/lilixu3/danmu_api)
+- **上游核心（本应用要跑的就是它）**：[`huangxd-/danmu_api`](https://github.com/huangxd-/danmu_api)
+- 开发核心分支：[`lilixu3/danmu_api`](https://github.com/lilixu3/danmu_api)
 - 同系列移动端：[`lilixu3/danmu-api-android`](https://github.com/lilixu3/danmu-api-android)
 
 本应用**不内置、不修改**弹幕核心：核心由你自行从上述仓库（或任意自定义仓库）安装，
-其使用请遵循对应仓库的说明与许可。
+它的使用方式、支持的平台与许可都以对应仓库为准。
 
 ## 反馈
 
