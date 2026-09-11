@@ -13,16 +13,18 @@
        token 全部引用 Styles/Tokens.axaml 的键名。 -->
 
   <!-- ── 页头 ──────────────────────────────────────────────────────────
-       h1 统一收敛到 18px。旧 page-title 是 26px，配置页此前在视图里局部覆盖为 22；
-       旧类名保持 26 以维持其余页面零漂移，配置页改用新类名 h1 后自动获得 18。 -->
+       新类名 h1 = 18px，配置页从旧的局部覆盖 22px 收敛到 18。
+
+       【只有 h1 不双写】旧 page-title 的 26px 是被内容包住的属性，Selector 写不进
+       「属性限定条件」（`TextBlock.page-title[FontSize=26]` 会被 Avalonia 拒绝，
+       报 "Can't parse expected attribute spec"）。而 h1 的 18 一旦写进
+       `TextBlock.page-title` 这条文件级样式，就会盖掉 App.axaml:90 的 26，
+       连带改到核心页/日志页/请求记录页的页标题。
+       结论：page-title 的定义权整条留在 App.axaml，本文件只出 h1。 -->
   <Style Selector="TextBlock.h1">
     <Setter Property="FontSize" Value="18" />
     <Setter Property="FontWeight" Value="SemiBold" />
     <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
-  </Style>
-  <Style Selector="TextBlock.page-title">
-    <Setter Property="FontSize" Value="26" />
-    <Setter Property="FontWeight" Value="SemiBold" />
   </Style>
 
   <Style Selector="TextBlock.sub, TextBlock.page-subtitle">

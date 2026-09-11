@@ -71,6 +71,10 @@ public sealed partial class ConfigurationPageViewModel : ViewModelBase, IAsyncDi
     [ObservableProperty]
     private bool _isBusy;
 
+    /// <summary>右侧详情面板的选中项。仅承载显示，不参与任何写路径。</summary>
+    [ObservableProperty]
+    private ConfigurationVariableRow? _selectedVariable;
+
     public ConfigurationPageViewModel(
         AppPaths paths,
         ISettingsStore settingsStore,
@@ -114,6 +118,18 @@ public sealed partial class ConfigurationPageViewModel : ViewModelBase, IAsyncDi
     public bool HasDiagnostic => !string.IsNullOrWhiteSpace(_diagnostic);
     public bool HasVariables => FilteredVariables.Count > 0;
     public bool IsBusyState => IsBusy;
+
+    // ── 详情面板的只读派生属性 ───────────────────────────────────────────
+    // 值一律取自 ConfigurationVariableRow 上已经脱敏/已本地化的字段，
+    // 不在这里重新读 EffectiveValue，避免绕过 MaskSensitiveValue。
+    public bool HasSelectedVariable => SelectedVariable is not null;
+    public string SelectedVariableKey => SelectedVariable?.Key ?? string.Empty;
+    public string SelectedVariableType => SelectedVariable?.Type ?? string.Empty;
+    public string SelectedVariableSource => SelectedVariable?.Source ?? string.Empty;
+    public string SelectedVariableValue => SelectedVariable?.CurrentValueText ?? string.Empty;
+    public string SelectedVariableDescription => SelectedVariable?.Description ?? string.Empty;
+    public string SelectedVariableActionText => SelectedVariable?.EditorActionText ?? "编辑";
+    public bool CanResetSelectedVariable => SelectedVariable?.IsConfigured ?? false;
 
     [RelayCommand]
     private void Refresh() => Reload();
@@ -337,6 +353,7 @@ public sealed partial class ConfigurationPageViewModel : ViewModelBase, IAsyncDi
         FilteredVariables.Clear();
         if (_snapshot is null)
         {
+            SyncSelectedVariable();
             return;
         }
 
@@ -353,6 +370,43 @@ public sealed partial class ConfigurationPageViewModel : ViewModelBase, IAsyncDi
         {
             FilteredVariables.Add(ToRow(state));
         }
+
+        SyncSelectedVariable();
+    }
+
+    /// <summary>
+    /// 列表每次重建都会产生全新的行对象，直接留着旧引用会让详情面板显示字典里已经不存在的行。
+    /// 这里按 Key 在新列表里重新解析，解析不到就清空（选中项被筛掉或分类切走）。
+    /// </summary>
+    private void SyncSelectedVariable()
+    {
+        var key = SelectedVariable?.Key;
+        if (key is null)
+        {
+            // 行对象被重建过但没有 Key 可对：只有列表已空时才需要清。
+            if (SelectedVariable is not null && FilteredVariables.Count == 0)
+            {
+                SelectedVariable = null;
+            }
+
+            NotifySelectedVariable();
+            return;
+        }
+
+        SelectedVariable = FilteredVariables.FirstOrDefault(row => row.Key == key);
+        NotifySelectedVariable();
+    }
+
+    private void NotifySelectedVariable()
+    {
+        OnPropertyChanged(nameof(HasSelectedVariable));
+        OnPropertyChanged(nameof(SelectedVariableKey));
+        OnPropertyChanged(nameof(SelectedVariableType));
+        OnPropertyChanged(nameof(SelectedVariableSource));
+        OnPropertyChanged(nameof(SelectedVariableValue));
+        OnPropertyChanged(nameof(SelectedVariableDescription));
+        OnPropertyChanged(nameof(SelectedVariableActionText));
+        OnPropertyChanged(nameof(CanResetSelectedVariable));
     }
 
     public static ConfigurationEditorTemplate ResolveEditorTemplate(CoreEnvDefinition definition)
