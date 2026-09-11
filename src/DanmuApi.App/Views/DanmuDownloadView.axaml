@@ -5,24 +5,33 @@
              x:Class="DanmuApi.App.Views.DanmuDownloadView"
              x:DataType="vm:DanmuDownloadPageViewModel">
   <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="10">
-    <Border Classes="dashboard-panel">
+    <!-- ── 页头 ────────────────────────────────────────────────────────
+         四个分区（搜索下载 / 队列 / 记录与库 / 设置）用左侧 rail 的形态，
+         与配置页、设置页一致；分区切换仍由 code-behind 控制 ScrollViewer 显隐。 -->
+    <Border Classes="card">
       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
         <StackPanel Spacing="3">
-          <TextBlock Text="弹幕下载" Classes="section-title" />
-          <TextBlock Text="搜索动漫、批量下载弹幕文件；队列带流控、退避和链路重建，记录与文件保存在本机目录。" Classes="body-muted" TextWrapping="Wrap" />
+          <TextBlock Text="弹幕下载" Classes="h1" />
+          <TextBlock Text="搜索动漫、批量下载弹幕文件；队列带流控、退避和链路重建，记录与文件保存在本机目录。"
+                     Classes="sub"
+                     TextWrapping="Wrap" />
         </StackPanel>
-        <ListBox Grid.Column="1" Classes="settings-list" x:Name="SectionList" ItemsSource="{Binding SectionOptions}" SelectedItem="{Binding SelectedSectionOption, Mode=TwoWay}" Background="Transparent" BorderThickness="0">
+        <ListBox Grid.Column="1"
+                 Classes="rail-list"
+                 x:Name="SectionList"
+                 ItemsSource="{Binding SectionOptions}"
+                 SelectedItem="{Binding SelectedSectionOption, Mode=TwoWay}"
+                 Background="Transparent"
+                 BorderThickness="0">
           <ListBox.ItemsPanel>
             <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="6" /></ItemsPanelTemplate>
           </ListBox.ItemsPanel>
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="vm:DanmuDownloadSectionOption">
-              <Border Classes="muted-row" Padding="12,7">
-                <StackPanel>
-                  <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
-                  <TextBlock Text="{Binding Description}" Classes="body-muted" FontSize="10" />
-                </StackPanel>
-              </Border>
+              <StackPanel Margin="11,7">
+                <TextBlock Text="{Binding Title}" Classes="rail-title" />
+                <TextBlock Text="{Binding Description}" Classes="rail-caption" />
+              </StackPanel>
             </DataTemplate>
           </ListBox.ItemTemplate>
         </ListBox>
@@ -42,39 +51,39 @@
         <ScrollViewer x:Name="SearchPanel" VerticalScrollBarVisibility="Auto">
           <Panel>
             <StackPanel x:Name="AnimeListStage" Spacing="12">
-              <Border Classes="dashboard-panel">
+              <Border Classes="card inset-card">
                 <StackPanel Spacing="4">
-                  <TextBlock Text="下载配置" Classes="section-title" />
-                  <TextBlock Text="{Binding CompactConfigText}" Classes="body-muted" TextWrapping="Wrap" />
-                  <TextBlock Text="{Binding TemplatePreview, StringFormat='命名示例：凡人修仙传/{0}'}" Classes="mono-text body-muted" TextWrapping="Wrap" />
+                  <TextBlock Text="下载配置" Classes="overline" />
+                  <TextBlock Text="{Binding CompactConfigText}" Classes="cap" TextWrapping="Wrap" />
+                  <TextBlock Text="{Binding TemplatePreview, StringFormat='命名示例：凡人修仙传/{0}'}" Classes="mono cap" TextWrapping="Wrap" />
                 </StackPanel>
               </Border>
 
-              <Border Classes="dashboard-panel">
+              <Border Classes="card">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                  <TextBox Text="{Binding Keyword, Mode=TwoWay}" Watermark="输入动漫名称，例如：生万物" IsEnabled="{Binding CanSearch}" />
-                  <Button Grid.Column="1" Content="搜索动漫" Classes="primary-action" Command="{Binding SearchCommand}" IsEnabled="{Binding CanSearch}" />
+                  <TextBox Classes="field" Text="{Binding Keyword, Mode=TwoWay}" Watermark="输入动漫名称，例如：生万物" IsEnabled="{Binding CanSearch}" />
+                  <Button Grid.Column="1" Content="搜索动漫" Classes="primary" Command="{Binding SearchCommand}" IsEnabled="{Binding CanSearch}" />
                 </Grid>
               </Border>
 
-              <Border Classes="dashboard-panel" IsVisible="{Binding ShowEmptySearch}" Padding="20">
-                <TextBlock Text="未找到匹配动漫" Classes="body-muted" HorizontalAlignment="Center" />
+              <Border Classes="card" IsVisible="{Binding ShowEmptySearch}">
+                <TextBlock Text="未找到匹配动漫" Classes="cap" HorizontalAlignment="Center" />
               </Border>
 
-              <Border Classes="dashboard-panel" IsVisible="{Binding HasAnimeRows}">
+              <Border Classes="card" IsVisible="{Binding HasAnimeRows}">
                 <StackPanel Spacing="8">
-                  <TextBlock Text="搜索结果" Classes="section-title" />
-                  <TextBlock Text="点击海报进入剧集列表；卡片显示来源、ID 和历史下载进度。" Classes="body-muted" />
+                  <TextBlock Text="搜索结果" Classes="section" />
+                  <TextBlock Text="点击海报进入剧集列表；卡片显示来源、ID 和历史下载进度。" Classes="cap" />
                   <ItemsControl ItemsSource="{Binding AnimeRows}">
                     <ItemsControl.ItemsPanel>
                       <ItemsPanelTemplate><WrapPanel Orientation="Horizontal" /></ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                       <DataTemplate x:DataType="vm:AnimeRowViewModel">
-                        <Button Classes="anime-card" Width="140" Margin="0,0,10,10" Padding="8"
+                        <Button Classes="entity-card" Width="140" Margin="0,0,10,10"
                                 Command="{Binding $parent[ItemsControl].DataContext.OpenAnimeCommand}" CommandParameter="{Binding}">
                           <StackPanel Spacing="6">
-                            <Grid Width="120" Height="150">
+                            <Grid Width="118" Height="148">
                               <Image Source="{Binding Poster}" IsVisible="{Binding HasPoster}" Stretch="UniformToFill" />
                               <Border IsVisible="{Binding ShowPosterPlaceholder}" CornerRadius="8" Background="{DynamicResource AccentSoftBrush}">
                                 <TextBlock Text="{Binding PosterFallbackText}" FontSize="30" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
@@ -82,8 +91,8 @@
                             </Grid>
                             <TextBlock Text="{Binding DisplayTitle}" FontWeight="SemiBold" TextWrapping="Wrap" MaxHeight="42" TextTrimming="CharacterEllipsis" />
                             <TextBlock Text="{Binding SourceText}" Foreground="{DynamicResource AccentBrush}" FontSize="12" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Text="{Binding MetaText}" Classes="body-muted" FontSize="11" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Text="{Binding HistoryText}" Classes="body-muted" TextWrapping="Wrap" MaxHeight="30" TextTrimming="CharacterEllipsis" IsVisible="{Binding HasHistory}" />
+                            <TextBlock Text="{Binding MetaText}" Classes="cap" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding HistoryText}" Classes="cap" TextWrapping="Wrap" MaxHeight="30" TextTrimming="CharacterEllipsis" IsVisible="{Binding HasHistory}" />
                           </StackPanel>
                         </Button>
                       </DataTemplate>
@@ -94,53 +103,54 @@
             </StackPanel>
 
             <StackPanel x:Name="EpisodeStage" Spacing="12" IsVisible="False">
-              <Border Classes="dashboard-panel">
+              <Border Classes="card">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                   <StackPanel Spacing="3">
-                    <TextBlock Text="{Binding CurrentAnime.DisplayTitle}" Classes="section-title" TextWrapping="Wrap" />
-                    <TextBlock Text="{Binding EpisodeSummaryText}" Classes="body-muted" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding CurrentAnime.DisplayTitle}" Classes="section" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding EpisodeSummaryText}" Classes="cap" TextWrapping="Wrap" />
                   </StackPanel>
-                  <Button Grid.Column="1" Content="返回搜索结果" Classes="back-action" Command="{Binding BackToAnimeListCommand}" VerticalAlignment="Center" />
+                  <Button Grid.Column="1" Content="返回搜索结果" Classes="secondary" Command="{Binding BackToAnimeListCommand}" VerticalAlignment="Center" />
                 </Grid>
               </Border>
 
-              <Border Classes="dashboard-panel" IsVisible="{Binding IsLoadingEpisodes}" Padding="20">
-                <TextBlock Text="正在加载剧集…" Classes="body-muted" HorizontalAlignment="Center" />
+              <Border Classes="card" IsVisible="{Binding IsLoadingEpisodes}">
+                <TextBlock Text="正在加载剧集…" Classes="cap" HorizontalAlignment="Center" />
               </Border>
 
-              <Border Classes="dashboard-panel" IsVisible="{Binding ShowEmptyEpisodes}" Padding="20">
-                <TextBlock Text="当前来源筛选下暂无剧集" Classes="body-muted" HorizontalAlignment="Center" />
+              <Border Classes="card" IsVisible="{Binding ShowEmptyEpisodes}">
+                <TextBlock Text="当前来源筛选下暂无剧集" Classes="cap" HorizontalAlignment="Center" />
               </Border>
 
-              <Border Classes="dashboard-panel" IsVisible="{Binding HasEpisodeRows}">
+              <Border Classes="card" IsVisible="{Binding HasEpisodeRows}">
                 <StackPanel Spacing="8">
                   <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="8">
                     <ComboBox Width="130" ItemsSource="{Binding SourceOptions}" SelectedItem="{Binding SelectedSourceFilter, Mode=TwoWay}" />
-                    <Button Grid.Column="1" Content="全选/取消" Classes="ghost-action" Command="{Binding ToggleSelectAllCommand}" IsEnabled="{Binding !IsDownloading}" />
-                    <Button Grid.Column="2" Content="选失败项" Classes="ghost-action" Command="{Binding SelectFailedCommand}" IsEnabled="{Binding !IsDownloading}" />
-                    <Button Grid.Column="3" Content="选未完成" Classes="ghost-action" Command="{Binding SelectUnfinishedCommand}" IsEnabled="{Binding !IsDownloading}" />
-                    <Button Grid.Column="4" Content="清空选择" Classes="ghost-action" Command="{Binding ClearSelectionCommand}" IsEnabled="{Binding !IsDownloading}" />
-                    <Button Grid.Column="5" Content="重试失败" Classes="ghost-action" Command="{Binding RetryFailedVisibleCommand}" IsEnabled="{Binding HasFailedVisible}" />
-                    <Button x:Name="StartDownloadButton" Grid.Column="6" Content="开始下载" Classes="primary-action" Command="{Binding StartDownloadCommand}" IsEnabled="{Binding CanStartDownload}" />
+                    <Button Grid.Column="1" Content="全选/取消" Classes="ghost" Command="{Binding ToggleSelectAllCommand}" IsEnabled="{Binding !IsDownloading}" />
+                    <Button Grid.Column="2" Content="选失败项" Classes="ghost" Command="{Binding SelectFailedCommand}" IsEnabled="{Binding !IsDownloading}" />
+                    <Button Grid.Column="3" Content="选未完成" Classes="ghost" Command="{Binding SelectUnfinishedCommand}" IsEnabled="{Binding !IsDownloading}" />
+                    <Button Grid.Column="4" Content="清空选择" Classes="ghost" Command="{Binding ClearSelectionCommand}" IsEnabled="{Binding !IsDownloading}" />
+                    <Button Grid.Column="5" Content="重试失败" Classes="ghost" Command="{Binding RetryFailedVisibleCommand}" IsEnabled="{Binding HasFailedVisible}" />
+                    <Button x:Name="StartDownloadButton" Grid.Column="6" Content="开始下载" Classes="primary" Command="{Binding StartDownloadCommand}" IsEnabled="{Binding CanStartDownload}" />
                   </Grid>
-                  <TextBlock Text="提示：已下载的剧集会显示历史状态；失败项可勾选后重新开始下载。" Classes="body-muted" />
+                  <TextBlock Text="提示：已下载的剧集会显示历史状态；失败项可勾选后重新开始下载。" Classes="cap" />
+                  <Border Classes="rule" />
                   <ItemsControl ItemsSource="{Binding EpisodeRows}">
                     <ItemsControl.ItemTemplate>
                       <DataTemplate x:DataType="vm:EpisodeRowViewModel">
-                        <Border Classes="muted-row" Margin="0,0,0,6" IsVisible="{Binding IsVisible}">
-                          <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="10">
+                        <Border Classes="rule" IsVisible="{Binding IsVisible}">
+                          <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="10" Margin="0,7">
                             <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" IsEnabled="{Binding !IsSelectedDisabled}" VerticalAlignment="Center" />
-                            <TextBlock Grid.Column="1" Text="{Binding EpisodeNumber, StringFormat='第{0}集'}" Classes="mono-text" VerticalAlignment="Center" Margin="0,0,6,0" />
+                            <TextBlock Grid.Column="1" Text="{Binding EpisodeNumber, StringFormat='第{0}集'}" Classes="mono" VerticalAlignment="Center" />
                             <StackPanel Grid.Column="2" Spacing="2">
                               <TextBlock Text="{Binding Title}" TextWrapping="Wrap" />
                               <StackPanel Orientation="Horizontal" Spacing="10">
-                                <TextBlock Text="{Binding Source}" Classes="body-muted" />
-                                <TextBlock Text="{Binding StateLabel}" Classes="body-muted" FontWeight="SemiBold" />
-                                <TextBlock Text="{Binding Detail}" Classes="body-muted" MaxWidth="420" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding Source}" Classes="cap" />
+                                <TextBlock Text="{Binding StateLabel}" Classes="cap" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding Detail}" Classes="cap" MaxWidth="420" TextTrimming="CharacterEllipsis" />
                               </StackPanel>
                             </StackPanel>
                             <ProgressBar Grid.Column="3" Value="{Binding State.Progress, Mode=OneWay}" Maximum="1" Width="90" Height="6" VerticalAlignment="Center" IsIndeterminate="{Binding IsSelectedDisabled}" />
-                            <TextBlock Grid.Column="4" Text="{Binding ProgressPercent}" Classes="mono-text body-muted" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="4" Text="{Binding ProgressPercent}" Classes="mono cap" VerticalAlignment="Center" />
                           </Grid>
                         </Border>
                       </DataTemplate>
@@ -155,47 +165,48 @@
         <!-- 下载队列 -->
         <ScrollViewer x:Name="QueuePanel" VerticalScrollBarVisibility="Auto">
           <StackPanel Spacing="12">
-            <Border Classes="dashboard-panel">
+            <Border Classes="card">
               <StackPanel Spacing="8">
                 <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="8">
                   <StackPanel Spacing="3">
-                    <TextBlock Text="下载队列" Classes="section-title" />
-                    <TextBlock Text="{Binding QueueSummaryText}" Classes="body-muted" />
-                    <TextBlock Text="{Binding QueuePendingCount, StringFormat='待处理 {0}'}" Classes="body-muted" />
+                    <TextBlock Text="下载队列" Classes="section" />
+                    <TextBlock Text="{Binding QueueSummaryText}" Classes="cap" />
+                    <TextBlock Text="{Binding QueuePendingCount, StringFormat='待处理 {0}'}" Classes="cap" />
                   </StackPanel>
-                  <Button Grid.Column="1" Content="暂停" Classes="secondary-action" Command="{Binding PauseDownloadCommand}" IsEnabled="{Binding IsDownloading}" />
-                  <Button Grid.Column="2" Content="恢复待处理" Classes="secondary-action" Command="{Binding ResumeQueueCommand}" IsEnabled="{Binding !IsDownloading}" />
-                  <Button Grid.Column="3" Content="重试失败项" Classes="secondary-action" Command="{Binding RetryFailedQueueTasksCommand}" IsEnabled="{Binding !IsDownloading}" />
-                  <Button Grid.Column="4" Content="清理已完成" Classes="ghost-action" Command="{Binding ClearCompletedQueueTasksCommand}" IsEnabled="{Binding !IsDownloading}" />
-                  <Button Grid.Column="5" Content="清空队列" Classes="ghost-action" Command="{Binding ClearQueueTasksCommand}" IsEnabled="{Binding !IsDownloading}" />
+                  <Button Grid.Column="1" Content="暂停" Classes="secondary" Command="{Binding PauseDownloadCommand}" IsEnabled="{Binding IsDownloading}" />
+                  <Button Grid.Column="2" Content="恢复待处理" Classes="secondary" Command="{Binding ResumeQueueCommand}" IsEnabled="{Binding !IsDownloading}" />
+                  <Button Grid.Column="3" Content="重试失败项" Classes="secondary" Command="{Binding RetryFailedQueueTasksCommand}" IsEnabled="{Binding !IsDownloading}" />
+                  <Button Grid.Column="4" Content="清理已完成" Classes="ghost" Command="{Binding ClearCompletedQueueTasksCommand}" IsEnabled="{Binding !IsDownloading}" />
+                  <Button Grid.Column="5" Content="清空队列" Classes="ghost" Command="{Binding ClearQueueTasksCommand}" IsEnabled="{Binding !IsDownloading}" />
                 </Grid>
+                <Border Classes="rule" />
                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-                  <TextBlock Text="{Binding ProgressSummary}" Classes="body-muted" VerticalAlignment="Center" TextWrapping="Wrap" />
+                  <TextBlock Text="{Binding ProgressSummary}" Classes="cap" VerticalAlignment="Center" TextWrapping="Wrap" />
                   <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
                     <ProgressBar Value="{Binding OverallProgress}" Maximum="1" Width="220" Height="8" VerticalAlignment="Center" />
-                    <TextBlock Text="{Binding OverallProgressPercent}" Classes="mono-text body-muted" />
+                    <TextBlock Text="{Binding OverallProgressPercent}" Classes="mono cap" VerticalAlignment="Center" />
                   </StackPanel>
                 </Grid>
-                <TextBlock Text="{Binding ActiveTaskText}" Classes="mono-text body-muted" TextWrapping="Wrap" />
-                <TextBlock Text="{Binding ThrottleHint}" Classes="body-muted" TextWrapping="Wrap" IsVisible="{Binding HasThrottleHint}" />
+                <TextBlock Text="{Binding ActiveTaskText}" Classes="mono cap" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding ThrottleHint}" Classes="cap" TextWrapping="Wrap" IsVisible="{Binding HasThrottleHint}" />
               </StackPanel>
             </Border>
 
-            <Border Classes="dashboard-panel" IsVisible="{Binding HasQueueGroups}">
+            <Border Classes="card" IsVisible="{Binding HasQueueGroups}">
               <ItemsControl ItemsSource="{Binding QueueGroups}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:QueueGroupViewModel">
-                    <Border Classes="muted-row" Margin="0,0,0,8">
+                    <Border Classes="inset" Margin="0,0,0,8">
                       <StackPanel Spacing="6">
                         <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                           <StackPanel Spacing="2">
                             <TextBlock Text="{Binding AnimeTitle}" FontWeight="SemiBold" TextWrapping="Wrap" />
-                            <TextBlock Text="{Binding Detail}" Classes="body-muted" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding Detail}" Classes="cap" TextWrapping="Wrap" />
                           </StackPanel>
                           <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <TextBlock Text="{Binding ProgressPercent}" Classes="mono-text body-muted" />
-                            <Button Content="上移" Classes="compact-action" Command="{Binding $parent[ItemsControl].DataContext.MoveQueueGroupUpCommand}" CommandParameter="{Binding}" />
-                            <Button Content="下移" Classes="compact-action" Command="{Binding $parent[ItemsControl].DataContext.MoveQueueGroupDownCommand}" CommandParameter="{Binding}" />
+                            <TextBlock Text="{Binding ProgressPercent}" Classes="mono cap" />
+                            <Button Content="上移" Classes="compact" Command="{Binding $parent[ItemsControl].DataContext.MoveQueueGroupUpCommand}" CommandParameter="{Binding}" />
+                            <Button Content="下移" Classes="compact" Command="{Binding $parent[ItemsControl].DataContext.MoveQueueGroupDownCommand}" CommandParameter="{Binding}" />
                           </StackPanel>
                           <ProgressBar Grid.Column="2" Value="{Binding Progress, Mode=OneWay}" Maximum="1" Width="110" Height="6" VerticalAlignment="Center" />
                         </Grid>
@@ -203,10 +214,10 @@
                           <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:QueueEpisodeItemViewModel">
                               <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8" Margin="0,2">
-                                <TextBlock Text="{Binding EpisodeNo, StringFormat='第{0}集'}" Classes="mono-text body-muted" />
-                                <TextBlock Grid.Column="1" Text="{Binding Source}" Classes="body-muted" />
-                                <TextBlock Grid.Column="2" Text="{Binding Detail}" Classes="body-muted" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Grid.Column="3" Text="{Binding StatusLabel}" Classes="body-muted" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding EpisodeNo, StringFormat='第{0}集'}" Classes="mono cap" />
+                                <TextBlock Grid.Column="1" Text="{Binding Source}" Classes="cap" />
+                                <TextBlock Grid.Column="2" Text="{Binding Detail}" Classes="cap" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="3" Text="{Binding StatusLabel}" Classes="cap" FontWeight="SemiBold" />
                               </Grid>
                             </DataTemplate>
                           </ItemsControl.ItemTemplate>
@@ -217,8 +228,8 @@
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
             </Border>
-            <Border Classes="dashboard-panel" IsVisible="{Binding !HasQueueGroups}" Padding="20">
-              <TextBlock Text="队列为空；在搜索下载分区勾选剧集后开始下载。" Classes="body-muted" HorizontalAlignment="Center" />
+            <Border Classes="card" IsVisible="{Binding !HasQueueGroups}">
+              <TextBlock Text="队列为空；在搜索下载分区勾选剧集后开始下载。" Classes="cap" HorizontalAlignment="Center" />
             </Border>
           </StackPanel>
         </ScrollViewer>
@@ -227,77 +238,77 @@
         <ScrollViewer x:Name="RecordsPanel" VerticalScrollBarVisibility="Auto">
           <Panel>
             <StackPanel x:Name="RecordAnimeStage" Spacing="12">
-              <Border Classes="dashboard-panel">
+              <Border Classes="card">
                 <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
                   <StackPanel Spacing="3">
-                    <TextBlock Text="记录与库" Classes="section-title" />
-                    <TextBlock Text="{Binding RecordsSummaryText}" Classes="body-muted" />
+                    <TextBlock Text="记录与库" Classes="section" />
+                    <TextBlock Text="{Binding RecordsSummaryText}" Classes="cap" />
                   </StackPanel>
-                  <Button Grid.Column="1" Content="扫描保存目录" Classes="secondary-action" Command="{Binding SyncDirectoryCommand}" IsEnabled="{Binding CanMutateRecords}" />
-                  <Button Grid.Column="2" Content="清空全部记录" Classes="ghost-action" Command="{Binding DeleteAllRecordsCommand}" IsEnabled="{Binding CanMutateRecords}" />
+                  <Button Grid.Column="1" Content="扫描保存目录" Classes="secondary" Command="{Binding SyncDirectoryCommand}" IsEnabled="{Binding CanMutateRecords}" />
+                  <Button Grid.Column="2" Content="清空全部记录" Classes="ghost" Command="{Binding DeleteAllRecordsCommand}" IsEnabled="{Binding CanMutateRecords}" />
                 </Grid>
               </Border>
               <ComboBox Width="180" HorizontalAlignment="Left" ItemsSource="{Binding RecordFilterOptions}" SelectedItem="{Binding SelectedRecordFilter, Mode=TwoWay}" />
 
-              <Border Classes="dashboard-panel" IsVisible="{Binding HasVisibleRecordGroups}">
+              <Border Classes="card" IsVisible="{Binding HasVisibleRecordGroups}">
                 <ItemsControl ItemsSource="{Binding VisibleRecordGroups}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:RecordAnimeGroupViewModel">
-                      <Border Classes="muted-row" Margin="0,0,0,8">
+                      <Border Classes="inset" Margin="0,0,0,8">
                         <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-                          <Button Classes="ghost-action" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                          <Button Classes="ghost" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                                   Command="{Binding $parent[ItemsControl].((vm:DanmuDownloadPageViewModel)DataContext).OpenRecordGroupCommand}" CommandParameter="{Binding}">
                             <StackPanel Spacing="2">
                               <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
-                              <TextBlock Text="{Binding SummaryText}" Classes="body-muted" TextWrapping="Wrap" />
+                              <TextBlock Text="{Binding SummaryText}" Classes="cap" TextWrapping="Wrap" />
                               <StackPanel Orientation="Horizontal" Spacing="10">
-                                <TextBlock Text="{Binding DownloadedEpisodeCount, StringFormat='已下载 {0}'}" Classes="body-muted" />
-                                <TextBlock Text="{Binding FailedCount, StringFormat='失败 {0}'}" Classes="body-muted" />
-                                <TextBlock Text="{Binding SkippedCount, StringFormat='跳过 {0}'}" Classes="body-muted" />
+                                <TextBlock Text="{Binding DownloadedEpisodeCount, StringFormat='已下载 {0}'}" Classes="cap" />
+                                <TextBlock Text="{Binding FailedCount, StringFormat='失败 {0}'}" Classes="cap" />
+                                <TextBlock Text="{Binding SkippedCount, StringFormat='跳过 {0}'}" Classes="cap" />
                               </StackPanel>
                             </StackPanel>
                           </Button>
-                          <Button Grid.Column="1" Content="删除" Classes="danger-action" Command="{Binding $parent[ItemsControl].((vm:DanmuDownloadPageViewModel)DataContext).DeleteRecordGroupCommand}" CommandParameter="{Binding}" IsEnabled="{Binding $parent[ItemsControl].((vm:DanmuDownloadPageViewModel)DataContext).CanMutateRecords}" />
-                          <TextBlock Grid.Column="2" Text="›" Classes="body-muted" FontSize="20" VerticalAlignment="Center" />
+                          <Button Grid.Column="1" Content="删除" Classes="danger" Command="{Binding $parent[ItemsControl].((vm:DanmuDownloadPageViewModel)DataContext).DeleteRecordGroupCommand}" CommandParameter="{Binding}" IsEnabled="{Binding $parent[ItemsControl].((vm:DanmuDownloadPageViewModel)DataContext).CanMutateRecords}" />
+                          <TextBlock Grid.Column="2" Text="›" Classes="cap" FontSize="20" VerticalAlignment="Center" />
                         </Grid>
                       </Border>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
               </Border>
-              <Border Classes="dashboard-panel" IsVisible="{Binding !HasVisibleRecordGroups}" Padding="20">
-                <TextBlock Text="暂无下载记录；下载完成后会出现在这里，也可扫描保存目录导入已有文件。" Classes="body-muted" HorizontalAlignment="Center" TextWrapping="Wrap" />
+              <Border Classes="card" IsVisible="{Binding !HasVisibleRecordGroups}">
+                <TextBlock Text="暂无下载记录；下载完成后会出现在这里，也可扫描保存目录导入已有文件。" Classes="cap" HorizontalAlignment="Center" TextWrapping="Wrap" />
               </Border>
             </StackPanel>
 
             <StackPanel x:Name="RecordEpisodeStage" Spacing="12" IsVisible="False">
-              <Border Classes="dashboard-panel">
+              <Border Classes="card">
                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-                  <Button Content="返回剧列表" Classes="back-action" Command="{Binding BackToRecordAnimeListCommand}" VerticalAlignment="Center" />
+                  <Button Content="返回剧列表" Classes="secondary" Command="{Binding BackToRecordAnimeListCommand}" VerticalAlignment="Center" />
                   <StackPanel Grid.Column="1" Spacing="2">
-                    <TextBlock Text="{Binding SelectedRecordGroup.Title}" Classes="section-title" TextWrapping="Wrap" />
-                    <TextBlock Text="{Binding SelectedRecordGroup.DetailSummaryText}" Classes="body-muted" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding SelectedRecordGroup.Title}" Classes="section" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding SelectedRecordGroup.DetailSummaryText}" Classes="cap" TextWrapping="Wrap" />
                   </StackPanel>
-                  <Button Grid.Column="2" Content="删除整部剧" Classes="danger-action" Command="{Binding DeleteRecordGroupCommand}" CommandParameter="{Binding SelectedRecordGroup}" IsEnabled="{Binding CanMutateRecords}" />
+                  <Button Grid.Column="2" Content="删除整部剧" Classes="danger" Command="{Binding DeleteRecordGroupCommand}" CommandParameter="{Binding SelectedRecordGroup}" IsEnabled="{Binding CanMutateRecords}" />
                 </Grid>
               </Border>
 
-              <Border Classes="dashboard-panel" IsVisible="{Binding HasSelectedRecordGroup}">
+              <Border Classes="card" IsVisible="{Binding HasSelectedRecordGroup}">
                 <ItemsControl ItemsSource="{Binding SelectedRecordGroup.Episodes}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:RecordEpisodeGroupViewModel">
-                      <Border Classes="muted-row" Margin="0,0,0,6">
-                        <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto" ColumnSpacing="8">
+                      <Border Classes="rule">
+                        <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto" ColumnSpacing="8" Margin="0,6">
                           <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" VerticalAlignment="Center" />
-                          <TextBlock Grid.Column="1" Text="{Binding EpisodeNo, StringFormat='第{0}集'}" Classes="mono-text body-muted" VerticalAlignment="Center" />
-                          <TextBlock Grid.Column="2" Text="{Binding StatusLabel}" Classes="body-muted" FontWeight="SemiBold" VerticalAlignment="Center" />
+                          <TextBlock Grid.Column="1" Text="{Binding EpisodeNo, StringFormat='第{0}集'}" Classes="mono cap" VerticalAlignment="Center" />
+                          <TextBlock Grid.Column="2" Text="{Binding StatusLabel}" Classes="cap" FontWeight="SemiBold" VerticalAlignment="Center" />
                           <StackPanel Grid.Column="3" Spacing="1">
                             <TextBlock Text="{Binding Title}" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Text="{Binding TimeText}" Classes="body-muted" FontSize="10" />
+                            <TextBlock Text="{Binding TimeText}" Classes="cap" FontSize="10" />
                           </StackPanel>
-                          <Button Grid.Column="4" Content="预览" Classes="compact-action" IsEnabled="{Binding CanPreview}"
+                          <Button Grid.Column="4" Content="预览" Classes="compact" IsEnabled="{Binding CanPreview}"
                                   Command="{Binding $parent[ItemsControl].((vm:DanmuDownloadPageViewModel)DataContext).OpenPreviewCommand}" CommandParameter="{Binding}" />
-                          <Button Grid.Column="5" Content="删除" Classes="ghost-action"
+                          <Button Grid.Column="5" Content="删除" Classes="ghost"
                                   Command="{Binding $parent[ItemsControl].((vm:DanmuDownloadPageViewModel)DataContext).DeleteRecordEpisodeCommand}" CommandParameter="{Binding}" />
                         </Grid>
                       </Border>
@@ -305,18 +316,19 @@
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
               </Border>
-              <Button Content="删除所选（含文件）" Classes="secondary-action" HorizontalAlignment="Left" Command="{Binding DeleteSelectedCommand}" IsEnabled="{Binding CanMutateRecords}" />
+              <Button Content="删除所选（含文件）" Classes="secondary" HorizontalAlignment="Left" Command="{Binding DeleteSelectedCommand}" IsEnabled="{Binding CanMutateRecords}" />
             </StackPanel>
 
-            <Border Classes="dashboard-panel" IsVisible="{Binding IsPreviewOpen}">
+            <Border Classes="card" IsVisible="{Binding IsPreviewOpen}">
               <StackPanel Spacing="8">
                 <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-                  <TextBlock Text="弹幕内容预览" Classes="section-title" />
+                  <TextBlock Text="弹幕内容预览" Classes="section" />
                   <ComboBox Grid.Column="1" Width="110" ItemsSource="{Binding PreviewFilterOptions}" SelectedItem="{Binding SelectedPreviewFilter, Mode=TwoWay}" />
-                  <Button Grid.Column="2" Content="关闭预览" Classes="ghost-action" Command="{Binding ClosePreviewCommand}" />
+                  <Button Grid.Column="2" Content="关闭预览" Classes="ghost" Command="{Binding ClosePreviewCommand}" />
                 </Grid>
-                <TextBlock Text="{Binding PreviewError}" TextWrapping="Wrap" IsVisible="{Binding HasPreviewError}" />
-                <TextBlock Text="{Binding PreviewSummaryText}" Classes="body-muted" IsVisible="{Binding !HasPreviewError}" />
+                <Border Classes="rule" />
+                <TextBlock Text="{Binding PreviewError}" Classes="danger-text" TextWrapping="Wrap" IsVisible="{Binding HasPreviewError}" />
+                <TextBlock Text="{Binding PreviewSummaryText}" Classes="cap" IsVisible="{Binding !HasPreviewError}" />
                 <ListBox ItemsSource="{Binding PreviewRows}" MaxHeight="360" Background="Transparent" BorderThickness="0">
                   <ListBox.ItemsPanel>
                     <ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate>
@@ -325,10 +337,10 @@
                     <DataTemplate x:DataType="vm:PreviewItemRowViewModel">
                       <Border IsVisible="{Binding IsVisible}" Padding="0,2">
                         <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*" ColumnSpacing="10">
-                          <TextBlock Text="{Binding TimeText}" Classes="mono-text body-muted" />
-                          <TextBlock Grid.Column="1" Text="{Binding ModeLabel}" Classes="body-muted" />
-                          <TextBlock Grid.Column="2" Text="{Binding Source}" Classes="body-muted" />
-                          <TextBlock Grid.Column="3" Text="{Binding Color}" Classes="mono-text body-muted" />
+                          <TextBlock Text="{Binding TimeText}" Classes="mono cap" />
+                          <TextBlock Grid.Column="1" Text="{Binding ModeLabel}" Classes="cap" />
+                          <TextBlock Grid.Column="2" Text="{Binding Source}" Classes="cap" />
+                          <TextBlock Grid.Column="3" Text="{Binding Color}" Classes="mono cap" />
                           <TextBlock Grid.Column="4" Text="{Binding Text}" TextWrapping="Wrap" />
                         </Grid>
                       </Border>
@@ -343,67 +355,69 @@
         <!-- 下载设置 -->
         <ScrollViewer x:Name="SettingsPanel" VerticalScrollBarVisibility="Auto">
           <StackPanel Spacing="12">
-            <Border Classes="dashboard-panel">
+            <Border Classes="card">
               <StackPanel Spacing="8">
-                <TextBlock Text="保存目录" Classes="section-title" />
+                <TextBlock Text="保存目录" Classes="section" />
                 <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-                  <TextBox Text="{Binding SaveDirectoryDisplay, Mode=OneWay}" IsReadOnly="True" />
-                  <Button Grid.Column="1" Content="选择目录" Classes="secondary-action" Command="{Binding PickDirectoryCommand}" />
-                  <Button Grid.Column="2" Content="打开目录" Classes="ghost-action" Command="{Binding OpenSaveDirectoryCommand}" />
+                  <TextBox Classes="field" Text="{Binding SaveDirectoryDisplay, Mode=OneWay}" IsReadOnly="True" />
+                  <Button Grid.Column="1" Content="选择目录" Classes="secondary" Command="{Binding PickDirectoryCommand}" />
+                  <Button Grid.Column="2" Content="打开目录" Classes="ghost" Command="{Binding OpenSaveDirectoryCommand}" />
                 </Grid>
-                <TextBlock Text="下载会按动漫名建立子目录，弹幕文件保存在其中。" Classes="body-muted" />
+                <TextBlock Text="下载会按动漫名建立子目录，弹幕文件保存在其中。" Classes="cap" />
               </StackPanel>
             </Border>
 
-            <Border Classes="dashboard-panel">
+            <Border Classes="card">
               <StackPanel Spacing="8">
-                <TextBlock Text="格式与命名" Classes="section-title" />
+                <TextBlock Text="格式与命名" Classes="section" />
+                <Border Classes="rule" />
                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-                  <TextBlock Text="默认格式" Classes="body-muted" VerticalAlignment="Center" />
+                  <TextBlock Text="默认格式" Classes="cap" VerticalAlignment="Center" />
                   <ComboBox Grid.Column="1" MinWidth="220" HorizontalAlignment="Left" ItemsSource="{Binding FormatOptions}" SelectedItem="{Binding SelectedFormat, Mode=TwoWay}" />
                 </Grid>
                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-                  <TextBlock Text="冲突策略" Classes="body-muted" VerticalAlignment="Center" />
+                  <TextBlock Text="冲突策略" Classes="cap" VerticalAlignment="Center" />
                   <ComboBox Grid.Column="1" MinWidth="220" HorizontalAlignment="Left" ItemsSource="{Binding ConflictOptions}" SelectedItem="{Binding SelectedConflict, Mode=TwoWay}" />
                 </Grid>
                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-                  <TextBlock Text="文件名模板" Classes="body-muted" VerticalAlignment="Top" Margin="0,4,0,0" />
+                  <TextBlock Text="文件名模板" Classes="cap" VerticalAlignment="Top" Margin="0,4,0,0" />
                   <StackPanel Grid.Column="1" Spacing="6">
-                    <TextBox Text="{Binding TemplateText, Mode=TwoWay}" Watermark="文件名模板" FontFamily="Cascadia Mono,Consolas" />
+                    <TextBox Classes="field mono" Text="{Binding TemplateText, Mode=TwoWay}" Watermark="文件名模板" />
                     <StackPanel Orientation="Horizontal" Spacing="6">
-                      <Button Content="标准" Classes="compact-action" Command="{Binding UsePresetCommand}" CommandParameter="{}{animeTitle}_E{episodeNo2}_{episodeTitle}_{source}.{ext}" />
-                      <Button Content="简洁" Classes="compact-action" Command="{Binding UsePresetCommand}" CommandParameter="{}{animeTitle}-第{episodeNo}集.{ext}" />
-                      <Button Content="按来源" Classes="compact-action" Command="{Binding UsePresetCommand}" CommandParameter="{}{animeTitle}_[{source}]_E{episodeNo2}_{episodeTitle}.{ext}" />
-                      <Button Content="带日期" Classes="compact-action" Command="{Binding UsePresetCommand}" CommandParameter="{}{animeTitle}_E{episodeNo2}_{date}_{source}.{ext}" />
-                      <Button Content="恢复默认" Classes="compact-action" Command="{Binding UseDefaultTemplateCommand}" />
+                      <Button Content="标准" Classes="compact" Command="{Binding UsePresetCommand}" CommandParameter="{}{animeTitle}_E{episodeNo2}_{episodeTitle}_{source}.{ext}" />
+                      <Button Content="简洁" Classes="compact" Command="{Binding UsePresetCommand}" CommandParameter="{}{animeTitle}-第{episodeNo}集.{ext}" />
+                      <Button Content="按来源" Classes="compact" Command="{Binding UsePresetCommand}" CommandParameter="{}{animeTitle}_[{source}]_E{episodeNo2}_{episodeTitle}.{ext}" />
+                      <Button Content="带日期" Classes="compact" Command="{Binding UsePresetCommand}" CommandParameter="{}{animeTitle}_E{episodeNo2}_{date}_{source}.{ext}" />
+                      <Button Content="恢复默认" Classes="compact" Command="{Binding UseDefaultTemplateCommand}" />
                     </StackPanel>
-                    <TextBlock Text="占位符：{animeTitle} {episodeTitle} {episodeNo} {episodeNo2} {episodeNo3} {episodeId} {source} {format} {ext} {date} {datetime}" Classes="body-muted" TextWrapping="Wrap" />
-                    <TextBlock Text="示例预览" Classes="body-muted" />
-                    <TextBlock Text="{Binding TemplatePreview}" Classes="mono-text" TextWrapping="Wrap" />
+                    <TextBlock Text="占位符：{animeTitle} {episodeTitle} {episodeNo} {episodeNo2} {episodeNo3} {episodeId} {source} {format} {ext} {date} {datetime}" Classes="cap" TextWrapping="Wrap" />
+                    <TextBlock Text="示例预览" Classes="cap" />
+                    <TextBlock Text="{Binding TemplatePreview}" Classes="mono" TextWrapping="Wrap" />
                   </StackPanel>
                 </Grid>
               </StackPanel>
             </Border>
 
-            <Border Classes="dashboard-panel">
+            <Border Classes="card">
               <StackPanel Spacing="8">
-                <TextBlock Text="下载流控" Classes="section-title" />
+                <TextBlock Text="下载流控" Classes="section" />
+                <Border Classes="rule" />
                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-                  <TextBlock Text="流控预设" Classes="body-muted" VerticalAlignment="Center" />
+                  <TextBlock Text="流控预设" Classes="cap" VerticalAlignment="Center" />
                   <ComboBox Grid.Column="1" MinWidth="220" HorizontalAlignment="Left" ItemsSource="{Binding ThrottleOptions}" SelectedItem="{Binding SelectedThrottle, Mode=TwoWay}" />
                 </Grid>
-                <TextBlock Text="保守：请求间隔 2s+抖动，每 8 集休息 30s；均衡：1.4s、每 10 集休息 20s；快速：0.9s、每 12 集休息 12s。下载期间核心限流 RATE_LIMIT_MAX_REQUESTS 会临时改为 0，结束后自动恢复。" Classes="body-muted" TextWrapping="Wrap" />
+                <TextBlock Text="保守：请求间隔 2s+抖动，每 8 集休息 30s；均衡：1.4s、每 10 集休息 20s；快速：0.9s、每 12 集休息 12s。下载期间核心限流 RATE_LIMIT_MAX_REQUESTS 会临时改为 0，结束后自动恢复。" Classes="cap" TextWrapping="Wrap" />
                 <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="8">
-                  <StackPanel Spacing="2"><TextBlock Text="请求间隔 ms" Classes="body-muted" /><TextBox Text="{Binding CustomBaseDelayMs, Mode=TwoWay}" /></StackPanel>
-                  <StackPanel Grid.Column="1" Spacing="2"><TextBlock Text="抖动上限 ms" Classes="body-muted" /><TextBox Text="{Binding CustomJitterMaxMs, Mode=TwoWay}" /></StackPanel>
-                  <StackPanel Grid.Column="2" Spacing="2"><TextBlock Text="批次大小" Classes="body-muted" /><TextBox Text="{Binding CustomBatchSize, Mode=TwoWay}" /></StackPanel>
-                  <StackPanel Grid.Column="3" Spacing="2"><TextBlock Text="批次休息 ms" Classes="body-muted" /><TextBox Text="{Binding CustomBatchRestMs, Mode=TwoWay}" /></StackPanel>
+                  <StackPanel Spacing="2"><TextBlock Text="请求间隔 ms" Classes="cap" /><TextBox Classes="field" Text="{Binding CustomBaseDelayMs, Mode=TwoWay}" /></StackPanel>
+                  <StackPanel Grid.Column="1" Spacing="2"><TextBlock Text="抖动上限 ms" Classes="cap" /><TextBox Classes="field" Text="{Binding CustomJitterMaxMs, Mode=TwoWay}" /></StackPanel>
+                  <StackPanel Grid.Column="2" Spacing="2"><TextBlock Text="批次大小" Classes="cap" /><TextBox Classes="field" Text="{Binding CustomBatchSize, Mode=TwoWay}" /></StackPanel>
+                  <StackPanel Grid.Column="3" Spacing="2"><TextBlock Text="批次休息 ms" Classes="cap" /><TextBox Classes="field" Text="{Binding CustomBatchRestMs, Mode=TwoWay}" /></StackPanel>
                 </Grid>
                 <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
-                  <StackPanel Spacing="2"><TextBlock Text="退避基础 ms" Classes="body-muted" /><TextBox Text="{Binding CustomBackoffBaseMs, Mode=TwoWay}" /></StackPanel>
-                  <StackPanel Grid.Column="1" Spacing="2"><TextBlock Text="退避上限 ms" Classes="body-muted" /><TextBox Text="{Binding CustomBackoffMaxMs, Mode=TwoWay}" /></StackPanel>
+                  <StackPanel Spacing="2"><TextBlock Text="退避基础 ms" Classes="cap" /><TextBox Classes="field" Text="{Binding CustomBackoffBaseMs, Mode=TwoWay}" /></StackPanel>
+                  <StackPanel Grid.Column="1" Spacing="2"><TextBlock Text="退避上限 ms" Classes="cap" /><TextBox Classes="field" Text="{Binding CustomBackoffMaxMs, Mode=TwoWay}" /></StackPanel>
                 </Grid>
-                <Button Content="应用自定义流控" Classes="secondary-action" HorizontalAlignment="Left" Command="{Binding ApplyCustomThrottleCommand}" />
+                <Button Content="应用自定义流控" Classes="secondary" HorizontalAlignment="Left" Command="{Binding ApplyCustomThrottleCommand}" />
               </StackPanel>
             </Border>
           </StackPanel>

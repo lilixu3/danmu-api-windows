@@ -537,6 +537,110 @@ public sealed class DanmuDownloadPageViewModelTests : IDisposable
         Assert.True(recordEpisodeStage.IsVisible, "切换后记录分集应可见");
     }
 
+    /// <summary>
+    /// 下载页重构后的视觉契约（不靠看图）：
+    /// 分区选择用 rail-list、卡片统一 card、行分隔统一 rule，
+    /// 并且四个分区的 ScrollViewer 始终互斥可见。
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void DanmuDownloadViewUsesSharedShellVocabulary(bool dark)
+    {
+        using var fixture = new DownloadFixture();
+        var viewModel = fixture.CreateViewModel();
+        var view = new DanmuDownloadView { DataContext = viewModel };
+        var window = new Window
+        {
+            Width = 1280,
+            Height = 800,
+            Content = view,
+            Padding = new Thickness(24),
+            RequestedThemeVariant = dark ? Avalonia.Styling.ThemeVariant.Dark : Avalonia.Styling.ThemeVariant.Light,
+        };
+        window.Show();
+        try
+        {
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+
+            var sectionList = view.FindControl<ListBox>("SectionList")!;
+            Assert.Contains("rail-list", sectionList.Classes);
+            Assert.Equal(4, sectionList.ItemCount);
+
+            var headerTexts = view.GetVisualDescendants().OfType<TextBlock>()
+                .Select(block => block.Text)
+                .ToList();
+            Assert.Contains("弹幕下载", headerTexts);
+
+            // 旧词汇必须彻底退场：旧容器与旧按钮都是「同一元素两种外观」的来源。
+            var borders = view.GetVisualDescendants().OfType<Border>().ToList();
+            Assert.DoesNotContain(borders, border => border.Classes.Contains("dashboard-panel"));
+            Assert.DoesNotContain(borders, border => border.Classes.Contains("muted-row"));
+            Assert.Contains(borders, border => border.Classes.Contains("card"));
+
+            var buttons = view.GetVisualDescendants().OfType<Button>().ToList();
+            foreach (var legacy in new[] { "primary-action", "secondary-action", "ghost-action", "compact-action", "back-action", "danger-action" })
+            {
+                Assert.DoesNotContain(buttons, button => button.Classes.Contains(legacy));
+            }
+
+            // 四个分区互斥可见：任意时刻只能有一个 ScrollViewer 亮着。
+            var panels = new[]
+            {
+                view.FindControl<ScrollViewer>("SearchPanel")!,
+                view.FindControl<ScrollViewer>("QueuePanel")!,
+                view.FindControl<ScrollViewer>("RecordsPanel")!,
+                view.FindControl<ScrollViewer>("SettingsPanel")!,
+            };
+            Assert.Single(panels, panel => panel.IsVisible);
+
+            foreach (var section in viewModel.SectionOptions)
+            {
+                viewModel.SelectedSectionOption = section;
+                Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                window.UpdateLayout();
+                var expected = viewModel.SelectedSectionOption.Value switch
+                {
+                    DanmuDownloadSection.Search => panels[0],
+                    DanmuDownloadSection.Queue => panels[1],
+                    DanmuDownloadSection.Records => panels[2],
+                    _ => panels[3],
+                };
+                Assert.Same(expected, Assert.Single(panels, panel => panel.IsVisible));
+                Assert.True(expected.Bounds.Width > 0, $"{section.Title} 分区没有实际宽度");
+                Assert.True(expected.Bounds.Right <= window.Width, $"{section.Title} 分区横向溢出：{expected.Bounds}");
+            }
+
+            // 回到搜索分区并检查关键控件确实可点（宽度是实测出来的，不是声明值）。
+            viewModel.SelectedSectionOption = viewModel.SectionOptions[0];
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+            var startDownload = view.FindControl<Button>("StartDownloadButton");
+            Assert.NotNull(startDownload);
+            Assert.Equal("开始下载", startDownload!.Content);
+            Assert.Contains("primary", startDownload.Classes);
+            // 该按钮只在「剧集阶段且确实有剧集行」时才被实例化（宿主 Border 绑 HasEpisodeRows），
+            // 所以先走真实的搜索 → 打开动漫两步，再验证它真的被测出宽度。
+            viewModel.Keyword = "测试番剧";
+            viewModel.SearchCommand.Execute(null);
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            var animeRow = Assert.Single(viewModel.AnimeRows);
+            viewModel.OpenAnimeCommand.Execute(animeRow);
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+
+            Assert.Equal(DownloadSearchStage.EpisodeList, viewModel.CurrentStage);
+            Assert.True(viewModel.HasEpisodeRows, "打开动漫后应加载出剧集行");
+            Assert.True(startDownload.IsVisible, "剧集阶段应显示开始下载按钮");
+            Assert.True(startDownload.Bounds.Width > 0, $"开始下载按钮必须实际测量出宽度，实际 {startDownload.Bounds}");
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
     private sealed class StubRuntimeController : IRuntimeController
     {
         public RuntimeSnapshot Snapshot { get; } = new(DesktopRuntimeState.Running, 9321, 1, "test");

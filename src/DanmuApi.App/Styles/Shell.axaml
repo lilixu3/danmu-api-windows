@@ -103,6 +103,39 @@
     <Setter Property="Padding" Value="13,11" />
   </Style>
 
+  <!-- 内嵌卡片：旧 dashboard-panel 是 8 / 18。card 的圆角 10 与内边距 14,12
+       在密集页面里每张卡省 12px 高度，所以逐页迁移时形态差异可见但可接受；
+       未迁移页面继续吃 App.axaml 的旧值，互不影响。 -->
+  <Style Selector="Border.card.inset-card">
+    <Setter Property="Background" Value="{DynamicResource SurfaceMutedBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="12,10" />
+  </Style>
+
+  <!-- 阶段/分区页头：标题 + 一行说明 + 右侧操作，页面内多处复用。 -->
+  <Style Selector="Grid.section-head">
+    <Setter Property="ColumnSpacing" Value="12" />
+  </Style>
+
+  <!-- 搜索命中实体卡：旧 anime-card 是 muted 底 + 1px 描边 + 圆角 8。 -->
+  <Style Selector="Button.entity-card, Button.anime-card">
+    <Setter Property="Background" Value="{DynamicResource SurfaceMutedBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="9" />
+    <Setter Property="Padding" Value="9" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Top" />
+  </Style>
+  <Style Selector="Button.entity-card:pointerover /template/ ContentPresenter,
+                   Button.anime-card:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource SurfaceHoverBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+  </Style>
+
   <!-- 分类侧栏容器 -->
   <Style Selector="Border.rail">
     <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
