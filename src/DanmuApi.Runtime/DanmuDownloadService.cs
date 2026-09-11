@@ -184,10 +184,6 @@ public static class DanmuFilePreviewParser
 
     private static DanmuFilePreview ParseXml(byte[] payload, string fileName, string relativePath, long bytes, int previewLimit)
     {
-        var items = new List<DanmuPreviewItem>();
-        var count = 0;
-        string? parseError = null;
-
         var settings = new XmlReaderSettings
         {
             DtdProcessing = DtdProcessing.Prohibit,
@@ -196,6 +192,50 @@ public static class DanmuFilePreviewParser
             IgnoreProcessingInstructions = true,
         };
 
+        if (TryReadXml(payload, settings, previewLimit, out var items, out var count, out var strictError))
+        {
+            return new DanmuFilePreview(
+                DanmuDownloadFormat.Xml, fileName, relativePath, bytes, count, previewLimit,
+                count > items.Count, items, null);
+        }
+
+        // 严格解析失败时，用内存归一化后的副本再试一次：弹幕正文里的裸 & 、裸 <
+        // 与 XML 1.0 非法控制字符会让整篇解析失败（实测三类都会），但文件本身是好的，
+        // 直接报警告会让用户以为这一集下载坏了，而且拿不到弹幕条数。
+        // 归一化只作用于内存副本：写盘的字节始终是核心返回的原样内容，绝不改用户文件。
+        if (TryReadXml(TolerantXml.Normalize(payload), settings, previewLimit, out var lenientItems, out var lenientCount, out _))
+        {
+            return new DanmuFilePreview(
+                DanmuDownloadFormat.Xml, fileName, relativePath, bytes, lenientCount, previewLimit,
+                lenientCount > lenientItems.Count, lenientItems, null);
+        }
+
+        // 宽松解析也失败：沿用严格解析的原始错误，不做掩盖（诊断信息不得丢弃）。
+        var message = strictError is XmlException xml
+            ? $"XML 解析失败：{xml.Message}"
+            : strictError is null
+                ? "XML 解析失败"
+                : $"读取 XML 文件失败: {strictError.Message}";
+        return new DanmuFilePreview(
+            DanmuDownloadFormat.Xml, fileName, relativePath, bytes, 0, previewLimit,
+            false, [], message);
+    }
+
+    /// <summary>
+    /// 用给定的 XmlReaderSettings 读一遍 &lt;d&gt; 条目。成功返回 true，
+    /// 失败时把异常交给调用方（严格/宽松两次尝试共用同一套抽取逻辑）。
+    /// </summary>
+    private static bool TryReadXml(
+        byte[] payload,
+        XmlReaderSettings settings,
+        int previewLimit,
+        out List<DanmuPreviewItem> items,
+        out int count,
+        out Exception? error)
+    {
+        items = [];
+        count = 0;
+        error = null;
         try
         {
             using var stream = new MemoryStream(payload);
@@ -215,7 +255,7 @@ public static class DanmuFilePreviewParser
                         currentP = null;
                     }
                 }
-                else if (reader.NodeType == XmlNodeType.Text && currentP is not null)
+                else if (currentP is not null && reader.NodeType is XmlNodeType.Text or XmlNodeType.CDATA)
                 {
                     text.Append(reader.Value);
                 }
@@ -225,27 +265,164 @@ public static class DanmuFilePreviewParser
                     currentP = null;
                 }
             }
-        }
-        catch (XmlException error)
-        {
-            parseError = $"XML 解析失败：{error.Message}";
-        }
-        catch (Exception error) when (error is IOException or ArgumentException)
-        {
-            parseError = $"读取 XML 文件失败: {error.Message}";
-        }
 
-        return new DanmuFilePreview(
-            DanmuDownloadFormat.Xml, fileName, relativePath, bytes, count, previewLimit,
-            count > items.Count, items, parseError);
+            return true;
+        }
+        catch (Exception exception) when (exception is XmlException or IOException or ArgumentException)
+        {
+            items = [];
+            count = 0;
+            error = exception;
+            return false;
+        }
     }
 
     private static void AppendItem(List<DanmuPreviewItem> items, int index, string? p, string text, int previewLimit)
-    {
-        if (items.Count < previewLimit)
+    {        if (items.Count < previewLimit)
         {
             items.Add(BuildPreviewItem(index, p ?? string.Empty, text));
         }
+    }
+
+    /// <summary>
+    /// XML 容错归一化：把弹幕正文里高频出现、但会让严格解析整篇失败的三种情况
+    /// 就地修好，仅用于内存中的再次解析（<b>绝不写回文件</b>）。
+    ///
+    /// 处理三类（都由实测确定，见 DanmuDownloadServiceTests.XmlTolerance*）：
+    /// 1. 裸 <c>&amp;</c>：弹幕正文里写「A & B」是常态，改成 <c>&amp;amp;</c>；
+    ///    已经是合法实体的（<c>&amp;amp;</c> / <c>&amp;#38;</c> / <c>&amp;#x26;</c>）原样保留。
+    /// 2. 裸 <c>&lt;</c>：只在「后面不是标签起始字符」时转义，避免破坏真实标签。
+    /// 3. XML 1.0 非法控制字符：丢弃（<c>\t \n \r</c> 合法，保留）。
+    ///
+    /// 声明里的 encoding 会被改写成 UTF-8：归一化后重新编码成 UTF-8 字节，
+    /// 若声明仍写着别的编码，XmlReader 会因为编码不符再次失败。
+    /// </summary>
+    internal static class TolerantXml
+    {
+        internal static byte[] Normalize(byte[] payload)
+        {
+            if (payload.Length == 0)
+            {
+                return payload;
+            }
+
+            var text = Encoding.UTF8.GetString(payload);
+            var builder = new StringBuilder(text.Length + 16);
+            for (var index = 0; index < text.Length; index++)
+            {
+                var current = text[index];
+                if (current == '&')
+                {
+                    builder.Append(IsEntityStart(text, index) ? "&" : "&amp;");
+                    continue;
+                }
+
+                if (current == '<' && !IsTagStart(text, index))
+                {
+                    builder.Append("&lt;");
+                    continue;
+                }
+
+                if (IsIllegalXmlChar(current))
+                {
+                    continue;
+                }
+
+                builder.Append(current);
+            }
+
+            var normalized = RewriteEncodingDeclaration(builder.ToString());
+            return Encoding.UTF8.GetBytes(normalized);
+        }
+
+        /// <summary>当前位置的 <c>&amp;</c> 是否已经是一个合法实体的开头。</summary>
+        private static bool IsEntityStart(string text, int index)
+        {
+            var rest = text.AsSpan(index + 1);
+            foreach (var named in NamedEntities)
+            {
+                if (rest.StartsWith(named, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            if (rest.Length < 3 || rest[0] != '#')
+            {
+                return false;
+            }
+
+            var hexadecimal = rest[1] is 'x' or 'X';
+            var digits = hexadecimal ? rest[2..] : rest[1..];
+            var length = 0;
+            while (length < digits.Length &&
+                   (hexadecimal ? Uri.IsHexDigit(digits[length]) : char.IsAsciiDigit(digits[length])))
+            {
+                length++;
+            }
+
+            // 必须至少有 1 位数字，且紧跟着分号（&#38; / &#x26;）。
+            return length > 0 && length < digits.Length && digits[length] == ';';
+        }
+
+        /// <summary>当前位置的 <c>&lt;</c> 是否是一个标签的开头（&lt;name / &lt;/ / &lt;? / &lt;!）。</summary>
+        private static bool IsTagStart(string text, int index)
+        {
+            var next = index + 1 < text.Length ? text[index + 1] : '\0';
+            return next == '/' || next == '?' || next == '!' || char.IsAsciiLetter(next);
+        }
+
+        /// <summary>XML 1.0 不允许的控制字符（制表/换行/回车除外）。</summary>
+        private static bool IsIllegalXmlChar(char value) =>
+            value is < '\u0020' and not ('\t' or '\n' or '\r') || value is '\uFFFE' or '\uFFFF';
+
+        private static string RewriteEncodingDeclaration(string text)
+        {
+            const string marker = "encoding=";
+            if (!text.StartsWith("<?xml", StringComparison.Ordinal))
+            {
+                return text;
+            }
+
+            var declarationEnd = text.IndexOf("?>", StringComparison.Ordinal);
+            if (declarationEnd < 0)
+            {
+                return text;
+            }
+
+            var declaration = text[..declarationEnd];
+            var markerIndex = declaration.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (markerIndex < 0)
+            {
+                return text;
+            }
+
+            var quoteStart = declaration.IndexOfAny(['"', '\''], markerIndex + marker.Length);
+            if (quoteStart < 0)
+            {
+                return text;
+            }
+
+            var quoteEnd = declaration.IndexOf(declaration[quoteStart], quoteStart + 1);
+            if (quoteEnd < 0)
+            {
+                return text;
+            }
+
+            var current = declaration[(quoteStart + 1)..quoteEnd];
+            if (string.Equals(current, "UTF-8", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(current, "utf8", StringComparison.OrdinalIgnoreCase))
+            {
+                return text;
+            }
+
+            return string.Concat(
+                text.AsSpan(0, quoteStart + 1),
+                "UTF-8",
+                text.AsSpan(quoteEnd));
+        }
+
+        private static readonly string[] NamedEntities = ["amp;", "lt;", "gt;", "quot;", "apos;"];
     }
 
     private static DanmuFilePreview ParseJson(

@@ -89,10 +89,25 @@
                                 <TextBlock Text="{Binding PosterFallbackText}" FontSize="30" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
                               </Border>
                             </Grid>
-                            <TextBlock Text="{Binding DisplayTitle}" FontWeight="SemiBold" TextWrapping="Wrap" MaxHeight="42" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Text="{Binding SourceText}" Foreground="{DynamicResource AccentBrush}" FontSize="12" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Text="{Binding MetaText}" Classes="cap" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Text="{Binding HistoryText}" Classes="cap" TextWrapping="Wrap" MaxHeight="30" TextTrimming="CharacterEllipsis" IsVisible="{Binding HasHistory}" />
+                            <!-- 下面四行的行高全部固定，不按内容收缩：
+                                 标题一行/两行、有无「历史下载」都会改变卡片高度，
+                                 同一排卡片参差不齐很难看。固定行高让每张卡片等高。 -->
+                            <TextBlock Text="{Binding DisplayTitle}"
+                                       FontWeight="SemiBold"
+                                       Height="38"
+                                       TextWrapping="Wrap"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding SourceText}"
+                                       Foreground="{DynamicResource AccentBrush}"
+                                       FontSize="12"
+                                       Height="18"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding MetaText}" Classes="cap" Height="18" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding HistoryText}"
+                                       Classes="cap"
+                                       Height="30"
+                                       TextWrapping="Wrap"
+                                       TextTrimming="CharacterEllipsis" />
                           </StackPanel>
                         </Button>
                       </DataTemplate>
@@ -198,19 +213,30 @@
                   <DataTemplate x:DataType="vm:QueueGroupViewModel">
                     <Border Classes="inset" Margin="0,0,0,8">
                       <StackPanel Spacing="6">
-                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-                          <StackPanel Spacing="2">
+                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+                          <!-- 集列表默认折叠，展开/收起由用户决定；状态按番名记住。 -->
+                          <Button Content="{Binding ExpandToggleText}"
+                                  Classes="compact"
+                                  VerticalAlignment="Center"
+                                  MinWidth="92"
+                                  Command="{Binding $parent[ItemsControl].((vm:DanmuDownloadPageViewModel)DataContext).ToggleQueueGroupCommand}"
+                                  CommandParameter="{Binding}" />
+                          <StackPanel Grid.Column="1" Spacing="2">
                             <TextBlock Text="{Binding AnimeTitle}" FontWeight="SemiBold" TextWrapping="Wrap" />
                             <TextBlock Text="{Binding Detail}" Classes="cap" TextWrapping="Wrap" />
                           </StackPanel>
-                          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                             <TextBlock Text="{Binding ProgressPercent}" Classes="mono cap" />
                             <Button Content="上移" Classes="compact" Command="{Binding $parent[ItemsControl].DataContext.MoveQueueGroupUpCommand}" CommandParameter="{Binding}" />
                             <Button Content="下移" Classes="compact" Command="{Binding $parent[ItemsControl].DataContext.MoveQueueGroupDownCommand}" CommandParameter="{Binding}" />
                           </StackPanel>
-                          <ProgressBar Grid.Column="2" Value="{Binding Progress, Mode=OneWay}" Maximum="1" Width="110" Height="6" VerticalAlignment="Center" />
+                          <ProgressBar Grid.Column="3" Value="{Binding Progress, Mode=OneWay}" Maximum="1" Width="110" Height="6" VerticalAlignment="Center" />
                         </Grid>
-                        <ItemsControl ItemsSource="{Binding Episodes}">
+                        <!-- 折叠时给一行成败概览，不用展开就知道这组的结果分布。 -->
+                        <TextBlock Text="{Binding EpisodesSummaryText}"
+                                   Classes="cap"
+                                   IsVisible="{Binding !IsExpanded}" />
+                        <ItemsControl ItemsSource="{Binding Episodes}" IsVisible="{Binding IsExpanded}">
                           <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:QueueEpisodeItemViewModel">
                               <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8" Margin="0,2">

@@ -74,7 +74,20 @@ public sealed class ConfigurationViewRenderTests
             Assert.True(rail.IsVisible);
             Assert.True(list.Bounds.Width > 0);
             Assert.True(rail.Bounds.Width > 0);
-            Assert.True(detail.Bounds.Width > 0);
+
+            // 详情面板只在选中变量时出现：未选中时整块隐藏、三栏档位的 Auto 列收成 0，
+            // 列表因此独占整行宽度（旧契约是「永远显示一个空卡片 + 一行提示」，已废弃）。
+            Assert.False(detail.IsVisible, "未选中变量时详情面板必须隐藏");
+            Assert.False(model.HasSelectedVariable);
+            if (expectedColumns == 3)
+            {
+                Assert.Equal(0d, detail.Bounds.Width, 0.5);
+                // 详情列收成 0 后，列表宽度必须大于「减去 216 分类栏与 320 详情栏」，
+                // 即那 320 确实还给了列表（列间距的确切语义由 Grid 决定，这里不做精确断言）。
+                Assert.True(
+                    listColumn.Bounds.Width > root.Bounds.Width - 216 - 320,
+                    $"列表未收回详情栏占用的宽度：list={listColumn.Bounds.Width} root={root.Bounds.Width}");
+            }
 
             // 断点收敛：列数、详情面板与列表所在行列。
             Assert.Equal(expectedColumns, root.ColumnDefinitions.Count);
@@ -83,11 +96,19 @@ public sealed class ConfigurationViewRenderTests
             Assert.Equal(expectedColumns == 1 ? 0 : 1, Grid.GetColumn(listColumn));
             Assert.Equal(expectedColumns == 1 ? 1 : 0, Grid.GetRow(listColumn));
 
-            // 任何一档宽度都不允许横向 / 纵向溢出。
+            // 任何一档宽度都不允许横向溢出。
             Assert.True(list.Bounds.Right <= window.Width, $"变量列表溢出：{list.Bounds}");
+            Assert.True(rail.Bounds.Bottom <= window.Height, $"分类栏纵向溢出：{rail.Bounds}");
+
+            // 选中变量后详情面板出现并拿到 320 的固定宽度，且不越界。
+            model.SelectedVariable = model.FilteredVariables.First();
+            window.UpdateLayout();
+            Assert.True(detail.IsVisible, "选中变量后详情面板必须出现");
+            Assert.Equal(320d, detail.Bounds.Width, 0.5);
             Assert.True(detail.Bounds.Right <= window.Width, $"详情面板溢出：{detail.Bounds}");
             Assert.True(detail.Bounds.Bottom <= window.Height, $"详情面板纵向溢出：{detail.Bounds}");
-            Assert.True(rail.Bounds.Bottom <= window.Height, $"分类栏纵向溢出：{rail.Bounds}");
+            model.SelectedVariable = null;
+            window.UpdateLayout();
 
             Save(window, dark, $"config-{(dark ? "dark" : "light")}-{width}");
         }

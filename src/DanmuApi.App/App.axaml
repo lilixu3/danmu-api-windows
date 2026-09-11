@@ -402,11 +402,20 @@
     <Style Selector="ListBoxItem">
       <Setter Property="Padding" Value="8,2" />
     </Style>
+    <!-- 通用悬停底色用 SurfaceHoverBrush。
+         这里以前写的是 LogRowHoverBrush（浅色主题下是 #18202B 的近黑色），
+         而它只对日志页那块深色终端合适，全局生效会让所有列表在浅色主题下
+         变成黑底 + 深色字、完全看不清。深色终端列表的专用值在下面单独限定。 -->
     <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource LogRowHoverBrush}" />
+      <Setter Property="Background" Value="{DynamicResource SurfaceHoverBrush}" />
     </Style>
     <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
       <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+    </Style>
+    <!-- 日志终端是深色面板（LogSurfaceBrush），行文字用 LogTextBrush（浅色），
+         所以它的悬停底色仍用 LogRowHoverBrush，只在这棵子树里生效。 -->
+    <Style Selector="Border.log-terminal ListBoxItem:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource LogRowHoverBrush}" />
     </Style>
     <Style Selector="Border.notice-panel">
       <Setter Property="Background" Value="{DynamicResource WarningSoftBrush}" />

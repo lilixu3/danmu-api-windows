@@ -177,6 +177,60 @@ public sealed class ConfigurationEditorControlTests
         Assert.Equal(CoreEnvEditAction.Cancel, window.Result.Action);
     }
 
+    /// <summary>
+    /// 敏感变量编辑器：默认遮罩，显示/隐藏是输入框内部右侧的一个图标按钮，
+    /// 不再是跟「取消/保存」并列的那个「显示敏感值」文字按钮。
+    /// </summary>
+    [AvaloniaFact]
+    public void SecretEditorHostsEyeToggleInsideTheInput()
+    {
+        var input = new TextBox { Text = "super-secret-token" };
+        var host = UiDialogService.AttachSecretToggle(input);
+
+        // 默认遮罩
+        Assert.Equal('•', input.PasswordChar);
+
+        // 容器里只有输入框和一个按钮，按钮贴在输入框内部右侧
+        var grid = Assert.IsType<Grid>(host);
+        Assert.Equal(2, grid.Children.Count);
+        Assert.Same(input, grid.Children[0]);
+        var toggle = Assert.IsType<Button>(grid.Children[1]);
+        Assert.Equal(Avalonia.Layout.HorizontalAlignment.Right, toggle.HorizontalAlignment);
+        Assert.Equal(Avalonia.Layout.VerticalAlignment.Center, toggle.VerticalAlignment);
+        Assert.Empty(toggle.Content is string ? "有文字内容" : string.Empty);
+        Assert.IsType<Grid>(toggle.Content);
+        // 不是文字按钮
+        Assert.Null(toggle.Content as string);
+        // 右侧留白，长值不会滑到图标底下
+        Assert.True(input.Padding.Right >= 30, $"输入框右侧留白不足：{input.Padding}");
+
+        // 点一下显示明文
+        toggle.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Assert.Equal('\0', input.PasswordChar);
+        Assert.Equal("super-secret-token", input.Text);
+
+        // 再点一下回到遮罩
+        toggle.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Assert.Equal('•', input.PasswordChar);
+    }
+
+    /// <summary>
+    /// 眼睛图标里的斜杠只在「已显示明文」时出现，这样按钮当前状态一眼可辨。
+    /// </summary>
+    [AvaloniaFact]
+    public void SecretEditorEyeSlashReflectsVisibility()
+    {
+        var input = new TextBox { Text = "x" };
+        var host = UiDialogService.AttachSecretToggle(input);
+        var toggle = Assert.IsType<Button>(Assert.IsType<Grid>(host).Children[1]);
+        var icon = Assert.IsType<Grid>(toggle.Content);
+        var slash = Assert.IsType<Avalonia.Controls.Shapes.Path>(icon.Children[2]);
+
+        Assert.False(slash.IsVisible);
+        toggle.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Assert.True(slash.IsVisible);
+    }
+
     private static CoreEnvDefinition Definition(
         string key,
         IReadOnlyList<string>? options = null) =>

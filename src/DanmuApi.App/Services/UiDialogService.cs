@@ -608,28 +608,13 @@ public sealed partial class UiDialogService : IUiDialogService
         }
 
         var owner = GetOwner();
-        var input = new TextBox
-        {
-            Text = initial,
-            PasswordChar = '•',
-            Watermark = "输入配置值",
-            Width = 420,
-        };
-        var visibility = new Button { Content = "显示敏感值", MinWidth = 105 };
-        visibility.Classes.Add("secondary-action");
-        visibility.Click += (_, _) =>
-        {
-            var reveal = input.PasswordChar != '\0';
-            input.PasswordChar = reveal ? '\0' : '•';
-            visibility.Content = reveal ? "隐藏敏感值" : "显示敏感值";
-        };
-        var status = CreateMutedText("已载入当前真实值；输入框默认遮罩，显示操作仅影响本次编辑窗口。");
+        // 敏感值输入框自带眼睛图标（右侧中间），不再单独占一行放「显示敏感值」按钮。
+        var secretEditor = CreateSecretEditor(initial, "输入配置值", out var input);
+        var status = CreateMutedText("已载入当前真实值；输入框默认遮罩，眼睛图标仅影响本次编辑窗口。");
         var cancel = new Button { Content = "取消", IsCancel = true, MinWidth = 80 };
         cancel.Classes.Add("secondary-action");
-        var clear = new Button { Content = "设为空值", MinWidth = 96 };
-        clear.Classes.Add("secondary-action");
-        var delete = new Button { Content = "恢复默认", MinWidth = 96, IsVisible = configured };
-        delete.Classes.Add("danger-action");
+        // 编辑弹窗只保留取消/保存：「恢复默认」与「设为空值」都由配置列表行上的
+        // 「清除」按钮负责，同一个动作不在两处出现（见 ConfigurationEditorWindow 的同一约定）。
         var save = new Button { Content = "替换并保存", IsDefault = true, MinWidth = 110 };
         save.Classes.Add("primary-action");
         var result = CoreEnvEditResult.Cancel();
@@ -649,21 +634,18 @@ public sealed partial class UiDialogService : IUiDialogService
                     new TextBlock { Text = $"编辑 {definition.Key}", FontSize = 20, FontWeight = FontWeight.SemiBold },
                     CreateMutedText(description),
                     status,
-                    input,
-                    visibility,
+                    secretEditor,
                     new StackPanel
                     {
                         Orientation = Orientation.Horizontal,
                         HorizontalAlignment = HorizontalAlignment.Right,
                         Spacing = 8,
-                        Children = { delete, clear, cancel, save },
+                        Children = { cancel, save },
                     },
                 },
             },
         };
         cancel.Click += (_, _) => dialog.Close();
-        clear.Click += (_, _) => { result = CoreEnvEditResult.Set(string.Empty); dialog.Close(); };
-        delete.Click += (_, _) => { result = CoreEnvEditResult.Delete(); dialog.Close(); };
         save.Click += (_, _) =>
         {
             result = string.IsNullOrEmpty(input.Text)

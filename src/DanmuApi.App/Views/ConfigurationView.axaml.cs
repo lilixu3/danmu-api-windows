@@ -76,8 +76,10 @@ public partial class ConfigurationView : UserControl
         switch (mode)
         {
             case LayoutMode.ThreeColumn:
-                // 分类 rail + 变量列表 + 详情面板
-                LayoutRoot.ColumnDefinitions = new ColumnDefinitions("216,*,320");
+                // 分类 rail + 变量列表 + 详情面板。
+                // 详情列用 Auto：面板隐藏（未选中变量）时该列收成 0，
+                // 列表独占剩余宽度；面板自带 Width=320，选中时列宽即 320。
+                LayoutRoot.ColumnDefinitions = new ColumnDefinitions("216,*,Auto");
                 LayoutRoot.RowDefinitions = new RowDefinitions("*");
                 RailHeader.IsVisible = true;
                 CategoryRail.Padding = new Thickness(6);

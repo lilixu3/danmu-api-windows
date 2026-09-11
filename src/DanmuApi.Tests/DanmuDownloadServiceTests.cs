@@ -309,6 +309,114 @@ public sealed class DanmuDownloadServiceTests : IDisposable
         Assert.True(DanmuPayloadInspector.Inspect(binary, DanmuDownloadFormat.DanuniBinPb, "application/octet-stream").Valid);
     }
 
+    /// <summary>
+    /// 弹幕正文里的裸 <c>&amp;</c> / 非法控制字符 / 裸 <c>&lt;</c> 是高频真实情况
+    /// （正文写「A &amp; B」很常见）。这三种以前会让整篇 XML 解析失败，
+    /// 结果是集数虽然下载成功，却挂着一条吓人的「XML 格式检查警告」，
+    /// 而且拿不到弹幕条数。现在用内存归一化容错解析，条数正确且不再报警告。
+    /// </summary>
+    [Theory]
+    [InlineData("裸 & 符号", "<?xml version=\"1.0\"?><i><d p=\"1,1,25,1\">坏 & 内容</d></i>")]
+    [InlineData("非法控制字符", "<?xml version=\"1.0\"?><i><d p=\"1,1,25,1\">a\u000bb</d></i>")]
+    [InlineData("裸 < 符号", "<?xml version=\"1.0\"?><i><d p=\"1,1,25,1\">a < b</d></i>")]
+    [InlineData("多集混合缺陷", "<?xml version=\"1.0\"?><i><d p=\"1,1,25,1\">a & b</d><d p=\"2,1,25,2\">c < d</d></i>")]
+    public void XmlToleranceAcceptsRealWorldTextDefects(string name, string payload)
+    {
+        var result = DanmuPayloadInspector.Inspect(
+            Encoding.UTF8.GetBytes(payload),
+            DanmuDownloadFormat.Xml,
+            "application/xml");
+
+        Assert.True(result.Valid, $"{name} 必须可下载");
+        Assert.Equal(string.Empty, result.Error);
+        Assert.Null(result.Warning);
+        Assert.NotNull(result.Count);
+        Assert.True(result.Count > 0, $"{name} 必须能数出弹幕条数");
+    }
+
+    /// <summary>
+    /// 容错不能把「本来就是合法 XML」的写法改坏：
+    /// 已转义实体、数字实体、CDATA 都必须在容错路径前后给出同样的条数与文字。
+    /// </summary>
+    [Theory]
+    [InlineData("&amp;")]
+    [InlineData("&#38;")]
+    [InlineData("&#x26;")]
+    public void XmlToleranceKeepsValidEntitiesIntact(string entity)
+    {
+        var payload = $"<?xml version=\"1.0\"?><i><d p=\"1,1,25,1\">A {entity} B</d></i>";
+        var result = DanmuPayloadInspector.Inspect(Encoding.UTF8.GetBytes(payload), DanmuDownloadFormat.Xml);
+        var preview = DanmuFilePreviewParser.Parse(
+            Encoding.UTF8.GetBytes(payload), DanmuDownloadFormat.Xml, "a.xml", "a.xml", payload.Length, 5);
+
+        Assert.True(result.Valid);
+        Assert.Null(result.Warning);
+        Assert.Equal(1, result.Count);
+        Assert.Null(preview.ParseError);
+        Assert.Equal("A & B", Assert.Single(preview.Items).Text);
+    }
+
+    [Fact]
+    public void XmlToleranceKeepsCdataAndBomWorking()
+    {
+        var cdata = "<?xml version=\"1.0\"?><i><d p=\"1,1,25,1\"><![CDATA[a & b < c]]></d></i>";
+        var preview = DanmuFilePreviewParser.Parse(
+            Encoding.UTF8.GetBytes(cdata), DanmuDownloadFormat.Xml, "a.xml", "a.xml", cdata.Length, 5);
+        Assert.Null(preview.ParseError);
+        Assert.Equal("a & b < c", Assert.Single(preview.Items).Text);
+
+        var withBom = "\uFEFF<?xml version=\"1.0\"?><i><d p=\"1,1,25,1\">x & y</d></i>";
+        Assert.True(DanmuPayloadInspector.Inspect(Encoding.UTF8.GetBytes(withBom), DanmuDownloadFormat.Xml).Valid);
+    }
+
+    /// <summary>
+    /// 容错不是兜底掩盖：它修不了的缺陷（标签不闭合）仍必须显式给出警告，
+    /// 非 XML（HTML 错误页、核心 JSON 回退）仍必须是硬失败。
+    /// </summary>
+    [Fact]
+    public void XmlToleranceStillReportsWhatItCannotFix()
+    {
+        var unclosed = Encoding.UTF8.GetBytes("<?xml version=\"1.0\"?><i><d p=\"1,1,25,1\">a</i>");
+        var unclosedResult = DanmuPayloadInspector.Inspect(unclosed, DanmuDownloadFormat.Xml);
+        Assert.True(unclosedResult.Valid);
+        Assert.NotNull(unclosedResult.Warning);
+        Assert.Contains("XML 解析失败", unclosedResult.Warning, StringComparison.Ordinal);
+
+        var html = DanmuPayloadInspector.Inspect(Encoding.UTF8.GetBytes("<html>403 Forbidden</html>"), DanmuDownloadFormat.Xml, "text/html");
+        Assert.False(html.Valid);
+        Assert.Contains("不是 XML", html.Error, StringComparison.Ordinal);
+
+        var jsonFallback = DanmuPayloadInspector.Inspect(Encoding.UTF8.GetBytes("{\"count\":0}"), DanmuDownloadFormat.Xml);
+        Assert.False(jsonFallback.Valid);
+        Assert.Contains("不是 XML", jsonFallback.Error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 容错归一化只作用于内存副本：写盘的文件必须与核心返回的字节逐一相同。
+    /// 这条是红线——绝不能为了让解析通过而篡改用户下载到的文件。
+    /// </summary>
+    [Fact]
+    public async Task XmlToleranceNeverRewritesDownloadedBytes()
+    {
+        var payload = "<?xml version=\"1.0\"?><i><d p=\"1,1,25,1\">坏 & 内容</d></i>";
+        var store = new DanmuDownloadStore(_root);
+        store.SaveSettings(new DanmuDownloadSettings(SaveDirectory: Path.Combine(_root, "save")));
+        var service = new DanmuDownloadFileService(store, () => new FakeDownloadClient(payload, 1));
+        var input = new DanmuDownloadInput(
+            string.Empty, "测试番剧", "第一集", 42, 1, "qq", DanmuDownloadFormat.Xml,
+            DanmuDownloadDefaults.FileNameTemplate, DownloadConflictPolicy.Rename, 7);
+
+        var result = await service.DownloadAsync(input, "127.0.0.1", 9321, "token", null);
+
+        Assert.Equal(DownloadRecordStatus.Success, result.Status);
+        Assert.Null(result.ErrorMessage);
+        Assert.Equal(1, result.DanmuCount);
+        Assert.True(File.Exists(result.FilePath));
+        Assert.Equal(
+            Encoding.UTF8.GetBytes(payload),
+            await File.ReadAllBytesAsync(result.FilePath));
+    }
+
     [Fact]
     public void PreviewParserMapsXmlAndJsonItems()
     {

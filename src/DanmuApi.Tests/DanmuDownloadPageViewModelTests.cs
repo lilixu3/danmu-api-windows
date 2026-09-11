@@ -148,6 +148,73 @@ public sealed class DanmuDownloadPageViewModelTests : IDisposable
         Assert.Equal(DownloadRecordStatus.Success, record.StatusEnum);
         Assert.True(File.Exists(record.FilePath));
         Assert.Contains("队列执行完成", viewModel.ProgressSummary, StringComparison.Ordinal);
+
+        // 这一轮确实下载到了东西，界面应停到「记录与库」——用户下一件事就是核对结果。
+        Assert.Equal(DanmuDownloadSection.Records, viewModel.SelectedSectionOption.Value);
+    }
+
+    /// <summary>
+    /// 队列分组默认折叠：集多时全部展开要滚很久。展开态按番名记住，
+    /// 因为每次进度刷新都会重建分组对象，状态只放对象上会被下一帧覆盖。
+    /// </summary>
+    [AvaloniaFact]
+    public async Task QueueGroupsCollapseByDefaultAndRememberUserChoice()
+    {
+        using var fixture = new DownloadFixture();
+        var viewModel = fixture.CreateViewModel();
+        await SeedEpisodesAsync(viewModel);
+        viewModel.EpisodeRows[0].IsSelected = true;
+        viewModel.StartDownloadCommand.Execute(null);
+        await WaitUntilAsync(() => !viewModel.IsDownloading);
+
+        var group = Assert.Single(viewModel.QueueGroups);
+        Assert.Equal("测试番剧", group.AnimeTitle);
+        // 本轮已跑完（没有 Running 的集），默认折叠。
+        Assert.False(group.IsExpanded);
+        Assert.Contains("展开", group.ExpandToggleText, StringComparison.Ordinal);
+        Assert.Contains("成功 1", group.EpisodesSummaryText, StringComparison.Ordinal);
+
+        viewModel.ToggleQueueGroupCommand.Execute(group);
+        Assert.True(group.IsExpanded);
+        Assert.Equal("收起", group.ExpandToggleText);
+
+        // 重建分组后（离开再回到队列分区各会重建一次），用户选的展开态必须还在。
+        RebuildQueueGroups(viewModel);
+        Assert.True(Assert.Single(viewModel.QueueGroups).IsExpanded);
+        Assert.Equal("收起", Assert.Single(viewModel.QueueGroups).ExpandToggleText);
+
+        // 再点一次回到折叠，并且这次选择同样被记住。
+        viewModel.ToggleQueueGroupCommand.Execute(Assert.Single(viewModel.QueueGroups));
+        RebuildQueueGroups(viewModel);
+        Assert.False(Assert.Single(viewModel.QueueGroups).IsExpanded);
+    }
+
+    /// <summary>
+    /// 逼队列分组重建：切到别的分区再切回队列分区。分组对象每次重建都是新实例，
+    /// 只把状态改在对象上的实现在这里会现形。
+    /// </summary>
+    private static void RebuildQueueGroups(DanmuDownloadPageViewModel viewModel)
+    {
+        viewModel.SelectedSectionOption = viewModel.SectionOptions.Single(option => option.Value == DanmuDownloadSection.Search);
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        viewModel.SelectedSectionOption = viewModel.SectionOptions.Single(option => option.Value == DanmuDownloadSection.Queue);
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>
+    /// 用户取消的那一轮不跳分区：下载中途取消还硬切到记录页会很突兀。
+    /// </summary>
+    [AvaloniaFact]
+    public async Task CancelledRunDoesNotSwitchToRecords()
+    {
+        using var fixture = new DownloadFixture();
+        var viewModel = fixture.CreateViewModel();
+        await SeedEpisodesAsync(viewModel);
+        viewModel.EpisodeRows[0].IsSelected = true;
+
+        viewModel.PauseDownloadCommand.Execute(null);
+
+        Assert.Equal(DanmuDownloadSection.Search, viewModel.SelectedSectionOption.Value);
     }
 
     [Fact]

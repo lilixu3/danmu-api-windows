@@ -293,26 +293,16 @@ public sealed partial class UiDialogService
     {
         var cancel = new Button { Content = "取消", IsCancel = true, MinWidth = 80 };
         cancel.Classes.Add("secondary-action");
-        var clear = new Button { Content = "设为空值", MinWidth = 96 };
-        clear.Classes.Add("secondary-action");
-        var delete = new Button { Content = "恢复默认", MinWidth = 96, IsVisible = configured };
-        delete.Classes.Add("danger-action");
+        // 只保留取消/保存：「恢复默认」与「设为空值」由配置列表行的「清除」按钮承担。
         var save = new Button { Content = "替换并保存", IsDefault = true, MinWidth = 110 };
         save.Classes.Add("primary-action");
-        var visibility = new Button { Content = "显示敏感值", MinWidth = 105 };
-        visibility.Classes.Add("secondary-action");
-        visibility.Click += (_, _) =>
-        {
-            var reveal = input.PasswordChar != '\0';
-            input.PasswordChar = reveal ? '\0' : '•';
-            visibility.Content = reveal ? "隐藏敏感值" : "显示敏感值";
-        };
+        // 显示/隐藏改为输入框内的眼睛图标，不再单占一个按钮位。
+        var secretEditor = AttachSecretToggle(input);
         var auxiliary = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = 8,
         };
-        auxiliary.Children.Add(visibility);
         foreach (var button in auxiliaryButtons)
         {
             auxiliary.Children.Add(button);
@@ -334,7 +324,7 @@ public sealed partial class UiDialogService
                 {
                     new TextBlock { Text = $"编辑 {definition.Key}", FontSize = 20, FontWeight = Avalonia.Media.FontWeight.SemiBold },
                     CreateMutedText(description),
-                    input,
+                    secretEditor,
                     auxiliary,
                     status,
                     new StackPanel
@@ -342,14 +332,12 @@ public sealed partial class UiDialogService
                         Orientation = Orientation.Horizontal,
                         HorizontalAlignment = HorizontalAlignment.Right,
                         Spacing = 8,
-                        Children = { delete, clear, cancel, save },
+                        Children = { cancel, save },
                     },
                 },
             },
         };
         cancel.Click += (_, _) => dialog.Close();
-        clear.Click += (_, _) => { result = CoreEnvEditResult.Set(string.Empty); dialog.Close(); };
-        delete.Click += (_, _) => { result = CoreEnvEditResult.Delete(); dialog.Close(); };
         save.Click += (_, _) =>
         {
             result = string.IsNullOrEmpty(input.Text)

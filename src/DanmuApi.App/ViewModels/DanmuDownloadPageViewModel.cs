@@ -133,6 +133,12 @@ public sealed partial class DanmuDownloadPageViewModel : ViewModelBase
     [ObservableProperty]
     private DownloadRecordFilterOption _selectedRecordFilter = null!;
 
+    /// <summary>
+    /// 队列分组展开态的显式用户选择，按番名记录（组对象每次进度刷新都会重建，
+    /// 状态放在对象上会被覆盖）。没有记录时按「是否有正在下载的集」决定默认值。
+    /// </summary>
+    private readonly Dictionary<string, bool> _queueGroupExpansion = new(StringComparer.Ordinal);
+
     [ObservableProperty]
     private string? _selectedSourceFilter;
 
@@ -334,13 +340,23 @@ public sealed partial class DanmuDownloadPageViewModel : ViewModelBase
     [ObservableProperty]
     private DanmuPreviewFilterOption _selectedPreviewFilter = null!;
 
-    partial void OnSelectedSectionOptionChanged(DanmuDownloadSectionOption value) => CurrentSection = value.Value switch
+    partial void OnSelectedSectionOptionChanged(DanmuDownloadSectionOption value)
     {
-        DanmuDownloadSection.Queue => QueueSection.Instance,
-        DanmuDownloadSection.Records => RecordsSection.Instance,
-        DanmuDownloadSection.Settings => SettingsSection.Instance,
-        _ => SearchSection.Instance,
-    };
+        CurrentSection = value.Value switch
+        {
+            DanmuDownloadSection.Queue => QueueSection.Instance,
+            DanmuDownloadSection.Records => RecordsSection.Instance,
+            DanmuDownloadSection.Settings => SettingsSection.Instance,
+            _ => SearchSection.Instance,
+        };
+
+        // 切到队列页时重建一次分组：队列在别处（下载完成、暂停）已经变过，
+        // 打开时看到的必须是当前状态，而不是上次离开时的快照。
+        if (value.Value == DanmuDownloadSection.Queue)
+        {
+            RefreshQueue();
+        }
+    }
 
     partial void OnIsSearchingChanged(bool value)
     {
@@ -1411,6 +1427,13 @@ public sealed partial class DanmuDownloadPageViewModel : ViewModelBase
                 OnPropertyChanged(nameof(CanMutateRecords));
                 RefreshQueue();
                 _ = RefreshRecordsAsync();
+
+                // 这一轮确实下载到了东西就切到「记录与库」：用户下一件事就是核对结果，
+                // 停在下完的剧集列表上还要自己找分区。取消的轮次不切（用户可能还在看进度）。
+                if (success > 0 && !_cancelRequested)
+                {
+                    SelectedSectionOption = SectionOptions.Single(option => option.Value == DanmuDownloadSection.Records);
+                }
             });
             _queueCts.Dispose();
             _queueCts = null;
@@ -2046,7 +2069,15 @@ public sealed partial class DanmuDownloadPageViewModel : ViewModelBase
                     runningTask?.LastDetail ?? items.OrderBy(item => item.UpdatedAt).Last().LastDetail,
                     latest,
                     order++,
-                    episodeItems));
+                    episodeItems)
+                {
+                    // 队列每次进度刷新都会重建分组对象，展开态得由这里按番名还原。
+                    // 用户没表过态的组：有正在下载的集就自动展开（否则看不到进度），
+                    // 其余默认折叠 —— 这就是「集多了翻动很麻烦」要解决的场景。
+                    IsExpanded = _queueGroupExpansion.TryGetValue(group.Key, out var expanded)
+                        ? expanded
+                        : runningTask is not null,
+                });
             }
 
             OnPropertyChanged(nameof(HasQueueGroups));
@@ -2057,6 +2088,22 @@ public sealed partial class DanmuDownloadPageViewModel : ViewModelBase
             OnPropertyChanged(nameof(QueueFailedCount));
             OnPropertyChanged(nameof(QueueSkippedCount));
         });
+    }
+
+    /// <summary>
+    /// 展开/收起某个队列分组，并记住用户的选择（按番名）。
+    /// 选择必须记下来：分组对象每次进度刷新都会重建，只改对象上的属性会被下一帧覆盖。
+    /// </summary>
+    [RelayCommand]
+    private void ToggleQueueGroup(QueueGroupViewModel? group)
+    {
+        if (group is null)
+        {
+            return;
+        }
+
+        group.IsExpanded = !group.IsExpanded;
+        _queueGroupExpansion[group.AnimeTitle] = group.IsExpanded;
     }
 
     private string BuildQueueSummaryText()
@@ -2434,7 +2481,7 @@ public sealed partial class EpisodeRowViewModel : ViewModelBase
     public void UpdateState(EpisodeUiState state) => State = state;
 }
 
-public sealed class QueueGroupViewModel
+public sealed partial class QueueGroupViewModel : ViewModelBase
 {
     public QueueGroupViewModel(
         string animeTitle,
@@ -2484,6 +2531,47 @@ public sealed class QueueGroupViewModel
     public IReadOnlyList<QueueEpisodeItemViewModel> Episodes { get; }
     public double Progress => Total <= 0 ? 0 : (double)Completed / Total;
     public string ProgressPercent => $"{(int)Math.Round(Progress * 100)}%";
+
+    /// <summary>
+    /// 集列表是否展开。默认折叠：一部番几十集时全部展开会把队列页撑得很长，
+    /// 想找别的番要滚很久。展开态由页面 VM 按番名记住（见 ToggleQueueGroupCommand），
+    /// 因为队列每次进度刷新都会重建这些对象。
+    /// </summary>
+    [ObservableProperty]
+    private bool _isExpanded;
+
+    public string ExpandToggleText => IsExpanded ? "收起" : $"展开 {Episodes.Count} 集";
+
+    /// <summary>折叠时顶行仍要能看清这一组的成败分布，不用展开才看得到。</summary>
+    public string EpisodesSummaryText
+    {
+        get
+        {
+            var text = $"成功 {Success}";
+            if (Failed > 0)
+            {
+                text += $" · 失败 {Failed}";
+            }
+
+            if (Skipped > 0)
+            {
+                text += $" · 跳过 {Skipped}";
+            }
+
+            if (Pending > 0)
+            {
+                text += $" · 待处理 {Pending}";
+            }
+
+            return text;
+        }
+    }
+
+    partial void OnIsExpandedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ExpandToggleText));
+        OnPropertyChanged(nameof(EpisodesSummaryText));
+    }
 }
 
 public sealed class QueueEpisodeItemViewModel(

@@ -341,6 +341,14 @@ public sealed partial class ConfigurationPageViewModel : ViewModelBase, IAsyncDi
         RefreshRows();
     }
 
+    /// <summary>
+    /// 列表的 SelectedItem 双向绑定会直接写 <see cref="SelectedVariable"/>，
+    /// 而详情面板的可见性绑的是派生属性 <see cref="HasSelectedVariable"/>。
+    /// 少了这条通知，用户点中一行时面板不会出现（派生属性没人重新求值）；
+    /// 渲染用例会断言「选中后面板可见」，所以这条不是可选项。
+    /// </summary>
+    partial void OnSelectedVariableChanged(ConfigurationVariableRow? value) => NotifySelectedVariable();
+
     partial void OnSelectedCategoryChanged(ConfigurationCategory? value)
     {
         OnPropertyChanged(nameof(PageTitle));

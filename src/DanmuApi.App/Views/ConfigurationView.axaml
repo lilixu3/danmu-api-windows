@@ -4,15 +4,9 @@
              x:Class="DanmuApi.App.Views.ConfigurationView"
              x:DataType="vm:ConfigurationPageViewModel">
   <UserControl.Styles>
-    <!-- 分类项：标题 + 说明两行。选中/悬停态的底色与文字色由下面两条按数据模板层级覆写，
-         App.axaml 里那条全局 `ListBoxItem:pointerover` 用的是日志页的深色底
-         （LogRowHoverBrush = #18202B），在浅色主题下会让侧栏标题变黑底黑字。 -->
-    <Style Selector="ListBox.rail-list ListBoxItem:pointerover /template/ ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource SurfaceHoverBrush}" />
-    </Style>
-    <Style Selector="ListBox.rail-list ListBoxItem:selected /template/ ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
-    </Style>
+    <!-- 分类项的标题与说明在深/浅两套主题下都要保持主次分明的对比度：
+         全局的 ListBoxItem 悬停/选中底色已经是 SurfaceHoverBrush / AccentSoftBrush，
+         这里只补数据模板内部的文字色，保证选中态下标题不会被强调色吞掉。 -->
     <Style Selector="ListBox.rail-list ListBoxItem /template/ ContentPresenter TextBlock">
       <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
     </Style>
@@ -86,7 +80,10 @@
     </Style>
   </UserControl.Styles>
 
-  <Grid x:Name="LayoutRoot" ColumnDefinitions="216,*,320" ColumnSpacing="14">
+  <!-- 三栏档位：详情列用 Auto（面板隐藏时收成 0，列表独占宽度）。
+       这里的初始值与 ConfigurationView.axaml.cs 的 ThreeColumn 分支必须一致：
+       断点判断只比较列数，初始列数若与目标档位相同就会直接早退，不会再改写列定义。 -->
+  <Grid x:Name="LayoutRoot" ColumnDefinitions="216,*,Auto" ColumnSpacing="14">
     <!-- ── 分类侧栏 ──────────────────────────────────────────────────── -->
     <Border x:Name="CategoryRail" Classes="rail" VerticalAlignment="Top">
       <Grid RowDefinitions="Auto,*" RowSpacing="6">
@@ -254,8 +251,16 @@
       </Border>
     </Grid>
 
-    <!-- ── 详情面板 ──────────────────────────────────────────────────── -->
-    <Border x:Name="DetailPanel" Grid.Column="2" Classes="card" VerticalAlignment="Top">
+    <!-- ── 详情面板 ────────────────────────────────────────────────────
+         只在选中变量时出现：没有选中项时整块隐藏，所在列由 Auto 收成 0，
+         列表因此独占整行宽度。以前这里留一个空卡片 + 一行「请选择一个变量」的提示，
+         全屏下那块空白单独挂在右侧很扎眼，且提示本身没有信息量。 -->
+    <Border x:Name="DetailPanel"
+            Grid.Column="2"
+            Classes="card"
+            Width="320"
+            VerticalAlignment="Top"
+            IsVisible="{Binding HasSelectedVariable}">
       <Grid>
         <StackPanel Spacing="12" IsVisible="{Binding HasSelectedVariable}">
           <StackPanel Spacing="3">
@@ -304,11 +309,6 @@
                     CommandParameter="{Binding SelectedVariable}" />
           </StackPanel>
         </StackPanel>
-
-        <TextBlock Classes="cap"
-                   TextWrapping="Wrap"
-                   IsVisible="{Binding !HasSelectedVariable}"
-                   Text="在左侧列表中选择一个变量，这里会显示它的类型、值来源、当前值与可执行的操作。" />
       </Grid>
     </Border>
   </Grid>
