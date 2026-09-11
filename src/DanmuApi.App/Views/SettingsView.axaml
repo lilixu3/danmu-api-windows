@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:DanmuApi.App.ViewModels"
+             xmlns:controls="using:DanmuApi.App.Controls"
              x:Class="DanmuApi.App.Views.SettingsView"
              x:DataType="vm:SettingsPageViewModel">
   <UserControl.Styles>
@@ -328,13 +329,15 @@
                   <TextBlock Text="新管理员密码" Classes="setting-title" />
                   <TextBox Text="{Binding AdminTokenInput, Mode=TwoWay}"
                            PasswordChar="•"
-                           Watermark="输入新的 ADMIN_TOKEN" />
+                           Watermark="输入新的 ADMIN_TOKEN"
+                           controls:EnterKeyCommand.Command="{Binding AdminLoginCommand}" />
                 </StackPanel>
                 <StackPanel Grid.Column="1" Spacing="5">
                   <TextBlock Text="确认管理员密码" Classes="setting-title" />
                   <TextBox Text="{Binding AdminTokenConfirmation, Mode=TwoWay}"
                            PasswordChar="•"
-                           Watermark="再次输入" />
+                           Watermark="再次输入"
+                           controls:EnterKeyCommand.Command="{Binding AdminLoginCommand}" />
                 </StackPanel>
               </Grid>
               <Border Background="{DynamicResource WarningSoftBrush}" CornerRadius="6" Padding="12">
@@ -356,7 +359,8 @@
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                 <TextBox Text="{Binding AdminTokenInput, Mode=TwoWay}"
                          PasswordChar="•"
-                         Watermark="输入已配置的 ADMIN_TOKEN" />
+                         Watermark="输入已配置的 ADMIN_TOKEN"
+                         controls:EnterKeyCommand.Command="{Binding AdminLoginCommand}" />
                 <Button Grid.Column="1"
                         Content="{Binding AdminLoginLabel}"
                         Command="{Binding AdminLoginCommand}"

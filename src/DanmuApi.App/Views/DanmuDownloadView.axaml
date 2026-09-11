@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:DanmuApi.App.ViewModels"
              xmlns:rt="using:DanmuApi.Runtime"
+             xmlns:controls="using:DanmuApi.App.Controls"
              x:Class="DanmuApi.App.Views.DanmuDownloadView"
              x:DataType="vm:DanmuDownloadPageViewModel">
   <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="10">
@@ -61,7 +62,11 @@
 
               <Border Classes="card">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                  <TextBox Classes="field" Text="{Binding Keyword, Mode=TwoWay}" Watermark="输入动漫名称，例如：生万物" IsEnabled="{Binding CanSearch}" />
+                  <TextBox Classes="field"
+                           Text="{Binding Keyword, Mode=TwoWay}"
+                           Watermark="输入动漫名称，例如：生万物"
+                           IsEnabled="{Binding CanSearch}"
+                           controls:EnterKeyCommand.Command="{Binding SearchCommand}" />
                   <Button Grid.Column="1" Content="搜索动漫" Classes="primary" Command="{Binding SearchCommand}" IsEnabled="{Binding CanSearch}" />
                 </Grid>
               </Border>

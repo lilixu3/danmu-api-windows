@@ -1,5 +1,5 @@
 <UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:DanmuApi.App.ViewModels" x:Class="DanmuApi.App.Views.BackupView" x:DataType="vm:BackupPageViewModel">
+             xmlns:vm="using:DanmuApi.App.ViewModels" xmlns:controls="using:DanmuApi.App.Controls" x:Class="DanmuApi.App.Views.BackupView" x:DataType="vm:BackupPageViewModel">
   <ScrollViewer HorizontalScrollBarVisibility="Disabled">
     <StackPanel Margin="0" Spacing="18" MaxWidth="1050">
       <TextBlock Text="在本地保存配置，或通过 WebDAV 在设备间迁移。恢复前始终展示预览。" TextWrapping="Wrap" />
@@ -16,10 +16,10 @@
         <TextBlock Text="WebDAV" FontSize="20" FontWeight="SemiBold" />
         <TextBlock Text="填写已有集合的 HTTPS 地址，例如 https://example.com/dav/DanmuApi/。与移动端共用 app-backup.json；不会自动创建或猜测目录。" TextWrapping="Wrap" />
         <TextBlock Text="集合地址" />
-        <TextBox Text="{Binding CollectionUrl}" Watermark="https://example.com/dav/DanmuApi/" />
+        <TextBox Text="{Binding CollectionUrl}" Watermark="https://example.com/dav/DanmuApi/" controls:EnterKeyCommand.Command="{Binding ListRemoteCommand}" />
         <Grid ColumnDefinitions="*,16,*">
-          <StackPanel Spacing="6"><TextBlock Text="用户名" /><TextBox Text="{Binding Username}" /></StackPanel>
-          <StackPanel Grid.Column="2" Spacing="6"><TextBlock Text="密码 / 应用专用密码" /><TextBox Text="{Binding Password}" PasswordChar="●" /></StackPanel>
+          <StackPanel Spacing="6"><TextBlock Text="用户名" /><TextBox Text="{Binding Username}" controls:EnterKeyCommand.Command="{Binding ListRemoteCommand}" /></StackPanel>
+          <StackPanel Grid.Column="2" Spacing="6"><TextBlock Text="密码 / 应用专用密码" /><TextBox Text="{Binding Password}" PasswordChar="●" controls:EnterKeyCommand.Command="{Binding ListRemoteCommand}" /></StackPanel>
         </Grid>
         <WrapPanel>
           <Button Content="保存凭据" Command="{Binding SaveCredentialsCommand}" Margin="0,0,12,8" />

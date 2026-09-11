@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:DanmuApi.App.ViewModels"
+             xmlns:controls="using:DanmuApi.App.Controls"
              x:Class="DanmuApi.App.Views.ApiDebugView"
              x:DataType="vm:ApiDebugPageViewModel">
   <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
@@ -25,7 +26,8 @@
                   <StackPanel Spacing="4" Margin="0,0,0,6">
                     <TextBlock Text="{Binding Label}" FontWeight="SemiBold" />
                     <ComboBox ItemsSource="{Binding Options}" SelectedItem="{Binding Value, Mode=TwoWay}" IsVisible="{Binding IsSelect}" />
-                    <TextBox Text="{Binding Value, Mode=TwoWay}" Watermark="{Binding Placeholder}" IsVisible="{Binding !IsSelect}" />
+                      <TextBox Text="{Binding Value, Mode=TwoWay}" Watermark="{Binding Placeholder}" IsVisible="{Binding !IsSelect}"
+                               controls:EnterKeyCommand.Command="{Binding $parent[ItemsControl].((vm:ApiDebugPageViewModel)DataContext).ExecuteCommand}" />
                     <TextBlock Text="{Binding Placeholder}" Classes="body-muted" TextWrapping="Wrap" IsVisible="{Binding !IsSelect}" />
                   </StackPanel>
                 </DataTemplate>

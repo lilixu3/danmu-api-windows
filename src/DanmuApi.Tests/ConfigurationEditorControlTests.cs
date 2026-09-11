@@ -178,7 +178,7 @@ public sealed class ConfigurationEditorControlTests
     }
 
     /// <summary>
-    /// 敏感变量编辑器：默认遮罩，显示/隐藏是输入框内部右侧的一个图标按钮，
+    /// 敏感变量编辑器：默认遮罩，显示/隐藏是输入框内部右侧的一个眼睛图标按钮，
     /// 不再是跟「取消/保存」并列的那个「显示敏感值」文字按钮。
     /// </summary>
     [AvaloniaFact]
@@ -197,10 +197,9 @@ public sealed class ConfigurationEditorControlTests
         var toggle = Assert.IsType<Button>(grid.Children[1]);
         Assert.Equal(Avalonia.Layout.HorizontalAlignment.Right, toggle.HorizontalAlignment);
         Assert.Equal(Avalonia.Layout.VerticalAlignment.Center, toggle.VerticalAlignment);
-        Assert.Empty(toggle.Content is string ? "有文字内容" : string.Empty);
-        Assert.IsType<Grid>(toggle.Content);
-        // 不是文字按钮
+        // 不是文字按钮，内容是画出来的图标
         Assert.Null(toggle.Content as string);
+        Assert.IsType<Panel>(toggle.Content);
         // 右侧留白，长值不会滑到图标底下
         Assert.True(input.Padding.Right >= 30, $"输入框右侧留白不足：{input.Padding}");
 
@@ -215,20 +214,55 @@ public sealed class ConfigurationEditorControlTests
     }
 
     /// <summary>
-    /// 眼睛图标里的斜杠只在「已显示明文」时出现，这样按钮当前状态一眼可辨。
+    /// 眼睛图标必须是「轮廓 + 瞳孔画在同一个 Path 里」。
+    /// 拆成两个 Path 时 Path.Stretch 各自独立生效，只有 7×7 边界的瞳孔会被单独放大
+    /// 到占满整个控件、糊住轮廓，图标就变成一个认不出的实心圆点（实际发生过）。
+    /// 这条断言把「单一几何、只描边」这个结构锁住。
     /// </summary>
     [AvaloniaFact]
-    public void SecretEditorEyeSlashReflectsVisibility()
+    public void SecretEditorEyeIconKeepsOutlineAndPupilInOneGeometry()
     {
         var input = new TextBox { Text = "x" };
         var host = UiDialogService.AttachSecretToggle(input);
-        var toggle = Assert.IsType<Button>(Assert.IsType<Grid>(host).Children[1]);
-        var icon = Assert.IsType<Grid>(toggle.Content);
-        var slash = Assert.IsType<Avalonia.Controls.Shapes.Path>(icon.Children[2]);
+        // 描边色是 DynamicResource 绑定，未进入可视树时读回来是 null，先挂到窗口上再断言。
+        var window = new Window { Width = 400, Height = 120, Content = host };
+        window.Show();
+        try
+        {
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
 
-        Assert.False(slash.IsVisible);
-        toggle.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
-        Assert.True(slash.IsVisible);
+            var toggle = Assert.IsType<Button>(Assert.IsType<Grid>(host).Children[1]);
+            var icon = Assert.IsType<Panel>(toggle.Content);
+
+            // 图标层只有两条 Path：眼睛（轮廓+瞳孔）与遮罩斜杠。
+            // 瞳孔若被拆成第三条 Path，它 7×7 的几何边界会被 Uniform 单独放大到占满控件。
+            Assert.Equal(2, icon.Children.Count);
+            var eye = Assert.IsType<Avalonia.Controls.Shapes.Path>(icon.Children[0]);
+            var slash = Assert.IsType<Avalonia.Controls.Shapes.Path>(icon.Children[1]);
+
+            // 眼睛那条几何的边界必须是杏仁形（明显宽大于高）。
+            // 只装一个瞳孔的话边界接近正方形，这条断言能把它区分出来。
+            var bounds = eye.Data!.Bounds;
+            Assert.True(
+                bounds.Width / bounds.Height > 1.2,
+                $"眼睛几何边界不像杏仁形（轮廓和瞳孔可能被拆开了）：{bounds}");
+
+            // 只描边、不填充：填充会把轮廓和瞳孔一起填成一坨
+            Assert.Null(eye.Fill);
+            Assert.NotNull(eye.Stroke);
+            Assert.NotNull(slash.Stroke);
+            Assert.Null(slash.Fill);
+
+            // 斜杠默认不显示，点开后出现
+            Assert.False(slash.IsVisible);
+            toggle.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Assert.True(slash.IsVisible);
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 
     private static CoreEnvDefinition Definition(

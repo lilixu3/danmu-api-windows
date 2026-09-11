@@ -47,41 +47,46 @@ public sealed partial class UiDialogService
         // 右侧留出眼睛的位置，否则长值会滑到图标底下（被挡住的正好是最关键的尾部字符）。
         input.Padding = new Thickness(10, 6, 38, 6);
 
+        // 眼睛轮廓与瞳孔必须画在同一个 Path 里：Path 的 Stretch 是各自独立生效的，
+        // 拆成两个 Path 时瞳孔（几何边界只有 7×7）会被单独放大到占满整个控件，
+        // 变成一个糊住轮廓的实心圆点——图标就完全看不出是眼睛了。
+        // 同一份几何共享一次缩放，比例才不会走样。
+        var eye = new ShapePath
+        {
+            Data = Geometry.Parse(
+                // 杏仁形外轮廓
+                "M2,12 C5,6.5 8.4,4.6 12,4.6 C15.6,4.6 19,6.5 22,12 " +
+                "C19,17.5 15.6,19.4 12,19.4 C8.4,19.4 5,17.5 2,12 Z " +
+                // 瞳孔
+                "M12,8.2 A3.8,3.8 0 1 0 12,15.8 A3.8,3.8 0 1 0 12,8.2 Z"),
+            Stretch = Stretch.Uniform,
+            Width = 18,
+            Height = 18,
+            StrokeThickness = 1.6,
+            StrokeJoin = PenLineJoin.Round,
+            StrokeLineCap = PenLineCap.Round,
+            // 只描边不填充：填充会把瞳孔和轮廓一起填成一坨。
+            Fill = null,
+        };
+
+        // 斜杠单独一条 Path，但端点取和外轮廓完全相同的边界（x 2~22，y 4.6~19.4），
+        // 这样它和外轮廓的 Uniform 缩放比例一致，叠上去才对得齐。
         var slash = new ShapePath
         {
-            Data = Geometry.Parse("M4,20 L20,4"),
+            Data = Geometry.Parse("M2,19.4 L22,4.6"),
             Stretch = Stretch.Uniform,
-            Width = 16,
-            Height = 16,
-            StrokeThickness = 1.7,
+            Width = 18,
+            Height = 18,
+            StrokeThickness = 1.6,
             StrokeLineCap = PenLineCap.Round,
             IsVisible = false,
         };
-        var eye = new Grid
-        {
-            Width = 16,
-            Height = 16,
-            Children =
-            {
-                new ShapePath
-                {
-                    Data = Geometry.Parse("M2,12 C5,6.5 8.4,4.6 12,4.6 C15.6,4.6 19,6.5 22,12 C19,17.5 15.6,19.4 12,19.4 C8.4,19.4 5,17.5 2,12 Z"),
-                    Stretch = Stretch.Uniform,
-                    StrokeThickness = 1.7,
-                    StrokeJoin = PenLineJoin.Round,
-                },
-                new ShapePath
-                {
-                    Data = Geometry.Parse("M12,8.7 A3.3,3.3 0 1 0 12,15.3 A3.3,3.3 0 1 0 12,8.7 Z"),
-                    Stretch = Stretch.Uniform,
-                },
-                slash,
-            },
-        };
+
+        var icon = new Panel { Width = 18, Height = 18, Children = { eye, slash } };
 
         var toggle = new Button
         {
-            Content = eye,
+            Content = icon,
             Width = 28,
             Height = 28,
             Padding = new Thickness(0),
@@ -97,14 +102,12 @@ public sealed partial class UiDialogService
         };
         ToolTip.SetTip(toggle, "显示敏感值");
 
-        // 描边与填充色跟随主题：用 DynamicResource 绑定，主题变更时图标不会留下旧颜色。
+        // 描边色跟随主题：用 DynamicResource 绑定，主题变更时图标不会留下旧颜色。
         // （Avalonia 11 的代码里没有 SetResourceReference，用索引器绑定语法 `[!prop] = …`。）
-        foreach (var shape in new[] { (ShapePath)eye.Children[0], (ShapePath)eye.Children[1], slash })
+        foreach (var shape in new[] { eye, slash })
         {
             shape[!Shape.StrokeProperty] = new DynamicResourceExtension("TextSecondaryBrush");
         }
-
-        eye.Children[1][!Shape.FillProperty] = new DynamicResourceExtension("TextSecondaryBrush");
 
         toggle.Click += (_, _) =>
         {
