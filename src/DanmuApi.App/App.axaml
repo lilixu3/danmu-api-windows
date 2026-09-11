@@ -257,6 +257,17 @@
       <Setter Property="CornerRadius" Value="6" />
       <Setter Property="Padding" Value="13,11" />
     </Style>
+    <!-- ── 日志终端 ──────────────────────────────────────────────────
+         这一组（log-terminal 容器 + log-seq/log-time/log-level 文本 + 深色行悬停）刻意
+         留在全局文件里，不搬进 LogsView，理由有两条：
+         1. 它是**全局列表悬停规则的一处例外**（见下面那条 Border.log-terminal
+            ListBoxItem:pointerover），例外必须和它要覆盖的规则放在一起，
+            否则以后改全局规则时看不到这处例外；
+         2. 它依赖 LogSurfaceBrush / LogTextBrush / LogMutedBrush / LogRowHoverBrush
+            一整套 token（定义在 Styles/Tokens.axaml，参与明暗两套主题字典），
+            属于主题层资产，不是页面私有的版式词汇。
+         LogsView 自己那套筛选胶囊按钮（原 Button.chip，已改名 filter-chip）是页面私有的，
+         已经搬进 LogsView.axaml 的 UserControl.Styles。 -->
     <Style Selector="Border.log-terminal">
       <Setter Property="Background" Value="{DynamicResource LogSurfaceBrush}" />
       <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
@@ -279,19 +290,15 @@
       <Setter Property="FontSize" Value="11.5" />
       <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
-    <Style Selector="Button.chip">
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="999" />
-      <Setter Property="Padding" Value="11,4" />
-      <Setter Property="FontSize" Value="11.5" />
-      <Setter Property="Margin" Value="0" />
-    </Style>
-    <Style Selector="Button.chip:pointerover /template/ ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource SurfaceHoverBrush}" />
-      <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+    <!-- 深色终端内部的普通文字（空状态提示等）。
+         必须用 Log* 这套 token，不能用页面级的 cap/body-muted：终端底色在浅色主题下是
+         #0F141C（近黑），而 TextSecondaryBrush 在浅色主题下是 #5D6672（深灰），
+         两者对比度只有约 3.2:1，低于小字号 4.5:1 的可读线 —— 那句提示基本看不清。
+         LogTextBrush 是为这块深色面配的浅色文字，对比度约 13:1。 -->
+    <Style Selector="TextBlock.terminal-text">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource LogTextBrush}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
     <Style Selector="ListBoxItem">
       <Setter Property="Padding" Value="8,2" />

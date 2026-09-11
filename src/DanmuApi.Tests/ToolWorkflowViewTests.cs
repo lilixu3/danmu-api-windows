@@ -167,6 +167,8 @@ public sealed class ToolWorkflowViewTests
     [InlineData("DanmuDownloadView.axaml")]
     [InlineData("SettingsView.axaml")]
     [InlineData("CorePageView.axaml")]
+    [InlineData("LogsView.axaml")]
+    [InlineData("ActivityView.axaml")]
     [InlineData("ToolsView.axaml")]
     [InlineData("DanmuTestView.axaml")]
     [InlineData("AutoMatchView.axaml")]

@@ -57,6 +57,49 @@ public sealed class ListHoverContrastTests
         Assert.True(Luminance(terminal) < 0.35, $"日志终端悬停底应为深色：{terminal}");
     }
 
+    /// <summary>
+    /// 深色终端里的文字必须用 Log* 这套为深色面配的 token，不能用页面级的
+    /// TextSecondaryBrush：浅色主题下终端底色是 #0F141C（近黑），而 TextSecondaryBrush 是
+    /// #5D6672（深灰），对比度只有约 3.2:1，低于小字号 4.5:1 的可读线，空状态提示基本看不清。
+    /// 这条按对比度断言，避免以后有人把终端里的文字改回页面级类名。
+    /// </summary>
+    [AvaloniaFact]
+    public void LogTerminalEmptyStateTextStaysReadableOnDarkSurface()
+    {
+        using var scope = new ThemeScope(ThemeVariant.Light);
+
+        var terminal = new Border { Classes = { "log-terminal" } };
+        var message = new TextBlock { Classes = { "terminal-text" }, Text = "占位" };
+        terminal.Child = message;
+        var window = new Window { Width = 400, Height = 200, Content = terminal };
+        window.Show();
+        try
+        {
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+
+            var surface = Assert.IsAssignableFrom<ISolidColorBrush>(terminal.Background).Color;
+            var text = Assert.IsAssignableFrom<ISolidColorBrush>(message.Foreground).Color;
+            Assert.True(Luminance(surface) < 0.35, $"终端底色应为深色：{surface}");
+            var ratio = ContrastRatio(surface, text);
+            Assert.True(ratio >= 4.5, $"终端内文字对比度不足（{ratio:0.0}:1）：文字 {text} / 底色 {surface}");
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    /// <summary>WCAG 对比度（明度比）。</summary>
+    private static double ContrastRatio(Color first, Color second)
+    {
+        var a = Luminance(first);
+        var b = Luminance(second);
+        var lighter = Math.Max(a, b);
+        var darker = Math.Min(a, b);
+        return (lighter + 0.05) / (darker + 0.05);
+    }
+
     private static Color ResolveHoverBackground(bool isLogTerminal)
     {
         var list = new ListBox { ItemsSource = new[] { "row" }, Width = 240, Height = 60 };

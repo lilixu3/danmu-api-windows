@@ -5,8 +5,8 @@
              x:DataType="vm:ActivityPageViewModel">
   <Grid RowDefinitions="Auto,*" RowSpacing="18">
     <StackPanel Spacing="4">
-      <TextBlock Text="运行日志" Classes="page-title" />
-      <TextBlock Text="查看服务运行输出、筛选日志并定位异常。" Classes="page-subtitle" TextWrapping="Wrap" />
+      <TextBlock Text="运行日志" Classes="h1" />
+      <TextBlock Text="查看服务运行输出、筛选日志并定位异常。" Classes="sub" TextWrapping="Wrap" />
     </StackPanel>
     <ContentControl Grid.Row="1" Content="{Binding Logs}" />
   </Grid>
