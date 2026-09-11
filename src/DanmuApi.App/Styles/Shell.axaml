@@ -66,6 +66,19 @@
     <Setter Property="FontFamily" Value="Cascadia Mono,Consolas" />
   </Style>
 
+  <!-- 数值对：小标签 + 大数值（指标卡、统计行用）。
+       与旧 metric-label / metric-value 同 selector 双写且数值逐项一致，
+       这样工具页迁移到新类名时这几处不会改字号与颜色。 -->
+  <Style Selector="TextBlock.stat-label, TextBlock.metric-label">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+  </Style>
+  <Style Selector="TextBlock.stat-value, TextBlock.metric-value">
+    <Setter Property="FontSize" Value="18" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+  </Style>
+
   <!-- ── 卡片 ──────────────────────────────────────────────────────────
        刻意不双写 Border.dashboard-panel：旧 dashboard-panel 是「圆角 8 / Padding 18」，
        新 card 是「圆角 10 / Padding 14,12」，两者视觉差异明显，混写必然改到既有页面。

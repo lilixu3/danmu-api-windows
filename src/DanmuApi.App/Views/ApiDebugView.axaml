@@ -6,58 +6,62 @@
              x:DataType="vm:ApiDebugPageViewModel">
   <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
     <StackPanel Spacing="3">
-      <TextBlock Text="接口调试" Classes="section-title" />
-      <TextBlock Text="仅调用核心白名单接口；请求预览、CURL、界面响应与复制内容均为完整脱敏副本。" Classes="body-muted" TextWrapping="Wrap" />
+      <TextBlock Text="接口调试" Classes="section" />
+      <TextBlock Text="仅调用核心白名单接口；请求预览、CURL、界面响应与复制内容均为完整脱敏副本。" Classes="cap" TextWrapping="Wrap" />
     </StackPanel>
     <Grid Grid.Row="1" ColumnDefinitions="220,*,Auto,Auto" ColumnSpacing="10">
       <ComboBox ItemsSource="{Binding Definitions}" SelectedItem="{Binding SelectedApi, Mode=TwoWay}" />
-      <TextBlock Grid.Column="1" Text="{Binding RequestSummary}" Classes="mono-text body-muted" VerticalAlignment="Center" />
-      <Button x:Name="CancelRequestButton" Grid.Column="2" Content="取消" Classes="secondary-action" Command="{Binding CancelCommand}" IsVisible="{Binding CanCancel}" />
-      <Button x:Name="ExecuteRequestButton" Grid.Column="3" Content="执行请求" Classes="primary-action" Command="{Binding ExecuteCommand}" IsEnabled="{Binding !IsBusy}" />
+      <TextBlock Grid.Column="1" Text="{Binding RequestSummary}" Classes="mono cap" VerticalAlignment="Center" />
+      <Button x:Name="CancelRequestButton" Grid.Column="2" Content="取消" Classes="secondary" Command="{Binding CancelCommand}" IsVisible="{Binding CanCancel}" />
+      <Button x:Name="ExecuteRequestButton" Grid.Column="3" Content="执行请求" Classes="primary" Command="{Binding ExecuteCommand}" IsEnabled="{Binding !IsBusy}" />
     </Grid>
     <Grid Grid.Row="2" ColumnDefinitions="360,*" ColumnSpacing="14">
-      <Border Classes="dashboard-panel">
+      <Border Classes="card">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
           <StackPanel Spacing="10">
-            <TextBlock Text="参数" Classes="section-title" />
+            <TextBlock Text="参数" Classes="section" />
             <ItemsControl x:Name="DynamicParameters" ItemsSource="{Binding ParameterValues}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:ApiParameterValueViewModel">
                   <StackPanel Spacing="4" Margin="0,0,0,6">
                     <TextBlock Text="{Binding Label}" FontWeight="SemiBold" />
                     <ComboBox ItemsSource="{Binding Options}" SelectedItem="{Binding Value, Mode=TwoWay}" IsVisible="{Binding IsSelect}" />
-                      <TextBox Text="{Binding Value, Mode=TwoWay}" Watermark="{Binding Placeholder}" IsVisible="{Binding !IsSelect}"
-                               controls:EnterKeyCommand.Command="{Binding $parent[ItemsControl].((vm:ApiDebugPageViewModel)DataContext).ExecuteCommand}" />
-                    <TextBlock Text="{Binding Placeholder}" Classes="body-muted" TextWrapping="Wrap" IsVisible="{Binding !IsSelect}" />
+                    <TextBox Classes="field"
+                             Text="{Binding Value, Mode=TwoWay}"
+                             Watermark="{Binding Placeholder}"
+                             IsVisible="{Binding !IsSelect}"
+                             controls:EnterKeyCommand.Command="{Binding $parent[ItemsControl].((vm:ApiDebugPageViewModel)DataContext).ExecuteCommand}" />
+                    <TextBlock Text="{Binding Placeholder}" Classes="cap" TextWrapping="Wrap" IsVisible="{Binding !IsSelect}" />
                   </StackPanel>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
             <StackPanel x:Name="RawBodyPanel" Spacing="4" IsVisible="{Binding HasRawBody}">
               <TextBlock Text="JSON 请求体" FontWeight="SemiBold" />
-              <TextBox Text="{Binding JsonBody, Mode=TwoWay}" AcceptsReturn="True" MinHeight="180" TextWrapping="Wrap" FontFamily="Cascadia Mono,Consolas" />
-              <TextBlock Text="分片接口要求直接填写 Segment 对象，不要包裹 segment 字段。" Classes="body-muted" TextWrapping="Wrap" />
+              <TextBox Classes="field mono" Text="{Binding JsonBody, Mode=TwoWay}" AcceptsReturn="True" MinHeight="180" TextWrapping="Wrap" />
+              <TextBlock Text="分片接口要求直接填写 Segment 对象，不要包裹 segment 字段。" Classes="cap" TextWrapping="Wrap" />
             </StackPanel>
-            <Border Classes="muted-row" IsVisible="{Binding HasRequestPreview}">
-              <TextBlock Text="{Binding RequestPreview}" Classes="mono-text body-muted" TextWrapping="Wrap" />
+            <Border Classes="inset" IsVisible="{Binding HasRequestPreview}">
+              <TextBlock Text="{Binding RequestPreview}" Classes="mono cap" TextWrapping="Wrap" />
             </Border>
-            <Button x:Name="CopyCurlButton" Content="复制 CURL" Classes="ghost-action" Command="{Binding CopyCurlCommand}" IsEnabled="{Binding HasCurl}" />
-            <TextBox Text="{Binding CurlText}" IsReadOnly="True" TextWrapping="Wrap" FontFamily="Cascadia Mono,Consolas" MinHeight="60" />
+            <Button x:Name="CopyCurlButton" Content="复制 CURL" Classes="ghost" Command="{Binding CopyCurlCommand}" IsEnabled="{Binding HasCurl}" HorizontalAlignment="Left" />
+            <TextBox Classes="field mono" Text="{Binding CurlText}" IsReadOnly="True" TextWrapping="Wrap" MinHeight="60" />
           </StackPanel>
         </ScrollViewer>
       </Border>
-      <Border Grid.Column="1" Classes="dashboard-panel">
-        <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="8">
+      <Border Grid.Column="1" Classes="card">
+        <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" RowSpacing="8">
           <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-            <TextBlock Text="安全响应副本" Classes="section-title" />
-            <Button Grid.Column="1" Content="复制响应" Classes="ghost-action" Command="{Binding CopyResponseCommand}" IsEnabled="{Binding HasResponse}" />
-            <Button Grid.Column="2" Content="清空" Classes="ghost-action" Command="{Binding ClearResponseCommand}" />
+            <TextBlock Text="安全响应副本" Classes="section" />
+            <Button Grid.Column="1" Content="复制响应" Classes="ghost" Command="{Binding CopyResponseCommand}" IsEnabled="{Binding HasResponse}" />
+            <Button Grid.Column="2" Content="清空" Classes="ghost" Command="{Binding ClearResponseCommand}" />
           </Grid>
-          <TextBlock Grid.Row="1" Text="{Binding ResponseMeta}" Classes="body-muted" TextWrapping="Wrap" />
-          <TextBlock Grid.Row="2" Text="{Binding Diagnostic}" Classes="body-muted" TextWrapping="Wrap" />
-          <Grid Grid.Row="3" RowDefinitions="Auto,*" RowSpacing="6">
-            <Button Content="{Binding ToggleResponseText}" Classes="ghost-action" HorizontalAlignment="Left" Command="{Binding ToggleResponseCommand}" IsVisible="{Binding HasResponse}" />
-            <TextBox Grid.Row="1" Text="{Binding ResponseDisplay}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" FontFamily="Cascadia Mono,Consolas" />
+          <Border Grid.Row="1" Classes="rule" />
+          <TextBlock Grid.Row="2" Text="{Binding ResponseMeta}" Classes="cap" TextWrapping="Wrap" />
+          <TextBlock Grid.Row="3" Text="{Binding Diagnostic}" Classes="cap" TextWrapping="Wrap" />
+          <Grid Grid.Row="4" RowDefinitions="Auto,*" RowSpacing="6">
+            <Button Content="{Binding ToggleResponseText}" Classes="ghost" HorizontalAlignment="Left" Command="{Binding ToggleResponseCommand}" IsVisible="{Binding HasResponse}" />
+            <TextBox Grid.Row="1" Classes="field mono" Text="{Binding ResponseDisplay}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" />
           </Grid>
         </Grid>
       </Border>

@@ -7,71 +7,73 @@
              x:DataType="vm:DanmuDetailsPageViewModel">
   <ScrollViewer VerticalScrollBarVisibility="Auto">
     <StackPanel Spacing="12">
-      <Button Content="返回上一层" Classes="back-action" Command="{Binding BackCommand}" HorizontalAlignment="Left" />
+      <Button Content="返回上一层" Classes="secondary" Command="{Binding BackCommand}" HorizontalAlignment="Left" />
       <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="16">
         <StackPanel Spacing="4">
-          <TextBlock Text="弹幕详情" Classes="section-title" />
-          <TextBlock Text="{Binding Title}" Classes="page-title" FontSize="22" TextWrapping="Wrap" />
-          <TextBlock Text="{Binding SourceUrlText}" Classes="mono-text body-muted" TextWrapping="Wrap" />
+          <TextBlock Text="弹幕详情" Classes="section" />
+          <TextBlock Text="{Binding Title}" Classes="h1" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding SourceUrlText}" Classes="mono cap" TextWrapping="Wrap" />
           <StackPanel Orientation="Horizontal" Spacing="8">
-            <Button x:Name="CopySourceButton" Content="复制来源地址" Classes="ghost-action" Command="{Binding CopySourceUrlCommand}" IsEnabled="{Binding HasSourceUrl}" />
-            <Button x:Name="OpenSourceButton" Content="打开来源" Classes="ghost-action" Command="{Binding OpenSourceUrlCommand}" IsEnabled="{Binding HasSourceUrl}" />
+            <Button x:Name="CopySourceButton" Content="复制来源地址" Classes="ghost" Command="{Binding CopySourceUrlCommand}" IsEnabled="{Binding HasSourceUrl}" />
+            <Button x:Name="OpenSourceButton" Content="打开来源" Classes="ghost" Command="{Binding OpenSourceUrlCommand}" IsEnabled="{Binding HasSourceUrl}" />
             <ComboBox x:Name="ExportFormatComboBox"
                       Width="170"
                       ItemsSource="{Binding ExportFormatOptions}"
                       SelectedItem="{Binding SelectedExportFormatOption, Mode=TwoWay}"
                       IsEnabled="{Binding CanExport}" />
-            <Button x:Name="ExportButton" Content="导出" Classes="secondary-action" Command="{Binding ExportCommand}" IsEnabled="{Binding CanExport}" />
+            <Button x:Name="ExportButton" Content="导出" Classes="secondary" Command="{Binding ExportCommand}" IsEnabled="{Binding CanExport}" />
           </StackPanel>
         </StackPanel>
         <StackPanel Grid.Column="1" Spacing="2">
-          <TextBlock Text="{Binding CountText}" Classes="metric-value" />
-          <TextBlock Text="当前筛选" Classes="metric-label" />
+          <TextBlock Text="{Binding CountText}" Classes="stat-value" />
+          <TextBlock Text="当前筛选" Classes="stat-label" />
         </StackPanel>
         <StackPanel Grid.Column="2" Spacing="2">
-          <TextBlock Text="{Binding DurationText}" Classes="metric-value" />
-          <TextBlock Text="视频时长" Classes="metric-label" />
+          <TextBlock Text="{Binding DurationText}" Classes="stat-value" />
+          <TextBlock Text="视频时长" Classes="stat-label" />
         </StackPanel>
       </Grid>
 
-      <Border Classes="dashboard-panel" IsVisible="{Binding IsBusy}">
+      <Border Classes="card" IsVisible="{Binding IsBusy}">
         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
           <ProgressBar IsIndeterminate="True" Width="180" Height="6" VerticalAlignment="Center" />
-          <TextBlock Grid.Column="1" Text="{Binding LoadingText}" Classes="body-muted" VerticalAlignment="Center" TextWrapping="Wrap" />
+          <TextBlock Grid.Column="1" Text="{Binding LoadingText}" Classes="cap" VerticalAlignment="Center" TextWrapping="Wrap" />
         </Grid>
       </Border>
 
-      <Border Classes="dashboard-panel" IsVisible="{Binding HasStatistics}">
+      <Border Classes="card" IsVisible="{Binding HasStatistics}">
         <StackPanel Spacing="8">
-          <TextBlock Text="弹幕概览" Classes="section-title" />
+          <TextBlock Text="弹幕概览" Classes="section" />
+          <Border Classes="rule" />
           <Grid ColumnDefinitions="*,*,*,*" RowDefinitions="Auto,Auto" ColumnSpacing="12" RowSpacing="8">
-            <TextBlock Text="{Binding Statistics.Count, StringFormat='弹幕：{0} 条'}" Classes="body-muted" />
-            <TextBlock Grid.Column="1" Text="{Binding Statistics.DurationText, StringFormat='时长：{0}'}" Classes="body-muted" />
-            <TextBlock Grid.Column="2" Text="{Binding Statistics.AverageText, StringFormat='平均：{0}'}" Classes="body-muted" />
-            <TextBlock Grid.Column="3" Text="{Binding Statistics.RequestText, StringFormat='请求：{0}'}" Classes="body-muted" />
-            <TextBlock Grid.Row="1" Text="{Binding Statistics.HotRangeText, StringFormat='最高密度：{0}'}" Classes="body-muted" />
-            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Statistics.HotCountText, StringFormat='区间数量：{0}'}" Classes="body-muted" />
-            <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding Statistics.ColoredRatioText, StringFormat='彩色占比：{0}'}" Classes="body-muted" />
+            <TextBlock Text="{Binding Statistics.Count, StringFormat='弹幕：{0} 条'}" Classes="cap" />
+            <TextBlock Grid.Column="1" Text="{Binding Statistics.DurationText, StringFormat='时长：{0}'}" Classes="cap" />
+            <TextBlock Grid.Column="2" Text="{Binding Statistics.AverageText, StringFormat='平均：{0}'}" Classes="cap" />
+            <TextBlock Grid.Column="3" Text="{Binding Statistics.RequestText, StringFormat='请求：{0}'}" Classes="cap" />
+            <TextBlock Grid.Row="1" Text="{Binding Statistics.HotRangeText, StringFormat='最高密度：{0}'}" Classes="cap" />
+            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Statistics.HotCountText, StringFormat='区间数量：{0}'}" Classes="cap" />
+            <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding Statistics.ColoredRatioText, StringFormat='彩色占比：{0}'}" Classes="cap" />
           </Grid>
         </StackPanel>
       </Border>
 
-      <Border Classes="dashboard-panel" IsVisible="{Binding HasHighMoments}">
+      <Border Classes="card" IsVisible="{Binding HasHighMoments}">
         <StackPanel Spacing="8">
-          <TextBlock Text="高能时刻" Classes="section-title" />
+          <TextBlock Text="高能时刻" Classes="section" />
+          <Border Classes="rule" />
           <ItemsControl ItemsSource="{Binding HighMoments}">
             <ItemsControl.ItemsPanel>
               <ItemsPanelTemplate><WrapPanel Orientation="Horizontal" /></ItemsPanelTemplate>
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="rt:DanmuHeatmapBucket">
-                <Button Classes="ghost-action"
+                <Button Classes="ghost"
                         Margin="0,0,8,6"
                         Command="{Binding $parent[ItemsControl].DataContext.SelectHeatmapBucketCommand}"
                         CommandParameter="{Binding}">
                   <StackPanel Spacing="2">
-                    <TextBlock Text="{Binding RangeText}" Classes="mono-text" />
-                    <TextBlock Text="{Binding CountText, StringFormat='{}{0}弹幕'}" Classes="body-muted" />
+                    <TextBlock Text="{Binding RangeText}" Classes="mono" />
+                    <TextBlock Text="{Binding CountText, StringFormat='{}{0}弹幕'}" Classes="cap" />
                   </StackPanel>
                 </Button>
               </DataTemplate>
@@ -80,30 +82,31 @@
         </StackPanel>
       </Border>
 
-      <Border Classes="dashboard-panel">
+      <Border Classes="card">
         <StackPanel Spacing="8">
-          <TextBlock Text="弹幕热力图" Classes="section-title" />
+          <TextBlock Text="弹幕热力图" Classes="section" />
+          <Border Classes="rule" />
           <Grid IsVisible="{Binding HasHeatmap}" RowDefinitions="132,Auto,Auto" RowSpacing="8">
             <controls:DanmuHeatmapControl x:Name="HeatmapTimeline"
                                           Buckets="{Binding HeatmapBuckets}"
                                           SelectedIndex="{Binding SelectedHeatmapIndex, Mode=TwoWay}"
                                           HorizontalAlignment="Stretch" />
             <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
-              <TextBlock Text="00:00" Classes="mono-text body-muted" />
-              <TextBlock Grid.Column="1" Text="拖动时间轴查看区间" Classes="body-muted" HorizontalAlignment="Center" />
-              <TextBlock Grid.Column="2" Text="{Binding Statistics.DurationText}" Classes="mono-text body-muted" />
+              <TextBlock Text="00:00" Classes="mono cap" />
+              <TextBlock Grid.Column="1" Text="拖动时间轴查看区间" Classes="cap" HorizontalAlignment="Center" />
+              <TextBlock Grid.Column="2" Text="{Binding Statistics.DurationText}" Classes="mono cap" />
             </Grid>
             <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="12">
-              <TextBlock Text="{Binding SelectedHeatmapRangeText}" Classes="mono-text" TextWrapping="Wrap" />
+              <TextBlock Text="{Binding SelectedHeatmapRangeText}" Classes="mono" TextWrapping="Wrap" />
               <TextBlock Grid.Column="1" Text="{Binding SelectedHeatmapCountText}" FontWeight="SemiBold" />
             </Grid>
           </Grid>
-          <TextBlock Text="暂无热力数据" Classes="body-muted" IsVisible="{Binding !HasHeatmap}" />
+          <TextBlock Text="暂无热力数据" Classes="cap" IsVisible="{Binding !HasHeatmap}" />
         </StackPanel>
       </Border>
 
       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-        <TextBox Text="{Binding SearchQuery, Mode=TwoWay}" Watermark="搜索弹幕内容（支持空白分词）" />
+        <TextBox Classes="field" Text="{Binding SearchQuery, Mode=TwoWay}" Watermark="搜索弹幕内容（支持空白分词，边输入边筛选）" />
         <ComboBox Grid.Column="1" Width="120" SelectedIndex="{Binding FilterIndex, Mode=TwoWay}">
           <ComboBoxItem Content="全部" />
           <ComboBoxItem Content="滚动" />
@@ -114,38 +117,41 @@
 
       <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-          <TextBlock Text="{Binding Diagnostic}" Classes="body-muted" TextWrapping="Wrap" />
-          <Button Grid.Column="1" Content="重新拉取" Classes="secondary-action" Command="{Binding LoadCommand}" IsVisible="{Binding CanRetry}" IsEnabled="{Binding !IsBusy}" />
+          <TextBlock Text="{Binding Diagnostic}" Classes="cap" TextWrapping="Wrap" />
+          <Button Grid.Column="1" Content="重新拉取" Classes="secondary" Command="{Binding LoadCommand}" IsVisible="{Binding CanRetry}" IsEnabled="{Binding !IsBusy}" />
         </Grid>
-        <Border x:Name="EmptyFilterState" Grid.Row="1" Classes="muted-row" IsVisible="{Binding ShowEmptyFilterState}">
-          <TextBlock Text="当前筛选下没有弹幕" Classes="body-muted" HorizontalAlignment="Center" />
+        <Border x:Name="EmptyFilterState" Grid.Row="1" Classes="inset" IsVisible="{Binding ShowEmptyFilterState}">
+          <TextBlock Text="当前筛选下没有弹幕" Classes="cap" HorizontalAlignment="Center" />
         </Border>
-        <ListBox Grid.Row="2" ItemsSource="{Binding DisplayedComments}" MaxHeight="520">
-          <ListBox.ItemTemplate>
-            <DataTemplate x:DataType="rt:DanmuComment">
-              <Border Classes="muted-row" Margin="0,0,0,6" Padding="8">
-                <Grid ColumnDefinitions="78,Auto,Auto,Auto,*" ColumnSpacing="8">
-                  <TextBlock Text="{Binding TimeSeconds, StringFormat='{}{0:0.###} 秒'}" Classes="mono-text body-muted" />
-                  <Ellipse Grid.Column="1" Width="12" Height="12" Fill="{Binding ColorHex}" VerticalAlignment="Center" />
-                  <TextBlock Grid.Column="2" Text="{Binding ModeLabel}" Classes="body-muted" VerticalAlignment="Center" />
-                  <TextBlock Grid.Column="3" Text="{Binding SourceLabel}" Classes="body-muted" VerticalAlignment="Center" />
-                  <StackPanel Grid.Column="4" Spacing="2">
-                    <TextBlock Text="{Binding Text}" TextWrapping="Wrap" />
-                    <WrapPanel Orientation="Horizontal">
-                      <TextBlock Text="{Binding ColorHex, StringFormat='颜色：{0}'}" Classes="body-muted" Margin="0,0,12,0" />
-                      <TextBlock Text="{Binding CidText}" Classes="body-muted" Margin="0,0,12,0" />
-                      <TextBlock Text="{Binding LikeText}" Classes="body-muted" Margin="0,0,12,0" />
-                      <TextBlock Text="{Binding ColorV2Text}" Classes="body-muted" />
-                    </WrapPanel>
-                    <TextBlock Text="{Binding RawPositionText}" Classes="mono-text body-muted" TextWrapping="Wrap" />
-                  </StackPanel>
-                </Grid>
-              </Border>
-            </DataTemplate>
-          </ListBox.ItemTemplate>
-        </ListBox>
+        <!-- 弹幕可能上千条：每行套描边小卡会叠成一堆框，改用 1px 分隔线。 -->
+        <Border Grid.Row="2" Classes="card" Padding="0">
+          <ListBox ItemsSource="{Binding DisplayedComments}" MaxHeight="520" Background="Transparent" BorderThickness="0" Padding="0">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="rt:DanmuComment">
+                <Border Classes="rule" Padding="12,7">
+                  <Grid ColumnDefinitions="78,Auto,Auto,Auto,*" ColumnSpacing="8">
+                    <TextBlock Text="{Binding TimeSeconds, StringFormat='{}{0:0.###} 秒'}" Classes="mono cap" />
+                    <Ellipse Grid.Column="1" Width="12" Height="12" Fill="{Binding ColorHex}" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="2" Text="{Binding ModeLabel}" Classes="cap" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="3" Text="{Binding SourceLabel}" Classes="cap" VerticalAlignment="Center" />
+                    <StackPanel Grid.Column="4" Spacing="2">
+                      <TextBlock Text="{Binding Text}" TextWrapping="Wrap" />
+                      <WrapPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding ColorHex, StringFormat='颜色：{0}'}" Classes="cap" Margin="0,0,12,0" />
+                        <TextBlock Text="{Binding CidText}" Classes="cap" Margin="0,0,12,0" />
+                        <TextBlock Text="{Binding LikeText}" Classes="cap" Margin="0,0,12,0" />
+                        <TextBlock Text="{Binding ColorV2Text}" Classes="cap" />
+                      </WrapPanel>
+                      <TextBlock Text="{Binding RawPositionText}" Classes="mono cap" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </Border>
       </Grid>
-      <Button Content="加载更多" Classes="secondary-action" Command="{Binding LoadMoreCommand}" IsVisible="{Binding CanLoadMore}" HorizontalAlignment="Center" />
+      <Button Content="加载更多" Classes="secondary" Command="{Binding LoadMoreCommand}" IsVisible="{Binding CanLoadMore}" HorizontalAlignment="Center" />
     </StackPanel>
   </ScrollViewer>
 </UserControl>

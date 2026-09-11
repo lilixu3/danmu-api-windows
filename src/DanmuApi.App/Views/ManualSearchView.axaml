@@ -5,8 +5,8 @@
              x:Class="DanmuApi.App.Views.ManualSearchView"
              x:DataType="vm:ManualSearchPageViewModel">
   <StackPanel Spacing="14">
-    <StackPanel Spacing="3"><TextBlock Text="手动匹配" Classes="section-title" /><TextBlock Text="先搜索动漫，再进入番剧详情和剧集列表；每一步都是独立页面。" Classes="body-muted" TextWrapping="Wrap" /></StackPanel>
-    <Border Classes="dashboard-panel"><Grid ColumnDefinitions="*,Auto" ColumnSpacing="10"><TextBox Text="{Binding Keyword, Mode=TwoWay}" Watermark="输入动漫名称或播放链接" controls:EnterKeyCommand.Command="{Binding SearchCommand}" /><Button Grid.Column="1" Content="搜索动漫" Classes="primary-action" Command="{Binding SearchCommand}" /></Grid></Border>
-    <TextBlock Text="{Binding Diagnostic}" Classes="body-muted" TextWrapping="Wrap" />
+    <StackPanel Spacing="3"><TextBlock Text="手动匹配" Classes="section" /><TextBlock Text="先搜索动漫，再进入番剧详情和剧集列表；每一步都是独立页面。" Classes="cap" TextWrapping="Wrap" /></StackPanel>
+    <Border Classes="card"><Grid ColumnDefinitions="*,Auto" ColumnSpacing="10"><TextBox Classes="field" Text="{Binding Keyword, Mode=TwoWay}" Watermark="输入动漫名称或播放链接" controls:EnterKeyCommand.Command="{Binding SearchCommand}" /><Button Grid.Column="1" Content="搜索动漫" Classes="primary" Command="{Binding SearchCommand}" /></Grid></Border>
+    <TextBlock Text="{Binding Diagnostic}" Classes="cap" TextWrapping="Wrap" />
   </StackPanel>
 </UserControl>
