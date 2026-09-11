@@ -156,23 +156,25 @@ public sealed class ConfigurationEditorControlTests
         Assert.Equal(920, window.MaxWidth);
         Assert.Equal(720, window.MaxHeight);
         Assert.Contains(layout.Children, child => child is ScrollViewer { MaxHeight: 520 });
-        Assert.Contains(layout.Children, child => child is StackPanel panel && panel.Children.OfType<Button>().Any(button => button.Content?.ToString() == "保存"));
-        Assert.Equal("清空", window.ClearActionButton.Content);
-        Assert.Equal("恢复默认", window.ResetActionButton.Content);
-        Assert.False(window.CanReset);
+        // 编辑器只保留取消/保存：清空与恢复默认已移到配置列表行的「清除」按钮，
+        // 同一个动作不在两处出现（否则用户要在两套语义之间做选择）。
+        // 按 Grid.Row 取页脚，不能用 OfType<StackPanel>().Single()：内容区也可能是 StackPanel。
+        var footer = Assert.IsType<StackPanel>(layout.Children.Cast<Control>().Single(child => Grid.GetRow(child) == 2));
+        Assert.Equal(new object[] { "取消", "保存" }, footer.Children.OfType<Button>().Select(button => button.Content!).ToArray());
     }
 
     [AvaloniaFact]
-    public void ConfigurationEditorWindowReturnsDistinctClearAndResetActions()
+    public void ConfigurationEditorWindowCancelLeavesResultUnchanged()
     {
-        var clearWindow = new ConfigurationEditorWindow("编辑", "说明", new TextBox());
-        clearWindow.ClearActionButton.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
-        Assert.Equal(CoreEnvEditAction.Set, clearWindow.Result.Action);
-        Assert.Equal(string.Empty, clearWindow.Result.Value);
+        var window = new ConfigurationEditorWindow("编辑", "说明", new TextBox());
+        var layout = Assert.IsType<Grid>(window.Content);
+        var footer = Assert.IsType<StackPanel>(layout.Children.Cast<Control>().Single(child => Grid.GetRow(child) == 2));
+        var cancel = footer.Children.OfType<Button>().Single(button => Equals(button.Content, "取消"));
+        Assert.Equal(CoreEnvEditAction.Cancel, window.Result.Action);
 
-        var resetWindow = new ConfigurationEditorWindow("编辑", "说明", new TextBox()) { CanReset = true };
-        resetWindow.ResetActionButton.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
-        Assert.Equal(CoreEnvEditAction.Delete, resetWindow.Result.Action);
+        cancel.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+
+        Assert.Equal(CoreEnvEditAction.Cancel, window.Result.Action);
     }
 
     private static CoreEnvDefinition Definition(

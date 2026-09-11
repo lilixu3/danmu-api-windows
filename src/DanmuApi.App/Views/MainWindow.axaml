@@ -32,7 +32,11 @@
           </Border>
           <StackPanel Grid.Column="1" IsVisible="{Binding IsSidebarExpanded}" VerticalAlignment="Center" Spacing="1">
             <TextBlock Text="弹幕 API" FontSize="16" FontWeight="SemiBold" />
-            <TextBlock Text="Windows 桌面端" Classes="overline" />
+            <!-- 侧栏在 960 宽度下只有 216px，减掉图标与内边距后留给这行的不到 140px；
+                 "Windows 桌面端" 在 11px 下约 134px 宽，跨过半像素栅格边界时同一字符串会落到
+                 空格前后不同的灰度（实测：基线 27 张差异帧里有 12 张只差这一行）。
+                 文本不变，只加一条省略号约束，让它稳定落在自己的宽度内。 -->
+            <TextBlock Text="Windows 桌面端" Classes="overline" TextTrimming="CharacterEllipsis" />
           </StackPanel>
         </Grid>
 

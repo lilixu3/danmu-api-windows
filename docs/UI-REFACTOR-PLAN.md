@@ -251,20 +251,95 @@ Grid.SetRow(ExploreColumn, narrow ? 1 : 0);
 **验收**：构建 0/0；全量测试与基线一致；渲染核心页 + 设置页深浅各一，与本步之前无差异
 （证明双写策略生效、其余页面零漂移）。
 
+### 步骤 2 的实测修正：双写策略只对「数值相同」的类名成立
+
+原计划要求「每个新类名与旧类名双写」。实测证明**这条规则不能无条件执行**：
+双写的 `<Setter>` 会以文件顺序参与覆盖，凡是新旧数值不同的类，
+双写必然把既有页面改形。逐项取证结果：
+
+| 类名 | 旧值 | 新值 | 双写后果 | 处置 |
+|---|---|---|---|---|
+| `Border.dashboard-panel` | 圆角 8 / Padding 18 | 圆角 10 / Padding 14,12 | 40+ 处旧用法全部变形 | **不双写** |
+| `Border.status-pill` | `SurfaceMutedBrush` / 圆角 5 / 11px | `ChipNeutralBrush` / 圆角 999 | 核心页 3 处 `status-pill` 变形（`CorePageView.axaml:196,264,270,276`） | **不双写** |
+| `TextBlock.page-title` | 26px（**被内容包住**） | h1 = 18px | Selector 写不进属性限定条件（`TextBlock.page-title[FontSize=26]` 被 Avalonia 拒绝），18 一旦写进文件级样式就盖掉 `App.axaml:90` 的 26，连带改到 `ActivityView:8`、`ToolsView:8`、`BangumiDetailsView:9`、`DanmuDetailsView:14`、`SettingsView:61` | **不双写** |
+| `Button.secondary` 的视觉 | 表面底 + 强描边 + Padding 10,4（`App.axaml:225-232`） | 设计稿的浅底 + 描边（SurfaceMutedBrush） | 7 个 `settings-*` 帧全部变形 | **只改名，数值沿用旧值** |
+
+**最终策略**（已按此实施）：
+
+1. 新旧数值**完全一致**的类名 → 照旧双写。已双写的：
+   `sub`/`page-subtitle`、`section`/`section-title`、`cap`/`body-muted`、
+   `mono`/`mono-text`、`rail-list`/`settings-list`。
+   ⚠️ **例外见「步骤 2 的二次修正」**：`cap` 与 `body-muted` 数值并不一致（11 / 12），
+   拆成两条独立 selector 才成立。
+2. 新旧数值**不同**的类名 → **只加新名，不动旧名**；旧名的定义权整条留在 `App.axaml`，
+   其余页面零感知，配置页用新名拿到新数值。
+3. `overline` 也不双写，但**有一个前提**：新数值必须**等于**旧数值，或者同步删除
+   `App.axaml` 里的旧定义。本轮选了前者（见「步骤 2 的二次修正」）——
+   `App.axaml` 的 `<StyleInclude>` 在最前面，同名 selector 由 `App.axaml` 胜出。
+4. `Button.danger` 刻意不复用 `danger-action` —— 后者在 `App.axaml:304` 与 `:500`
+   被定义两次（后者生效），双写会让本文件的定义卷入那场覆盖，结果不可预测
+   （该缺陷记录在 §6.5，本轮不修）。
+
+**「零漂移」的判据也随之修正**：不是「所有 94 帧逐张一致」，而是
+「差异帧必须是 §8 判据修正里那 27 张固有抖动帧的子集」。
+
+**实测佐证**（两次独立渲染，`about-light.png`）：
+同一份源码连跑两次，卡在某一帧的两条断言路径上的顺序不同会改变字体光栅化 ——
+`artifacts/ui-refactor-step1/` 与 `ui-refactor-baseline/` 在该区域 1952 像素不同，
+而 `ui-refactor-step1/` 与 `ui-refactor-step1b/`（同一份源码）在该区域差异为 **0**。
+即：这个差异来自渲染非确定性，不是样式改动。
+
+### 步骤 2 的二次修正：一次真实的「跨页面漂移」及其根因（步骤 6 补记）
+
+步骤 2 的收窄规则（上表）**遗漏了两条**，它们在步骤 6 的全站渲染核对里才暴露出来：
+
+| 类名 | 遗漏原因 | 症状（像素取证） | 处置 |
+|---|---|---|---|
+| `TextBlock.overline` | 新名与旧名**同名**，被当成「没有旧名可双写」，于是 Shell 里直接写了新数值（10.5px + `TextFaintBrush`） | `theme-toggle-*`、`shell-*-stopped`、`settings-*`、`tools-*`、`startup-*` 共 46 帧的侧栏副标题区域（如 `(74,73)-(161,84)`）480–520 像素差、通道差 434 | Shell 的 `overline` 逐项改回旧值（11px / SemiBold / `TextSecondaryBrush`），**取消**该条的「新数值」计划；配置页本轮与其余页面一致 |
+| `TextBlock.cap` 与 `body-muted` 双写 | 只核对了「两个名字各自要什么」，没核对「双写后同一文件里哪一条生效」 | `notification-settings-*`、`settings-*` 共 12 帧的版本行 `(30,19)-(66,28)` 227–229 像素差、通道差 456 | `cap` 与 `body-muted` **拆成两条独立 selector**，各自沿用旧值（11px / 12px） |
+
+**根因（同一条）**：`App.axaml` 里 `<StyleInclude Source="Shell.axaml" />` 位于
+`<Application.Styles>` 的**最前面**（`App.axaml:83`），所以 **`App.axaml` 自己的样式后定义、优先级更高**。
+任何在 Shell 与原 App 样式里**同名 selector** 的类，Shell 写的数值都不会生效——
+这既是上面两条漂移的成因，也说明「双写」在这个代码库里对**同名类**根本不成立。
+
+**二次核对结果**：修正后 `step6e` vs `step1` 的差异里，
+`notification-settings-*`、`settings-*`、`tools-*`、`startup-main-failed-repair` **逐张 identical**；
+`theme-toggle-*`、`shell-*-stopped*` 只剩 maxdelta 46–48 的 ≤1 LSB 抗锯齿抖动。
+残留的实质差异只有两类，都不是类名语义的问题（见下表）。
+
+### 步骤 6 的第三类发现：两处「固有抖动」其实是良性布局不确定
+
+27 张固有抖动帧里有两组，经取证发现不是纯光栅化抖动，而是**布局落在半像素栅格上**导致的：
+同一份源码两次渲染会产生**通道互换**级别的差异（maxdelta 384–456），
+既不属于本轮改动，也不会稳定复现。处置如下（都属于「让结果确定」，不改任何视觉语义）：
+
+| 帧组 | 取证 | 处置 |
+|---|---|---|
+| `overview-*`（10 张）+ `shell-*-addresses/running`（12 张）+ `requests-*`（4 张） | 差异矩形如 `(134,216)-(170,223)`、`(352,318)-(388,325)`，全部落在 **Windows 原生长度的文本**「局域网 IPv4 API」「请求记录」等处；窗口宽度 1200/1280/1920/720/1100 减侧栏 216 与页面内边距后都是**奇数**，文本块因此跨在半像素上 | 在 `OverviewAboutViewTests` 与 `Requests` 用例的渲染前把窗口位置钉到整像素栅格（`window.Position = new PixelPoint(8, 8)`）；`MainWindow.axaml` 的侧栏副标题加 `TextTrimming="CharacterEllipsis"` 消除侧栏这一路的跨边界换行 |
+| `tools-*`、`theme-toggle-*`、`shell-*-stopped*` | 侧栏副标题「Windows 桌面端」在 216px 侧栏里可用宽度不足 140px，字符串宽度约 134px，跨栅格 | 同上（`TextTrimming`） |
+
+**结果**：残留抖动从 27 张降到 **26 张**，且新增差异帧为 0；
+`about-*` 的 1.7k 像素差（`(221,210)-(498,219)`）经逐像素核对为**纯文本抗锯齿**：
+差异区域是完整的文字行高（y=210–219），无位移、无换色，与基线/步骤 1 之间同样存在。
+
 ### 步骤 3：重写 `ConfigurationView.axaml`
 
-1. **页头**：三列 `Grid ColumnDefinitions="*,Auto,Auto"`
-   - 左：`PageTitle`（`h1`）+ `PageSubtitle`（`sub`）
-   - 中：`CoreSummary` 绑定为 `Border.chip.neutral`（**新绑定，解决 C-7**）
-   - 右：搜索 `TextBox`（去掉固定 `Width=250`，改 `MinWidth=200` + `MaxWidth=320`）
-     + 刷新按钮（`Button.secondary`）
-2. **分类 rail**：`Border.rail` 包 `ListBox`，`ItemsSource={Categories}`、
+1. **页头**：两列 `Grid ColumnDefinitions="*,Auto"` —— 标题块（`PageTitle` 用 `h1`、
+   `PageSubtitle` 用 `sub`）+ 右侧「刷新」（`Button.secondary`）。
+   搜索框与核心摘要下移到第二行（见下一条），原因是三列布局在 960px 下
+   标题会被压成两行、搜索框只剩 120px。
+2. **第二行**：诊断条（`notice-panel`，仅在 `HasDiagnostic` 时可见）+ `Grid ColumnDefinitions="*,Auto"`
+   —— 搜索 `TextBox.field`（`MinWidth=160` / `MaxWidth=360`，**取消固定 `Width=250`**）
+   + `CoreSummary` 绑进 `Border.chip.neutral`（**新绑定，解决 C-7**）。
+3. **分类 rail**：`Border.rail` 包 `ListBox.rail-list`，`ItemsSource={Categories}`、
    `SelectedItem={SelectedCategory, Mode=TwoWay}`（**绑定形态一字不改**）。
-   - `ListBox.rail-list` 的 `ItemTemplate` 用 `TextBlock.section`（分类名）+
-     `TextBlock.cap`（描述）。
-   - 使用 `ListBoxItem` 的 `:selected` 选择器实现选中态（`AccentSoftBrush` 底 + `AccentBrush` 文字），
-     参考 `App.axaml:541-552` 的 `settings-list` 写法。
-3. **变量列表**：`Border.card` 内改为
+   - `ItemTemplate`：分类名（本地 `rail-title`，12.5px SemiBold）+ 说明（本地 `rail-caption`，10.5px）。
+     这里没用 `TextBlock.section`/`cap`：rail 宽度只有 216 − 12（Padding）− 20（项内边距）≈ 184px，
+     `section` 的 13px 会把「当前核心 envs.js 中声明的变量」挤成三行。
+   - 选中态由 `Shell.axaml` 的 `ListBox.rail-list ListBoxItem:selected /template/ ContentPresenter`
+     提供（`AccentSoftBrush` 底），与 `App.axaml:541-552` 的 `settings-list` 数值一致。
+4. **变量列表**：`Border.card` 内放虚拟化 `ListBox`：
    ```xml
    <ListBox ItemsSource="{Binding FilteredVariables}"
             SelectedItem="{Binding SelectedVariable, Mode=TwoWay}"
@@ -273,19 +348,23 @@ Grid.SetRow(ExploreColumn, narrow ? 1 : 0);
        <ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate>
      </ListBox.ItemsPanel>
    ```
-   （**解决 C-2**；`VirtualizingStackPanel` 的用法照抄 `Views/LogsView.axaml:102`）
-   - 行模板：`Grid ColumnDefinitions="*,Auto"`，左列 `Key`（`mono`）+ `Description`（`cap`，单行截断），
-     右列两个 `Border.chip`（来源 + 已配置/默认），**不再在行内放按钮**（编辑动作移到详情面板，
-     行内仅保留选中）。
-   - 行容器 `Border.rule`（底部 1px 线）替代原 `configuration-row`。
-4. **详情面板**：`Border.card`，`Grid RowDefinitions="Auto,Auto,*,Auto"`
-   - 键名（`mono`，15px SemiBold）、类型 + 来源（`Border.chip`）、
-     当前值（`SelectableTextBlock` + `mono`，敏感值已是 `••••••••`，不额外处理）
-   - 说明（`cap`，多行）
-   - 底部动作行：`Button.primary`「编辑」+ `Button.danger`「恢复默认（删除显式值）」
+   （**解决 C-2**；`VirtualizingStackPanel` 用法照抄 `Views/LogsView.axaml:102`）
+   - 行模板：`Grid ColumnDefinitions="*,Auto"`，左列 `Key`（本地 `variable-key`，等宽 12px SemiBold）
+     + `Description`（`cap` + `TextTrimming="CharacterEllipsis"`，**单行截断**）；
+     右列两个 `Border.chip`（来源 / 「已配置」）。**行内不再放按钮** ——
+     编辑与删除移到详情面板，行内只负责选中。
+   - 行分隔线通过 `ListBox.variable-list ListBoxItem /template/ ContentPresenter` 的
+     `BorderThickness="0,0,0,1"` 实现，**不用 `Border.rule` 当行容器** ——
+     `Border.rule` 的高度由 `BorderThickness` 决定，单用会塌成 1px。
+5. **详情面板**：`Border.card`，`HasSelectedVariable` 控两态
+   - 键名（`mono` + 15px SemiBold + `TextPrimaryBrush`）、类型 + 来源（`chip.accent` / `chip.neutral`）、
+     当前值（`SelectableTextBlock` + `mono`，敏感值已是 `••••••••`，不额外处理）、
+     说明（`cap`，多行）
+   - 底部动作行：`Button.primary`「编辑」（文案取 `SelectedVariableActionText`，
+     即 `EditorActionText`）+ `Button.danger`「恢复默认」（`CanResetSelectedVariable` 控制可用性）
      （**解决 C-3**：破坏性动作不再是同款蓝色文字）
-   - 未选中时显示占位文案（`cap`：「在左侧选择一个变量查看详情」）
-5. **诊断条**：`Border.notice-panel` 保留（它已是语义正确的组件），只把内部文案类换成 `cap`。
+   - 未选中时显示占位文案（`cap`）
+6. **诊断条**保留 `Border.notice-panel`（它已是语义正确的组件），只把内部文案类换成 `cap`。
 
 **验收**：构建 0/0；`Tests/ConfigurationPageViewModelTests.cs` 19 个用例**零修改**通过；
 渲染下列 12 张并逐张核对（渲染方法见 §5.3）：
@@ -572,12 +651,42 @@ $env:DANMU_TEST_RENDER_DIRECTORY = "C:\c\danmu-api-windows\artifacts\ui-refactor
 | 步骤 | 构建 | 测试 | 渲染帧数 | 渲染目录 | 偏差与说明 |
 |---|---|---|---|---|---|
 | 0 基线 | 0 警告 0 错误 | 957 / 0 / 9 / 966 | 94 | `artifacts/ui-refactor-baseline/` | 相对路径导致 30 个渲染用例假失败，见 §9.1 |
-| 1 抽出 token | | | | | |
-| 2 建立外壳词汇 | | | | | |
-| 3 重写 ConfigurationView | | | | | |
-| 4 新增只读 VM 属性 | | | | | |
-| 5 窄屏与中屏收敛 | | | | | |
-| 6 收口 | | | | | |
+| 1 抽出 token | 0 警告 0 错误 | 957 / 0 / 9 / 966 | 94 | `artifacts/ui-refactor-step1/` | 差异帧 27 张＝固有抖动集合，新增 0 |
+| 2 建立外壳词汇 | 0 警告 0 错误 | 957 / 0 / 9 / 966 | 94 | `artifacts/ui-refactor-step2d/` | 双写策略按实测收窄为 4 类不双写，见 §3 步骤 2 修正表 |
+| 3 重写 ConfigurationView | 0 警告 0 错误 | 959 / 0 / 9 / 968 | 114（94 + 20 配置页） | `artifacts/ui-refactor-step3e/` | 19 个既有配置页用例零修改通过；新增 2 个选中项用例 |
+| 4 新增只读 VM 属性 | 0 警告 0 错误 | 959 / 0 / 9 / 968 | 114 | `artifacts/ui-refactor-step3e/` | 与步骤 3 同一次构建，无独立提交点 |
+| 5 窄屏与中屏收敛 | 0 警告 0 错误 | 971 / 0 / 9 / 980 | 114 | `artifacts/ui-refactor-step5/` | 12 个断点/状态渲染用例（1920/1280/1100/1099/960/900/899/720 × 深浅） |
+| 6 收口 | 0 警告 0 错误 | 971 / 0 / 9 / 980 | 114 | `artifacts/ui-refactor-step6e/` | 见下 |
+
+**步骤 6 的偏差与处置（这是本轮最值得记的一条）**：
+
+全站核对暴露出**两处真实的跨页面漂移**，根因是同一条：
+`App.axaml` 的 `<StyleInclude Source="Shell.axaml" />` 位于 `<Application.Styles>` 最前面，
+于是 **`App.axaml` 里同名 selector 的样式优先**，「双写」对同名类根本不成立。
+
+| 漂移 | 受影响帧 | 像素证据 | 处置 |
+|---|---|---|---|
+| `TextBlock.overline` 被写成新数值（10.5px / `TextFaintBrush`） | 46 张（`theme-toggle-*`、`shell-*-stopped*`、`settings-*`、`tools-*`、`startup-*`） | 侧栏副标题区 `(74,73)-(161,84)` 约 500 像素差、通道差 434 | Shell 逐项改回旧值（11px / SemiBold / `TextSecondaryBrush`）；配置页本轮与全站一致 |
+| `cap` 与 `body-muted` 写进同一条 selector | 12 张（`notification-settings-*`、`settings-*`） | 版本行 `(30,19)-(66,28)` 约 228 像素差、通道差 456 | 拆成两条独立 selector，各自沿用旧值 11px / 12px |
+
+修正后的最终核对（`step6e` vs `step1`）：
+
+- `notification-settings-*`、`settings-*`、`tools-*`、`startup-main-failed-repair`：**逐张 identical**；
+- `theme-toggle-*`、`shell-*-stopped*`：只剩 maxdelta 46–48（≤1 LSB 抗锯齿）；
+- 残留抖动帧 27 → **26 张**，新增差异帧 **0**；
+- 新增的 20 张配置页帧为预期产物。
+
+**发布自检（步骤 6，正本为最终签名 EXE）**：
+
+```powershell
+build\Build-WindowsRelease.ps1 -Dotnet <SDK> -InnoCompiler <ISCC> -SignTool <signtool> `
+  -SigningIdentity <identity.json> -RuntimeBundle <已验证 bundle> -OutputDirectory artifacts\signed-0.3.4
+artifacts\signed-0.3.4\publish\DanmuApi.App.exe --release-self-test  <report>   # exit 0
+artifacts\signed-0.3.4\publish\DanmuApi.App.exe --verify-app-release <publish>  # exit 0
+```
+
+`--verify-app-release` 只接受**发行根目录**（要读 `update-manifest.json`）；若指向 `publish`
+会以 `FileNotFoundException` 失败（本次实测踩到，已记入 `docs/HANDOFF.md`）。
 
 ---
 

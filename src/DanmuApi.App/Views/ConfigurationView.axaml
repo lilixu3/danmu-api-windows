@@ -4,7 +4,23 @@
              x:Class="DanmuApi.App.Views.ConfigurationView"
              x:DataType="vm:ConfigurationPageViewModel">
   <UserControl.Styles>
-    <!-- 分类项：标题 + 说明两行。选中态由 Shell.axaml 的 ListBox.rail-list 提供。 -->
+    <!-- 分类项：标题 + 说明两行。选中/悬停态的底色与文字色由下面两条按数据模板层级覆写，
+         App.axaml 里那条全局 `ListBoxItem:pointerover` 用的是日志页的深色底
+         （LogRowHoverBrush = #18202B），在浅色主题下会让侧栏标题变黑底黑字。 -->
+    <Style Selector="ListBox.rail-list ListBoxItem:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource SurfaceHoverBrush}" />
+    </Style>
+    <Style Selector="ListBox.rail-list ListBoxItem:selected /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+    </Style>
+    <Style Selector="ListBox.rail-list ListBoxItem /template/ ContentPresenter TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+    </Style>
+    <Style Selector="ListBox.rail-list ListBoxItem /template/ ContentPresenter TextBlock.rail-caption">
+      <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
+    </Style>
+
+    <!-- 分类项：标题 + 说明两行。 -->
     <Style Selector="TextBlock.rail-title">
       <Setter Property="FontSize" Value="12.5" />
       <Setter Property="FontWeight" Value="SemiBold" />
@@ -34,6 +50,34 @@
       <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
     </Style>
 
+    <!-- 行内操作按钮：用按钮自己的类，不用纯类名选择器。
+         App.axaml 里有全局的 `Button.chip` 与 `Button.compact-action`，
+         纯类名选择器无法限定「只在本列表里生效」。 -->
+    <Style Selector="Button.row-action">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="8,3" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.row-action:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource SurfaceHoverBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+    </Style>
+    <Style Selector="Button.row-action:disabled /template/ ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="TextBlock.Foreground" Value="{DynamicResource TextFaintBrush}" />
+    </Style>
+    <Style Selector="Button.row-action.danger">
+      <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+    </Style>
+    <Style Selector="Button.row-action.danger:pointerover /template/ ContentPresenter">
+      <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+    </Style>
+
     <Style Selector="TextBlock.variable-key">
       <Setter Property="FontFamily" Value="Cascadia Mono,Consolas" />
       <Setter Property="FontSize" Value="12" />
@@ -46,7 +90,7 @@
     <!-- ── 分类侧栏 ──────────────────────────────────────────────────── -->
     <Border x:Name="CategoryRail" Classes="rail" VerticalAlignment="Top">
       <Grid RowDefinitions="Auto,*" RowSpacing="6">
-        <StackPanel Margin="8,6,8,2" Spacing="3">
+        <StackPanel x:Name="RailHeader" Margin="8,6,8,2" Spacing="3">
           <TextBlock Text="配置分类" Classes="overline" />
           <TextBlock Text="来自当前核心 envs.js" Classes="rail-caption" />
         </StackPanel>
@@ -58,6 +102,12 @@
                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                  Background="Transparent"
                  BorderThickness="0">
+          <ListBox.ItemsPanel>
+            <!-- 竖排用 VirtualizingStackPanel：分类多时可滚动。 -->
+            <ItemsPanelTemplate>
+              <VirtualizingStackPanel />
+            </ItemsPanelTemplate>
+          </ListBox.ItemsPanel>
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="vm:ConfigurationCategory">
               <StackPanel Spacing="2" Margin="10,7">
@@ -75,7 +125,7 @@
       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
         <StackPanel Spacing="2">
           <TextBlock Text="{Binding PageTitle}" Classes="h1" />
-          <TextBlock Text="{Binding PageSubtitle}" Classes="sub" />
+          <TextBlock Text="{Binding PageSubtitle}" Classes="sub" TextTrimming="CharacterEllipsis" />
         </StackPanel>
         <Button Grid.Column="1"
                 Content="刷新"
@@ -88,17 +138,28 @@
         <Border Classes="notice-panel" IsVisible="{Binding HasDiagnostic}">
           <TextBlock Text="{Binding DiagnosticText}" Classes="cap" TextWrapping="Wrap" />
         </Border>
-        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+        <!-- 搜索框靠左：不写 `*` 拉伸列，只给固定宽度上限。
+             右侧「清空」只在有关键词时出现，一键回到当前分类的完整列表。 -->
+        <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="10">
           <TextBox Classes="field"
-                   MinWidth="160"
-                   MaxWidth="360"
-                   HorizontalAlignment="Stretch"
+                   Width="260"
+                   HorizontalAlignment="Left"
                    Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                    Watermark="搜索全部变量名或说明" />
-          <Border Grid.Column="1" Classes="chip neutral">
+          <Button Grid.Column="1"
+                  Content="清空关键词"
+                  Classes="secondary row-action"
+                  VerticalAlignment="Center"
+                  IsVisible="{Binding HasSearchText}"
+                  Command="{Binding ClearSearchCommand}" />
+          <Border Grid.Column="2" Classes="chip neutral">
             <TextBlock Text="{Binding CoreSummary}" />
           </Border>
         </Grid>
+        <!-- 搜索态提示：明确「以下列出的是包含关键词的全部变量」并给出命中数。 -->
+        <Border Classes="notice-panel" IsVisible="{Binding HasSearchText}">
+          <TextBlock Text="{Binding SearchSummary}" Classes="cap" TextWrapping="Wrap" />
+        </Border>
       </StackPanel>
 
       <Border Grid.Row="2" Classes="card" Padding="0">
@@ -119,20 +180,66 @@
             </ListBox.ItemsPanel>
             <ListBox.ItemTemplate>
               <DataTemplate x:DataType="vm:ConfigurationVariableRow">
-                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" Margin="14,9">
-                  <StackPanel Spacing="3">
-                    <TextBlock Text="{Binding Key}" Classes="variable-key" />
+                  <!-- 行结构：左边「键 + 一个状态胶囊」+ 当前值框 + 说明；右边两个操作按钮。
+                       胶囊在键名右侧，方便一眼看出这一行是否已被 .env 覆盖。 -->
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" Margin="14,9">
+                  <StackPanel Spacing="5">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <TextBlock Text="{Binding Key}" Classes="variable-key" VerticalAlignment="Center" />
+                      <!-- 「已配置」用绿胶囊；未配置时才显示「核心默认」这类来源，两者不同时出现，
+                           避免一行挂两个语义重复的标签。 -->
+                      <Border Classes="chip ok" VerticalAlignment="Center" IsVisible="{Binding IsConfigured}">
+                        <TextBlock Text="已配置" />
+                      </Border>
+                      <Border Classes="chip neutral" VerticalAlignment="Center" IsVisible="{Binding ShowSourceChip}">
+                        <TextBlock Text="{Binding Source}" />
+                      </Border>
+                    </StackPanel>
+                    <!-- 当前值框：默认两行封顶，超长值折叠，右侧「展开 / 收起」自行控制。 -->
+                    <Border Classes="inset">
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                        <SelectableTextBlock Text="{Binding CurrentValueText}"
+                                             Classes="mono"
+                                             FontSize="11.5"
+                                             Foreground="{DynamicResource TextPrimaryBrush}"
+                                             TextWrapping="Wrap"
+                                             MaxLines="2"
+                                             IsVisible="{Binding !IsValueExpanded}" />
+                        <SelectableTextBlock Grid.Column="0"
+                                             Text="{Binding CurrentValueText}"
+                                             Classes="mono"
+                                             FontSize="11.5"
+                                             Foreground="{DynamicResource TextPrimaryBrush}"
+                                             TextWrapping="Wrap"
+                                             IsVisible="{Binding IsValueExpanded}" />
+                        <Button Grid.Column="1"
+                                Content="{Binding ValueToggleText}"
+                                Classes="row-action"
+                                FontSize="11"
+                                Padding="6,2"
+                                VerticalAlignment="Top"
+                                IsVisible="{Binding IsValueExpandable}"
+                                Command="{Binding $parent[ListBox].((vm:ConfigurationPageViewModel)DataContext).ToggleRowValueCommand}"
+                                CommandParameter="{Binding}" />
+                      </Grid>
+                    </Border>
                     <TextBlock Text="{Binding Description}"
                                Classes="cap"
                                TextTrimming="CharacterEllipsis" />
                   </StackPanel>
-                  <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
-                    <Border Classes="chip neutral">
-                      <TextBlock Text="{Binding Source}" />
-                    </Border>
-                    <Border Classes="chip ok" IsVisible="{Binding IsConfigured}">
-                      <TextBlock Text="已配置" />
-                    </Border>
+                  <!-- 两个按钮固定宽度右对齐，保证所有行竖着对齐成一列。 -->
+                  <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                    <Button Content="{Binding EditorActionText}"
+                            Classes="row-action"
+                            Width="52"
+                            Command="{Binding $parent[ListBox].((vm:ConfigurationPageViewModel)DataContext).EditVariableCommand}"
+                            CommandParameter="{Binding}" />
+                    <Button Content="{Binding ResetActionText}"
+                            Classes="row-action danger"
+                            Width="52"
+                            IsEnabled="{Binding IsConfigured}"
+                            Command="{Binding $parent[ListBox].((vm:ConfigurationPageViewModel)DataContext).DeleteVariableCommand}"
+                            CommandParameter="{Binding}" />
                   </StackPanel>
                 </Grid>
               </DataTemplate>

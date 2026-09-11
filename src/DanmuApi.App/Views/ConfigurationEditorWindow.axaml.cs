@@ -11,16 +11,6 @@ public sealed partial class ConfigurationEditorWindow : Window
         InitializeComponent();
         Opened += (_, _) => ConstrainToWorkingArea();
         CancelButton.Click += (_, _) => Close();
-        ClearButton.Click += (_, _) =>
-        {
-            Result = CoreEnvEditResult.Set(string.Empty);
-            Close();
-        };
-        ResetButton.Click += (_, _) =>
-        {
-            Result = CoreEnvEditResult.Delete();
-            Close();
-        };
     }
 
     public ConfigurationEditorWindow(
@@ -62,17 +52,7 @@ public sealed partial class ConfigurationEditorWindow : Window
 
     public Button SaveActionButton => SaveButton;
 
-    public Button ClearActionButton => ClearButton;
-
-    public Button ResetActionButton => ResetButton;
-
     public CoreEnvEditResult Result { get; set; } = CoreEnvEditResult.Cancel();
-
-    public bool CanReset
-    {
-        get => ResetButton.IsVisible;
-        set => ResetButton.IsVisible = value;
-    }
 
     public string? ErrorMessage
     {

@@ -256,10 +256,16 @@ public sealed class ConfigurationPageViewModelTests
         Assert.Equal("TEST_COUNT", match.Key);
         Assert.Equal("缓存配置", match.Category);
         Assert.Equal("搜索结果", viewModel.PageTitle);
-        Assert.Contains("全部变量", viewModel.PageSubtitle, StringComparison.Ordinal);
+        Assert.True(viewModel.HasSearchText);
+        // 搜索态必须明确告诉用户「以下是包含关键词的全部变量」，并给出命中数量。
+        Assert.Contains("以下是包含", viewModel.PageSubtitle, StringComparison.Ordinal);
+        Assert.Contains("TEST_COUNT", viewModel.PageSubtitle, StringComparison.Ordinal);
+        Assert.Contains("共 1 个", viewModel.PageSubtitle, StringComparison.Ordinal);
 
-        viewModel.SearchText = string.Empty;
+        // 「清空关键词」按钮走 ClearSearchCommand：关键词清掉、回到当前分类的完整列表。
+        viewModel.ClearSearchCommand.Execute(null);
 
+        Assert.False(viewModel.HasSearchText);
         Assert.Equal("数据源配置", viewModel.PageTitle);
         Assert.All(viewModel.FilteredVariables, row => Assert.Equal("数据源配置", row.Category));
         Assert.Contains(viewModel.FilteredVariables, row => row.Key == "VOD_SERVERS");
@@ -329,6 +335,55 @@ public sealed class ConfigurationPageViewModelTests
         Assert.Equal("TEST_COUNT", request.Key);
         Assert.Equal("admin-session", request.AdminToken);
         Assert.Null(DotEnvFile.ReadValue(fixture.EnvPath, "TEST_COUNT"));
+    }
+
+    [Fact]
+    public void SelectedVariableSurvivesRefreshAndClearsWhenFilteredOut()
+    {
+        using var fixture = new ConfigurationFixture();
+        var viewModel = fixture.CreateViewModel();
+        var row = FindVariable(viewModel, "TEST_COUNT");
+        viewModel.SelectedVariable = row;
+        Assert.True(viewModel.HasSelectedVariable);
+        Assert.Equal("TEST_COUNT", viewModel.SelectedVariableKey);
+        Assert.Equal("当前值：5", viewModel.SelectedVariableValue);
+        Assert.True(viewModel.CanResetSelectedVariable);
+
+        viewModel.RefreshCommand.Execute(null);
+
+        // 刷新后选中项按 Key 重新解析。ConfigurationVariableRow 是 record，
+        // 同 Key 同值时刷新出来的副本 Equals 为真，因此断言落在 Key 与内容上，
+        // 并额外证明解析结果与刷新后列表里的元素相等（而不是停留在旧实例）。
+        Assert.NotNull(viewModel.SelectedVariable);
+        Assert.Equal("TEST_COUNT", viewModel.SelectedVariableKey);
+        Assert.True(viewModel.HasSelectedVariable);
+        Assert.Contains(viewModel.FilteredVariables, item => item.Equals(viewModel.SelectedVariable));
+
+        viewModel.SearchText = "VOD_SERVERS";
+
+        Assert.Null(viewModel.SelectedVariable);
+        Assert.False(viewModel.HasSelectedVariable);
+        Assert.Equal(string.Empty, viewModel.SelectedVariableKey);
+        Assert.False(viewModel.CanResetSelectedVariable);
+
+        viewModel.SearchText = string.Empty;
+
+        Assert.Null(viewModel.SelectedVariable);
+    }
+
+    [Fact]
+    public void SelectedVariableKeepsMaskedValueAndUsesEditorActionText()
+    {
+        using var fixture = new ConfigurationFixture();
+        var viewModel = fixture.CreateViewModel();
+        var secret = FindVariable(viewModel, "TEST_SECRET_VALUE");
+
+        viewModel.SelectedVariable = secret;
+
+        Assert.Equal("当前值：••••••••", viewModel.SelectedVariableValue);
+        Assert.Equal(secret.EditorActionText, viewModel.SelectedVariableActionText);
+        Assert.Equal(secret.Source, viewModel.SelectedVariableSource);
+        Assert.Equal(secret.Type, viewModel.SelectedVariableType);
     }
 
     [Fact]

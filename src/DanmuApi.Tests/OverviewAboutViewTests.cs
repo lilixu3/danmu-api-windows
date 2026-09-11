@@ -97,6 +97,11 @@ public sealed partial class MainWindowViewModelBehaviorTests
             Assert.False(view.FindControl<Button>("StopServiceButton")!.IsVisible);
             Assert.False(restart.IsVisible);
             Assert.False(view.FindControl<RequestTrendControl>("RequestTrend")!.IsVisible);
+            // 侧栏对描述文字有裁剪，矩形被压在栅格线上就会退回逐帧不确定的抗锯齿结果
+            // （基线里 12 张 overview-* 差异帧全部来自这一处）。把窗口推到整像素栅格上。
+            window.Position = new PixelPoint(8, 8);
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
             var stoppedRows = view.GetVisualDescendants().OfType<Grid>().Where(g => g.Classes.Contains("addressRow")).ToArray();
             Assert.All(stoppedRows, row => Assert.False(((Button)row.Children[2]).IsEnabled));
             Assert.All(stoppedRows, row => Assert.False(((Button)row.Children[2]).Command!.CanExecute(null)));

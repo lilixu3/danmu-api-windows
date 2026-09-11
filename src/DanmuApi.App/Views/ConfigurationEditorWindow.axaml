@@ -38,15 +38,8 @@
                 Orientation="Horizontal"
                 HorizontalAlignment="Right"
                 Spacing="8">
-      <Button x:Name="ResetButton"
-              Classes="danger-action"
-              Content="恢复默认"
-              MinWidth="96"
-              IsVisible="False" />
-      <Button x:Name="ClearButton"
-              Classes="secondary-action"
-              Content="清空"
-              MinWidth="86" />
+      <!-- 只保留取消/保存：清空与恢复默认都由配置列表行上的「清除」按钮负责，
+           同一个动作不在两处出现，避免用户在两套语义之间做选择。 -->
       <Button x:Name="CancelButton"
               Classes="secondary-action"
               Content="取消"

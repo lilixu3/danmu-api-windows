@@ -32,8 +32,16 @@
     <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
   </Style>
 
-  <Style Selector="TextBlock.section, TextBlock.section-title">
-    <Setter Property="FontSize" Value="13" />
+  <Style Selector="TextBlock.section">
+    <Setter Property="FontSize" Value="16" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+  </Style>
+
+  <!-- section-title 双写同 overline：App.axaml 的 16px 版本仍在生效，
+       这里逐项复刻旧值，保证其余页面零漂移。 -->
+  <Style Selector="TextBlock.section-title">
+    <Setter Property="FontSize" Value="16" />
     <Setter Property="FontWeight" Value="SemiBold" />
     <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
   </Style>
@@ -43,11 +51,14 @@
     <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
   </Style>
 
+  <!-- overline 双写：App.axaml 的旧定义（11px + TextSecondaryBrush）仍在生效，
+       这里只在同一个 selector 里加类名，setter 值与旧值逐项一致，
+       否则所有用 overline 的页面会一起改字号/字重/颜色（配置页没有权利改别的页面）。
+       新数值（10.5px + TextFaintBrush + LetterSpacing）留给后续逐页替换时再启用。 -->
   <Style Selector="TextBlock.overline">
-    <Setter Property="FontSize" Value="10.5" />
+    <Setter Property="FontSize" Value="11" />
     <Setter Property="FontWeight" Value="SemiBold" />
-    <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
-    <Setter Property="LetterSpacing" Value="1.2" />
+    <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
   </Style>
 
   <!-- mono 不带字号与前景色：调用点仍可局部覆盖（旧 mono-text 就只设字体族）。 -->

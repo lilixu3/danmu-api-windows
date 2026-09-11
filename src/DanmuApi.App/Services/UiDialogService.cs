@@ -688,7 +688,6 @@ public sealed partial class UiDialogService : IUiDialogService
             allowComposites: definition.Key == "PLATFORM_ORDER");
         var error = CreateErrorText();
         var dialog = CreateConfigurationEditorDialog($"编辑 {definition.Key}", description, editor, error, out var save);
-        dialog.CanReset = configured;
         save.Click += (_, _) =>
         {
             try
@@ -717,7 +716,6 @@ public sealed partial class UiDialogService : IUiDialogService
         var editor = new VodServersEditor(initial);
         var error = CreateErrorText();
         var dialog = CreateConfigurationEditorDialog($"编辑 {definition.Key}", description, editor, error, out var save);
-        dialog.CanReset = configured;
         save.Click += (_, _) =>
         {
             try
@@ -745,7 +743,6 @@ public sealed partial class UiDialogService : IUiDialogService
         var editor = new MappingTableEditor(initial);
         var error = CreateErrorText();
         var dialog = CreateConfigurationEditorDialog($"编辑 {definition.Key}", description, editor, error, out var save);
-        dialog.CanReset = configured;
         save.Click += (_, _) =>
         {
             try
@@ -773,7 +770,6 @@ public sealed partial class UiDialogService : IUiDialogService
         var editor = new LineListEditor(initial, separator);
         var error = CreateErrorText();
         var dialog = CreateConfigurationEditorDialog($"编辑 {definition.Key}", description, editor, error, out var save);
-        dialog.CanReset = configured;
         save.Click += (_, _) =>
         {
             try
@@ -857,7 +853,6 @@ public sealed partial class UiDialogService : IUiDialogService
         var error = new TextBlock { TextWrapping = TextWrapping.Wrap };
         error.Classes.Add("danger-text");
         var dialog = CreateConfigurationEditorDialog($"编辑 {definition.Key}", description, input, error, out var result);
-        dialog.CanReset = configured;
         result.Click += (_, _) =>
         {
             try

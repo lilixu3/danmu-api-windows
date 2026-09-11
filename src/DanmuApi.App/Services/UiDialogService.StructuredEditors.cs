@@ -22,7 +22,6 @@ public sealed partial class UiDialogService
         var editor = new MergeSourcePairsEditor(definition.Options, groups);
         var error = CreateErrorText();
         var dialog = CreateStructuredDialog(definition, description, editor, error, out var save);
-        dialog.CanReset = configured;
         save.Click += (_, _) =>
         {
             try
@@ -52,7 +51,6 @@ public sealed partial class UiDialogService
             CoreEnvStructuredValues.ParseCustomMergeRules(definition, initial));
         var error = CreateErrorText();
         var dialog = CreateStructuredDialog(definition, description, editor, error, out var save);
-        dialog.CanReset = configured;
         save.Click += (_, _) =>
         {
             try
@@ -82,7 +80,6 @@ public sealed partial class UiDialogService
             CoreEnvStructuredValues.ParseAutoMatchMappings(definition, initial));
         var error = CreateErrorText();
         var dialog = CreateStructuredDialog(definition, description, editor, error, out var save);
-        dialog.CanReset = configured;
         save.Click += (_, _) =>
         {
             try
@@ -112,7 +109,6 @@ public sealed partial class UiDialogService
             CoreEnvStructuredValues.ParseDanmuOffsets(definition, initial));
         var error = CreateErrorText();
         var dialog = CreateStructuredDialog(definition, description, editor, error, out var save);
-        dialog.CanReset = configured;
         save.Click += (_, _) =>
         {
             try
@@ -529,7 +525,6 @@ public sealed partial class UiDialogService
     {
         var editor = new ColorPaletteEditor(definition, initial);
         var dialog = CreateStructuredDialog(definition, description, editor, CreateErrorText(), out var save);
-        dialog.CanReset = configured;
         save.Click += (_, _) =>
         {
             try
@@ -555,7 +550,6 @@ public sealed partial class UiDialogService
         var editor = new IpBlacklistEditor(CoreEnvStructuredValues.ParseIpBlacklist(initial));
         var error = CreateErrorText();
         var dialog = CreateStructuredDialog(definition, description, editor, error, out var save);
-        dialog.CanReset = configured;
         save.Click += (_, _) =>
         {
             try

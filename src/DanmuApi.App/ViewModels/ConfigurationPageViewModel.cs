@@ -23,7 +23,37 @@ public sealed record ConfigurationVariableRow(
     CoreEnvDefinition Definition,
     CoreEnvValueState State,
     ConfigurationEditorTemplate EditorTemplate = ConfigurationEditorTemplate.Text,
-    string EditorActionText = "编辑");
+    string EditorActionText = "编辑")
+{
+    /// <summary>
+    /// 值框折叠时允许的字符数。折叠是按渲染行数封顶（MaxLines=2），
+    /// 而一行的中文字符数按 11.5px 等宽字体大约就是这个量级；
+    /// 阈值只用来决定「要不要给展开按钮」，折叠本身由 MaxLines 保证。
+    /// </summary>
+    public const int CollapsedValueLength = 24;
+
+    /// <summary>行内「清除」按钮的目标文案，见 DeleteVariableCommand 的语义（只清 .env 里的值）。</summary>
+    public string ResetActionText => "清除";
+
+    /// <summary>
+    /// 行内值框的展开态。默认折叠；只有值长的行才需要展开（见 <see cref="IsValueExpandable"/>）。
+    /// 用 <c>with</c> 改，参与 <c>Equals</c>，所以视图层改它要重新赋值整行对象。
+    /// </summary>
+    public bool IsValueExpanded { get; init; }
+
+    /// <summary>值框折叠时最多两行；超长值默认折叠，由用户点「展开」看全。</summary>
+    public bool IsValueExpandable => CurrentValueText.Length > CollapsedValueLength;
+    /// <summary>值行右侧的展开/折叠开关文案。</summary>
+    public string ValueToggleText => IsValueExpanded ? "收起" : "展开";
+
+    /// <summary>
+    /// 行内是否显示来源胶囊。已配置的行只显示「已配置」，避免一块内容挂两个语义重复的标签。
+    /// 这里刻意用普通只读属性而不用「取反绑定」：DataTemplate 里的 <c>!IsConfigured</c>
+    /// 会让可见性判定走非布尔路径，实测两个胶囊会同时渲染出来（见渲染用例断言）。记录类型是常量
+    /// 属性，只读、不参与 Equals，故对行替换语义无影响。
+    /// </summary>
+    public bool ShowSourceChip => !IsConfigured;
+}
 
 public sealed class CoreConfigurationChangedEventArgs(string key, DotEnvMutationKind mutationKind) : EventArgs
 {
@@ -109,7 +139,12 @@ public sealed partial class ConfigurationPageViewModel : ViewModelBase, IAsyncDi
     public string PageSubtitle => string.IsNullOrWhiteSpace(SearchText)
         ? SelectedCategory?.Description
             ?? "分类和变量均来自当前核心 envs.js；点击变量进入对应的编辑模板。"
-        : "正在搜索当前核心 envs.js 中声明的全部变量。";
+        : SearchSummary;
+    public bool HasSearchText => !string.IsNullOrWhiteSpace(SearchText);
+
+    /// <summary>搜索结果提示：明确告诉用户下面是「包含关键词的全部变量」以及命中数量。</summary>
+    public string SearchSummary =>
+        $"以下是包含「{SearchText.Trim()}」的全部变量（在所有分类中搜索，共 {FilteredVariables.Count} 个）。";
     public string CoreSummary => _snapshot is null
         ? "当前核心配置目录不可用"
         : $"{_snapshot.Variant.ToStorageKey()} · {_snapshot.Definitions.Count} 个变量 · 已配置 {_snapshot.ConfiguredCount} 个";
@@ -133,6 +168,10 @@ public sealed partial class ConfigurationPageViewModel : ViewModelBase, IAsyncDi
 
     [RelayCommand]
     private void Refresh() => Reload();
+
+    /// <summary>清空搜索关键词，回到当前分类的完整列表。</summary>
+    [RelayCommand]
+    private void ClearSearch() => SearchText = string.Empty;
 
     [RelayCommand]
     private async Task EditVariableAsync(ConfigurationVariableRow? row)
@@ -226,7 +265,7 @@ public sealed partial class ConfigurationPageViewModel : ViewModelBase, IAsyncDi
             }
 
             _diagnostic = edit.Action == CoreEnvEditAction.Delete
-                ? "已通过核心删除接口移除 .env 显式值，核心将恢复默认配置。"
+                ? "已移除 .env 显式值，核心将恢复默认配置。"
                 : "配置已写入 .env，核心会通过文件监听热加载。";
             NotifyState();
             await _dialogService.ShowMessageAsync("配置已保存", _diagnostic).ConfigureAwait(true);
@@ -298,6 +337,7 @@ public sealed partial class ConfigurationPageViewModel : ViewModelBase, IAsyncDi
     {
         OnPropertyChanged(nameof(PageTitle));
         OnPropertyChanged(nameof(PageSubtitle));
+        OnPropertyChanged(nameof(HasSearchText));
         RefreshRows();
     }
 
@@ -350,9 +390,18 @@ public sealed partial class ConfigurationPageViewModel : ViewModelBase, IAsyncDi
 
     private void RefreshRows()
     {
+        // 展开态是纯视图状态，但刷新会重建整行对象；先按 Key 记住哪些行是展开的，
+        // 再在新行上还原，否则用户点开一个长值后任何一次刷新都会把它折回去。
+        var expandedKeys = FilteredVariables
+            .Where(row => row.IsValueExpanded)
+            .Select(row => row.Key)
+            .ToHashSet(StringComparer.Ordinal);
+
         FilteredVariables.Clear();
         if (_snapshot is null)
         {
+            NotifyState();
+            NotifySearchSummary();
             SyncSelectedVariable();
             return;
         }
@@ -368,32 +417,69 @@ public sealed partial class ConfigurationPageViewModel : ViewModelBase, IAsyncDi
                                      value.Definition.Description.Contains(query, StringComparison.OrdinalIgnoreCase))
                      .OrderBy(state => state.Definition.Key, StringComparer.Ordinal))
         {
-            FilteredVariables.Add(ToRow(state));
+            var row = ToRow(state);
+            FilteredVariables.Add(expandedKeys.Contains(row.Key) ? row with { IsValueExpanded = true } : row);
         }
 
+        NotifyState();
+        NotifySearchSummary();
         SyncSelectedVariable();
+    }
+
+    /// <summary>行内值框的展开/折叠。列表里没有这一项时直接忽略，不做任何写路径。</summary>
+    [RelayCommand]
+    private void ToggleRowValue(ConfigurationVariableRow? row)
+    {
+        if (row is null)
+        {
+            return;
+        }
+
+        var index = FilteredVariables.IndexOf(row);
+        if (index < 0)
+        {
+            return;
+        }
+
+        var updated = row with { IsValueExpanded = !row.IsValueExpanded };
+        FilteredVariables[index] = updated;
+        if (ReferenceEquals(SelectedVariable, row))
+        {
+            SelectedVariable = updated;
+        }
     }
 
     /// <summary>
     /// 列表每次重建都会产生全新的行对象，直接留着旧引用会让详情面板显示字典里已经不存在的行。
-    /// 这里按 Key 在新列表里重新解析，解析不到就清空（选中项被筛掉或分类切走）。
+    /// 这里按 Key 在新列表里重新解析：
+    /// - 列表为空 → 清空（快照不可用，或该分类下没有变量）；
+    /// - 新列表里找不到该 Key → 清空（被筛掉或分类切走）；
+    /// - 找到了但不是同一个实例 → 换到新实例（列表确实重建过）；
+    /// - 是同一个实例 → 什么都不做。**这条必须保留**：`ConfigurationVariableRow` 是 record，
+    ///   同 Key 同值时 `with` 出来的副本 `Equals` 为真，无脑赋值会让绑定层收不到变更通知。
     /// </summary>
     private void SyncSelectedVariable()
     {
-        var key = SelectedVariable?.Key;
-        if (key is null)
+        var current = SelectedVariable;
+        if (current is null)
         {
-            // 行对象被重建过但没有 Key 可对：只有列表已空时才需要清。
-            if (SelectedVariable is not null && FilteredVariables.Count == 0)
-            {
-                SelectedVariable = null;
-            }
-
             NotifySelectedVariable();
             return;
         }
 
-        SelectedVariable = FilteredVariables.FirstOrDefault(row => row.Key == key);
+        if (FilteredVariables.Count == 0)
+        {
+            SelectedVariable = null;
+            NotifySelectedVariable();
+            return;
+        }
+
+        var resolved = FilteredVariables.FirstOrDefault(row => row.Key == current.Key);
+        if (!ReferenceEquals(resolved, current))
+        {
+            SelectedVariable = resolved;
+        }
+
         NotifySelectedVariable();
     }
 
@@ -408,6 +494,9 @@ public sealed partial class ConfigurationPageViewModel : ViewModelBase, IAsyncDi
         OnPropertyChanged(nameof(SelectedVariableActionText));
         OnPropertyChanged(nameof(CanResetSelectedVariable));
     }
+
+    /// <summary>命中数量变化时刷新搜索结果提示里的计数。</summary>
+    private void NotifySearchSummary() => OnPropertyChanged(nameof(SearchSummary));
 
     public static ConfigurationEditorTemplate ResolveEditorTemplate(CoreEnvDefinition definition)
     {
