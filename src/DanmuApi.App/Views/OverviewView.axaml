@@ -20,6 +20,7 @@
           <SolidColorBrush x:Key="OverviewServiceRule">#D9D4BC</SolidColorBrush>
           <SolidColorBrush x:Key="OverviewTrend">#4A8067</SolidColorBrush>
           <SolidColorBrush x:Key="OverviewAction">#D6A456</SolidColorBrush>
+          <SolidColorBrush x:Key="OverviewActionInk">#28291D</SolidColorBrush>
         </ResourceDictionary>
         <ResourceDictionary x:Key="Dark">
           <SolidColorBrush x:Key="OverviewPanel">#222A27</SolidColorBrush>
@@ -33,6 +34,7 @@
           <SolidColorBrush x:Key="OverviewServiceRule">#4B503F</SolidColorBrush>
           <SolidColorBrush x:Key="OverviewTrend">#A9C993</SolidColorBrush>
           <SolidColorBrush x:Key="OverviewAction">#DFB16A</SolidColorBrush>
+          <SolidColorBrush x:Key="OverviewActionInk">#28291D</SolidColorBrush>
         </ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
     </ResourceDictionary>
@@ -49,11 +51,35 @@
     <Style Selector="Button.console:pointerover /template/ ContentPresenter"><Setter Property="Background" Value="{DynamicResource OverviewTint}" /><Setter Property="Foreground" Value="{DynamicResource OverviewInk}" /></Style>
     <Style Selector="Button.console:disabled /template/ ContentPresenter"><Setter Property="Background" Value="{DynamicResource OverviewInset}" /><Setter Property="Foreground" Value="{DynamicResource OverviewMuted}" /><Setter Property="Opacity" Value="1" /></Style>
     <Style Selector="Button.serviceAction"><Setter Property="Height" Value="44" /><Setter Property="MinHeight" Value="44" /><Setter Property="HorizontalAlignment" Value="Stretch" /><Setter Property="Padding" Value="8,5" /><Setter Property="FontSize" Value="12" /><Setter Property="HorizontalContentAlignment" Value="Center" /></Style>
-    <Style Selector="Button.start"><Setter Property="Background" Value="{DynamicResource OverviewAction}" /><Setter Property="Foreground" Value="#28291D" /><Setter Property="BorderThickness" Value="0" /></Style>
+    <Style Selector="Button.start"><Setter Property="Background" Value="{DynamicResource OverviewAction}" /><Setter Property="Foreground" Value="{DynamicResource OverviewActionInk}" /><Setter Property="BorderThickness" Value="0" /></Style>
+
+    <!-- 服务控制按钮的图标。
+         这几个按钮原先把图标直接写成文字字形塞进 Content（"▷  启动服务" / "□  停止服务" /
+         "↻  重启服务"）：字形大小跟着按钮字号走、无法单独调色、跟文字之间只有两个空格控制间距，
+         在不同字体下还会换形状 —— 这就是「图标难看」的来源。
+         现在改成矢量 Path：描边宽度、尺寸、与文字间距都可控，颜色跟随按钮前景色
+         （绑 $parent[Button].Foreground），换主题或改按钮配色时不用同步改图标。
+         描边与填充拆成两个类而不是一个类加覆盖：Path 没有"取消描边"的写法，
+         填充与描边各自只设自己要的那一项，互不干扰。 -->
+    <Style Selector="Path.action-icon">
+      <Setter Property="Width" Value="13" />
+      <Setter Property="Height" Value="13" />
+      <Setter Property="Stretch" Value="Uniform" />
+      <Setter Property="StrokeThickness" Value="1.6" />
+      <Setter Property="StrokeLineCap" Value="Round" />
+      <Setter Property="StrokeJoin" Value="Round" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Path.action-icon.stroke">
+      <Setter Property="Stroke" Value="{Binding $parent[Button].Foreground}" />
+    </Style>
+    <Style Selector="Path.action-icon.fill">
+      <Setter Property="Fill" Value="{Binding $parent[Button].Foreground}" />
+    </Style>
   </UserControl.Styles>
   <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
     <StackPanel Name="OverviewContent" HorizontalAlignment="Stretch" Spacing="15">
-      <Grid ColumnDefinitions="*,Auto"><TextBlock Text="服务控制台" FontSize="14" /><Button Name="QuickActionsButton" Grid.Column="1" Classes="console" Content="快捷操作⌄"><Button.Flyout><MenuFlyout><MenuItem Header="修改 Token" Command="{Binding Shell.OpenTokenEditorCommand}" /><MenuItem Header="修改端口" Command="{Binding Shell.OpenPortEditorCommand}" /></MenuFlyout></Button.Flyout></Button></Grid>
+      <Grid ColumnDefinitions="*,Auto"><TextBlock Text="服务控制台" FontSize="14" /><Button Name="QuickActionsButton" Grid.Column="1" Classes="console"><StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center"><TextBlock Text="快捷操作" VerticalAlignment="Center" /><Path Width="10" Height="10" Stretch="Uniform" StrokeThickness="2" StrokeLineCap="Round" StrokeJoin="Round" Stroke="{Binding $parent[Button].Foreground}" VerticalAlignment="Center" Data="M6 9.5 L12 15.5 L18 9.5" /></StackPanel><Button.Flyout><MenuFlyout><MenuItem Header="修改 Token" Command="{Binding Shell.OpenTokenEditorCommand}" /><MenuItem Header="修改端口" Command="{Binding Shell.OpenPortEditorCommand}" /></MenuFlyout></Button.Flyout></Button></Grid>
       <Grid Name="DetailColumns" ColumnDefinitions="300,*" RowDefinitions="Auto,Auto" ColumnSpacing="15" RowSpacing="15">
         <Border Name="ServicePanel" Classes="panel" Padding="20" Background="{DynamicResource OverviewService}" BorderBrush="{DynamicResource OverviewServiceRule}" ClipToBounds="True">
           <Grid>
@@ -78,9 +104,30 @@
                 </Grid>
               </Border>
               <StackPanel Grid.Row="3" VerticalAlignment="Bottom" Margin="0,16,0,0" Spacing="9"><Grid Name="ServiceActions" ColumnDefinitions="*,*" ColumnSpacing="9">
-                <Button Name="StartServiceButton" Grid.ColumnSpan="2" Classes="console start serviceAction" Content="▷  启动服务" Command="{Binding Shell.StartCommand}" IsVisible="{Binding Shell.CanStart}" />
-                <Button Name="StopServiceButton" Classes="console start serviceAction" Content="□  停止服务" Command="{Binding Shell.StopCommand}" IsVisible="{Binding Shell.IsServiceRunning}" />
-                <Button Name="RestartServiceButton" Grid.Column="1" Classes="console serviceAction" Content="↻  重启服务" Command="{Binding Shell.RestartCommand}" IsVisible="{Binding ShowRestart}" />
+                <Button Name="StartServiceButton" Grid.ColumnSpan="2" Classes="console start serviceAction" Command="{Binding Shell.StartCommand}" IsVisible="{Binding Shell.CanStart}">
+                  <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                    <Path Classes="action-icon fill" Data="M8.5 5.4 L18.4 12 L8.5 18.6 Z" />
+                    <TextBlock Text="启动服务" VerticalAlignment="Center" />
+                  </StackPanel>
+                </Button>
+                <Button Name="StopServiceButton" Classes="console start serviceAction" Command="{Binding Shell.StopCommand}" IsVisible="{Binding Shell.IsServiceRunning}">
+                  <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                    <Path Classes="action-icon fill" Data="M8.4 7 H15.6 A1.4 1.4 0 0 1 17 8.4 V15.6 A1.4 1.4 0 0 1 15.6 17 H8.4 A1.4 1.4 0 0 1 7 15.6 V8.4 A1.4 1.4 0 0 1 8.4 7 Z" />
+                    <TextBlock Text="停止服务" VerticalAlignment="Center" />
+                  </StackPanel>
+                </Button>
+                <Button Name="RestartServiceButton" Grid.Column="1" Classes="console serviceAction" Command="{Binding Shell.RestartCommand}" IsVisible="{Binding ShowRestart}">
+                  <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                    <!-- 圆弧与箭头必须画在同一个 Path 里：Path 的 Stretch 是各自独立生效的，
+                         拆成两条时只有 5px 边界的箭头会被单独放大到占满整个控件，
+                         变成一坨看不出是循环箭头（实测踩到，与敏感值那个眼睛图标同因）。
+                         圆弧的开口留在右上方、箭头在开口右端指向右下 = 顺时针"重启"；
+                         large-arc/sweep 两个标志的组合会决定圆心落在弦的哪一侧
+                         （放错侧开口就跑到下方，看着像放大镜），这组取值是渲染确认过的。 -->
+                    <Path Classes="action-icon stroke" Data="M17.2 9.5 A6 6 0 1 1 14.05 6.86 M11.9 4.6 L15.3 7.0 L12.6 10.2" />
+                    <TextBlock Text="重启服务" VerticalAlignment="Center" />
+                  </StackPanel>
+                </Button>
               </Grid>
               <Button Name="CacheEntryButton" Classes="console" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Command="{Binding Shell.OpenCacheCommand}" IsVisible="{Binding Shell.IsServiceRunning}"><StackPanel Spacing="3"><TextBlock Text="缓存管理 →" FontSize="12" /><TextBlock Text="{Binding Shell.TodayRequestsText}" Classes="caption" /></StackPanel></Button>
               </StackPanel>
