@@ -246,118 +246,12 @@
       <Setter Property="Padding" Value="18" />
     </Style>
 
-    <!-- ── 工作台卡片 ────────────────────────────────────────────────
-         设计稿里的主卡片：圆角 10、内边距 10/12、极浅投影，子块用 1px 分隔线切开。 -->
-    <Style Selector="Border.workbench">
-      <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="10" />
-      <Setter Property="ClipToBounds" Value="True" />
-      <!-- BoxShadow 的颜色在解析期就要求字面量，不能引用 DynamicResource；深浅主题共用一层极浅投影。 -->
-      <Setter Property="BoxShadow" Value="0 1 2 0 #14000000" />
-    </Style>
-    <Style Selector="Border.wb-strip">
-      <Setter Property="Padding" Value="13,12" />
-      <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
-      <Setter Property="BorderThickness" Value="0,0,0,1" />
-    </Style>
-    <Style Selector="Border.wb-strip.muted">
-      <Setter Property="Background" Value="{DynamicResource SurfaceMutedBrush}" />
-      <Setter Property="Padding" Value="9,14" />
-    </Style>
-    <Style Selector="Border.wb-strip.actions">
-      <Setter Property="Background" Value="{DynamicResource SurfaceMutedBrush}" />
-      <Setter Property="BorderThickness" Value="0" />
-      <Setter Property="Padding" Value="9,14" />
-    </Style>
+    <!-- ── 工作台、变体选择、行式入口、状态胶囊 ──────────────────────
+         这一组（workbench / wb-strip / variant-card / variant-mark / row-entry /
+         status-pill）此前定义在这里，但全应用只有核心页在用，属于「页面私有词汇混进
+         公共词汇表」。现已搬到 CorePageView.axaml 的 UserControl.Styles，
+         本文件不再保留副本，避免同一套外观出现两个来源。 -->
 
-    <!-- ── 变体选择块 ────────────────────────────────────────────────
-         本页的主开关：给足面积，选中态用浅色底 + 强调色描边 + 实心单选点。 -->
-    <Style Selector="Button.variant-card">
-      <Setter Property="Background" Value="{DynamicResource SurfaceMutedBrush}" />
-      <Setter Property="BorderBrush" Value="Transparent" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="8" />
-      <Setter Property="Padding" Value="12,7" />
-      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-      <Setter Property="HorizontalAlignment" Value="Stretch" />
-    </Style>
-    <Style Selector="Button.variant-card:pointerover /template/ ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource SurfaceHoverBrush}" />
-    </Style>
-    <Style Selector="Button.variant-card.selected">
-      <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource AccentBorderBrush}" />
-    </Style>
-    <Style Selector="Button.variant-card.selected:pointerover /template/ ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
-    </Style>
-    <Style Selector="Ellipse.variant-mark">
-      <Setter Property="Width" Value="14" />
-      <Setter Property="Height" Value="14" />
-      <Setter Property="Stroke" Value="{DynamicResource HairlineStrongBrush}" />
-      <Setter Property="StrokeThickness" Value="1.5" />
-      <Setter Property="Fill" Value="Transparent" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-    </Style>
-    <Style Selector="Ellipse.variant-mark.selected">
-      <Setter Property="Stroke" Value="{DynamicResource AccentBrush}" />
-      <Setter Property="StrokeThickness" Value="4" />
-      <Setter Property="Fill" Value="{DynamicResource SurfaceBrush}" />
-    </Style>
-
-    <!-- ── 行式入口 ──────────────────────────────────────────────────
-         标题 + 说明在左、箭头在右；悬停整行浅底、箭头位移。 -->
-    <Style Selector="Button.row-entry">
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderThickness" Value="0" />
-      <Setter Property="CornerRadius" Value="7" />
-      <Setter Property="Padding" Value="8,7" />
-      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-      <Setter Property="HorizontalAlignment" Value="Stretch" />
-    </Style>
-    <Style Selector="Button.row-entry:pointerover /template/ ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource SurfaceMutedBrush}" />
-    </Style>
-
-    <!-- ── 状态胶囊 ──────────────────────────────────────────────────
-         只留浅色底 + 同色文字，不加描边；色调由 Classes 决定。 -->
-    <Style Selector="Border.status-pill">
-      <Setter Property="Background" Value="{DynamicResource SurfaceMutedBrush}" />
-      <Setter Property="CornerRadius" Value="5" />
-      <Setter Property="Padding" Value="7,2" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-    </Style>
-    <Style Selector="Border.status-pill > TextBlock">
-      <Setter Property="FontSize" Value="10.5" />
-      <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
-    </Style>
-    <Style Selector="Border.status-pill.healthy">
-      <Setter Property="Background" Value="{DynamicResource SuccessSoftBrush}" />
-    </Style>
-    <Style Selector="Border.status-pill.healthy > TextBlock">
-      <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" />
-    </Style>
-    <Style Selector="Border.status-pill.failed">
-      <Setter Property="Background" Value="{DynamicResource DangerSoftBrush}" />
-    </Style>
-    <Style Selector="Border.status-pill.failed > TextBlock">
-      <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
-    </Style>
-    <Style Selector="Border.status-pill.warning">
-      <Setter Property="Background" Value="{DynamicResource WarningSoftBrush}" />
-    </Style>
-    <Style Selector="Border.status-pill.warning > TextBlock">
-      <Setter Property="Foreground" Value="{DynamicResource WarningBrush}" />
-    </Style>
-    <Style Selector="Border.status-pill.accent">
-      <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
-    </Style>
-    <Style Selector="Border.status-pill.accent > TextBlock">
-      <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
-    </Style>
     <Style Selector="Border.muted-row">
       <Setter Property="Background" Value="{DynamicResource SurfaceMutedBrush}" />
       <Setter Property="CornerRadius" Value="6" />

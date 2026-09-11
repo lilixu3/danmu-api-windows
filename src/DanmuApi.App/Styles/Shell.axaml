@@ -239,10 +239,10 @@
   </Style>
 
   <!-- ── 胶囊标签 ──────────────────────────────────────────────────────
-       刻意不双写 Border.status-pill：旧 status-pill 的默认底是 SurfaceMutedBrush、
-       文字是 TextSecondaryBrush、圆角 5；新 chip 是 ChipNeutralBrush / ChipNeutralTextBrush /
-       圆角 999。两者不通用，混写会改到核心页的三处 status-pill。
-       旧 status-pill 的选择器仍由 App.axaml 提供，本文件不重复。 -->
+       全应用的状态标签统一用 chip。核心页原来那套 status-pill（圆角 5、10.5px）
+       已经并入这里：状态片的语义就是「一颗圆角胶囊 + 同色文字」，
+       圆角 5 与 999 的差别只是当时两处各写一套的结果，没有设计理由。
+       因此 status-pill 的定义与用法都已删除，App.axaml 不再提供它。 -->
   <Style Selector="Border.chip">
     <Setter Property="Background" Value="{DynamicResource ChipNeutralBrush}" />
     <Setter Property="CornerRadius" Value="999" />

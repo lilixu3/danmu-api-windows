@@ -5,6 +5,89 @@
              x:Class="DanmuApi.App.Views.CorePageView"
              x:DataType="vm:CorePageViewModel">
   <UserControl.Styles>
+    <!-- ── 本页专属词汇 ────────────────────────────────────────────────
+         下面这些类（workbench / wb-strip / variant-* / row-entry）此前定义在 App.axaml 里，
+         但全应用只有本页在用：核心页的工作台是「一整张卡片内用 1px 分隔线切成若干带」的
+         版式，跟其他页面的普通卡片不是一回事。定义在全应用文件里却只服务一个页面，
+         等于把页面私有词汇混进了公共词汇表，所以整块搬到这里。
+
+         workbench 与 Shell 的 card 不是同一个东西，不能互相替换：
+         - workbench 带一层极浅投影（BoxShadow 0 1 2 0 #14000000），card 没有；
+         - workbench 自己不带内边距，靠子块 wb-strip 的 Padding 撑开，因此分隔线是
+           「通版」的、贴着卡片左右边缘；card 自带 14,12 内边距，换成它会让通版分隔线
+           两侧出现空隙；
+         - workbench 必须 ClipToBounds，否则通版子块的直角会盖住卡片的圆角。 -->
+    <Style Selector="Border.workbench">
+      <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="ClipToBounds" Value="True" />
+      <!-- BoxShadow 的颜色在解析期就要求字面量，不能引用 DynamicResource；深浅主题共用一层极浅投影。 -->
+      <Setter Property="BoxShadow" Value="0 1 2 0 #14000000" />
+    </Style>
+    <Style Selector="Border.wb-strip">
+      <Setter Property="Padding" Value="13,12" />
+      <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+    </Style>
+    <Style Selector="Border.wb-strip.muted">
+      <Setter Property="Background" Value="{DynamicResource SurfaceMutedBrush}" />
+      <Setter Property="Padding" Value="9,14" />
+    </Style>
+    <Style Selector="Border.wb-strip.actions">
+      <Setter Property="Background" Value="{DynamicResource SurfaceMutedBrush}" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="9,14" />
+    </Style>
+
+    <!-- 变体选择块：本页的主开关，给足面积，选中态用浅色底 + 强调色描边 + 实心单选点。 -->
+    <Style Selector="Button.variant-card">
+      <Setter Property="Background" Value="{DynamicResource SurfaceMutedBrush}" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="12,7" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.variant-card:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource SurfaceHoverBrush}" />
+    </Style>
+    <Style Selector="Button.variant-card.selected">
+      <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentBorderBrush}" />
+    </Style>
+    <Style Selector="Button.variant-card.selected:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+    </Style>
+    <Style Selector="Ellipse.variant-mark">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="Stroke" Value="{DynamicResource HairlineStrongBrush}" />
+      <Setter Property="StrokeThickness" Value="1.5" />
+      <Setter Property="Fill" Value="Transparent" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Ellipse.variant-mark.selected">
+      <Setter Property="Stroke" Value="{DynamicResource AccentBrush}" />
+      <Setter Property="StrokeThickness" Value="4" />
+      <Setter Property="Fill" Value="{DynamicResource SurfaceBrush}" />
+    </Style>
+
+    <!-- 行式入口：标题 + 说明在左、箭头在右；悬停整行浅底。 -->
+    <Style Selector="Button.row-entry">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="7" />
+      <Setter Property="Padding" Value="8,7" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.row-entry:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource SurfaceMutedBrush}" />
+    </Style>
+
     <!-- 变体卡片内部的图标与文字；选中态由 Button.variant-card.selected 承担。 -->
     <Style Selector="TextBlock.variant-icon">
       <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
@@ -99,8 +182,8 @@
     <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="10" IsVisible="{Binding !IsOverviewPage}">
       <TextBlock Name="PageSubtitleText" Classes="wb-faint" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
       <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-        <Button Classes="ghost-action" Content="刷新状态" Command="{Binding RefreshInstallationCommand}" />
-        <Button Content="本地版本历史" Classes="ghost-action" Command="{Binding OpenHistoryPageCommand}" IsVisible="{Binding IsInstalled}" />
+        <Button Classes="ghost" Content="刷新状态" Command="{Binding RefreshInstallationCommand}" />
+        <Button Content="本地版本历史" Classes="ghost" Command="{Binding OpenHistoryPageCommand}" IsVisible="{Binding IsInstalled}" />
       </StackPanel>
     </Grid>
 
@@ -157,7 +240,7 @@
                     <TextBlock Text="指定分支（可选）" Classes="wb-key" />
                     <TextBox Grid.Column="1" Text="{Binding BranchText, Mode=TwoWay}" Watermark="留空使用仓库默认分支" AutomationProperties.Name="稳定核心分支" />
                   </Grid>
-                  <Button Name="InstallOfficialButton" Content="安装稳定核心" Classes="primary-action" Command="{Binding InstallOfficialCommand}" HorizontalAlignment="Left" />
+                  <Button Name="InstallOfficialButton" Content="安装稳定核心" Classes="primary" Command="{Binding InstallOfficialCommand}" HorizontalAlignment="Left" />
                 </StackPanel>
                 <StackPanel IsVisible="{Binding CanInstallCustom}" Spacing="9">
                   <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
@@ -172,7 +255,7 @@
                     <TextBlock Text="显示名称" Classes="wb-key" />
                     <TextBox Grid.Column="1" Text="{Binding DisplayName, Mode=TwoWay}" AutomationProperties.Name="自定义核心显示名称" />
                   </Grid>
-                  <Button Name="InstallCustomButton" Content="安装自定义核心" Classes="primary-action" Command="{Binding InstallCustomCommand}" HorizontalAlignment="Left" />
+                  <Button Name="InstallCustomButton" Content="安装自定义核心" Classes="primary" Command="{Binding InstallCustomCommand}" HorizontalAlignment="Left" />
                 </StackPanel>
               </StackPanel>
             </Border>
@@ -193,19 +276,19 @@
                     <StackPanel Grid.Column="1" Spacing="0" VerticalAlignment="Center">
                       <TextBlock Text="{Binding VersionDisplay}" FontFamily="Cascadia Mono,Consolas" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Right" />
                       <StackPanel Orientation="Horizontal" Spacing="5" HorizontalAlignment="Right" Margin="0,3,0,0">
-                        <Border Classes="status-pill" Classes.healthy="{Binding IsInstalled}" IsVisible="{Binding IsInstalled}">
+                        <Border Classes="chip" Classes.ok="{Binding IsInstalled}" IsVisible="{Binding IsInstalled}">
                           <TextBlock Text="{Binding InstallationStatusText}" />
                         </Border>
-                        <Border Classes="status-pill warning" IsVisible="{Binding HasUpdate}">
+                        <Border Classes="chip warn" IsVisible="{Binding HasUpdate}">
                           <TextBlock Text="{Binding UpdateLabelText}" />
                         </Border>
                       </StackPanel>
                     </StackPanel>
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                      <Button Name="CheckUpdateButton" Content="检查更新" Classes="secondary-action" Command="{Binding CheckUpdateCommand}" />
-                      <Button Name="ApplyUpdateButton" Content="应用更新" Classes="primary-action" Command="{Binding ApplyUpdateCommand}" IsVisible="{Binding HasUpdate}" IsEnabled="{Binding CanApplyUpdate}" />
-                      <Button Content="更新详情" Classes="ghost-action" Command="{Binding ShowUpdateDetailsCommand}" IsVisible="{Binding HasUpdate}" />
+                      <Button Name="CheckUpdateButton" Content="检查更新" Classes="secondary" Command="{Binding CheckUpdateCommand}" />
+                      <Button Name="ApplyUpdateButton" Content="应用更新" Classes="primary" Command="{Binding ApplyUpdateCommand}" IsVisible="{Binding HasUpdate}" IsEnabled="{Binding CanApplyUpdate}" />
+                      <Button Content="更新详情" Classes="ghost" Command="{Binding ShowUpdateDetailsCommand}" IsVisible="{Binding HasUpdate}" />
                     </StackPanel>
                   </Grid>
                 </Border>
@@ -217,12 +300,12 @@
                     <Grid Name="SourceColumn" Grid.Row="0" ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="6">
                       <TextBlock Text="来源与分支" Classes="wb-heading" Grid.Row="0" Grid.ColumnSpan="3" Margin="0,0,0,2" />
                       <TextBlock Grid.Row="1" Text="仓库" Classes="wb-key" />
-                      <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding RepositoryDisplay}" Classes="mono-text" FontSize="11.5" TextWrapping="Wrap" />
+                      <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding RepositoryDisplay}" Classes="mono" FontSize="11.5" TextWrapping="Wrap" />
                       <TextBlock Grid.Row="2" Text="分支" Classes="wb-key" />
                       <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding BranchDisplay}" FontWeight="SemiBold" FontSize="11.5" TextWrapping="Wrap" VerticalAlignment="Center" />
                       <StackPanel Grid.Row="2" Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                         <ComboBox Name="BranchSelector" MinWidth="112" ItemsSource="{Binding Branches}" SelectedItem="{Binding SelectedBranch, Mode=TwoWay}" DisplayMemberBinding="{Binding Name}" PlaceholderText="切换分支" DropDownOpened="OnBranchComboBoxDropDownOpened" AutomationProperties.Name="目标分支" />
-                        <Button Name="SwitchBranchButton" Content="切换" Classes="secondary-action wb-button" Command="{Binding SwitchSelectedBranchCommand}" IsEnabled="{Binding CanSwitchSelectedBranch}" ToolTip.Tip="安装所选分支的最新提交并替换当前核心" />
+                        <Button Name="SwitchBranchButton" Content="切换" Classes="secondary wb-button" Command="{Binding SwitchSelectedBranchCommand}" IsEnabled="{Binding CanSwitchSelectedBranch}" ToolTip.Tip="安装所选分支的最新提交并替换当前核心" />
                       </StackPanel>
                       <TextBlock Grid.Row="3" Text="提交" Classes="wb-key" />
                       <SelectableTextBlock Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding CommitDisplay}" FontFamily="Cascadia Mono,Consolas" FontSize="11.5" TextWrapping="Wrap" />
@@ -261,19 +344,19 @@
                     <WrapPanel Grid.Column="1" Orientation="Horizontal" ItemSpacing="20" LineSpacing="8">
                       <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                         <TextBlock Text="运行环境" Classes="wb-key" />
-                        <Border Classes="status-pill" Classes.healthy="{Binding IsRuntimeEnvironmentHealthy}" Classes.failed="{Binding IsRuntimeEnvironmentFailed}">
+                        <Border Classes="chip" Classes.ok="{Binding IsRuntimeEnvironmentHealthy}" Classes.bad="{Binding IsRuntimeEnvironmentFailed}">
                           <TextBlock Name="RuntimeEnvironmentStatus" Text="{Binding RuntimeEnvironmentStatusText}" />
                         </Border>
                       </StackPanel>
                       <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                         <TextBlock Text="核心依赖" Classes="wb-key" />
-                        <Border Classes="status-pill" Classes.healthy="{Binding IsCoreDependencyHealthy}" Classes.failed="{Binding IsCoreDependencyFailed}">
+                        <Border Classes="chip" Classes.ok="{Binding IsCoreDependencyHealthy}" Classes.bad="{Binding IsCoreDependencyFailed}">
                           <TextBlock Name="CoreDependencyStatus" Text="{Binding CoreDependencyStatusText}" />
                         </Border>
                       </StackPanel>
                       <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" IsVisible="{Binding ShowOptionalRedisStatus}">
                         <TextBlock Text="可选 Redis" Classes="wb-key" />
-                        <Border Classes="status-pill" Classes.healthy="{Binding IsOptionalRedisHealthy}" Classes.failed="{Binding IsOptionalRedisFailed}">
+                        <Border Classes="chip" Classes.ok="{Binding IsOptionalRedisHealthy}" Classes.bad="{Binding IsOptionalRedisFailed}">
                           <TextBlock Name="OptionalRedisStatus" Text="{Binding OptionalRedisStatusText}" />
                         </Border>
                       </StackPanel>
@@ -291,12 +374,12 @@
                   <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="14">
                     <TextBlock Text="维护" Classes="wb-bar-label" VerticalAlignment="Center" MinWidth="48" />
                     <WrapPanel Grid.Column="1" Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
-                      <Button Content="配置 GitHub Token" Classes="secondary-action" Command="{Binding ConfigureGithubTokenCommand}" ToolTip.Tip="配置后接口配额更高" />
-                      <Button Content="修改名称" Classes="secondary-action" Command="{Binding RenameCoreCommand}" />
-                      <Button Content="重新安装" Classes="secondary-action" Command="{Binding ReinstallCommand}" />
+                      <Button Content="配置 GitHub Token" Classes="secondary" Command="{Binding ConfigureGithubTokenCommand}" ToolTip.Tip="配置后接口配额更高" />
+                      <Button Content="修改名称" Classes="secondary" Command="{Binding RenameCoreCommand}" />
+                      <Button Content="重新安装" Classes="secondary" Command="{Binding ReinstallCommand}" />
                     </WrapPanel>
                     <Border Grid.Column="2" Width="1" Background="{DynamicResource HairlineStrongBrush}" Margin="0,4" />
-                    <Button Grid.Column="3" Name="DeleteCoreButton" Content="删除核心" Classes="danger-action" Command="{Binding DeleteCommand}" VerticalAlignment="Center" />
+                    <Button Grid.Column="3" Name="DeleteCoreButton" Content="删除核心" Classes="danger" Command="{Binding DeleteCommand}" VerticalAlignment="Center" />
                   </Grid>
                 </Border>
               </StackPanel>
@@ -308,7 +391,7 @@
           <!-- 本地版本历史 -->
           <Border Classes="workbench" IsVisible="{Binding IsHistoryPage}">
             <StackPanel Margin="14" Spacing="10">
-              <Button Content="← 返回核心总览" Classes="back-action" Command="{Binding BackToOverviewCommand}" HorizontalAlignment="Left" />
+              <Button Content="← 返回核心总览" Classes="secondary" Command="{Binding BackToOverviewCommand}" HorizontalAlignment="Left" />
               <StackPanel Spacing="3">
                 <TextBlock Text="本地版本历史" FontSize="16" FontWeight="SemiBold" />
                 <TextBlock Text="从本机保留的核心版本恢复，不需要重新下载。恢复前会确认并安全停止当前服务。" Classes="wb-caption" />
@@ -323,11 +406,11 @@
                           <TextBlock Text="{Binding Manifest.DisplayName}" FontWeight="SemiBold" />
                           <StackPanel Orientation="Horizontal" Spacing="10">
                             <TextBlock Text="{Binding Manifest.Version}" FontSize="11.5" />
-                            <TextBlock Text="{Binding Manifest.ShortSha}" Classes="mono-text wb-faint" />
+                            <TextBlock Text="{Binding Manifest.ShortSha}" Classes="mono wb-faint" />
                             <TextBlock Text="{Binding Manifest.InstalledAt}" Classes="wb-faint" />
                           </StackPanel>
                         </StackPanel>
-                        <Button Grid.Column="1" Content="恢复此本地版本" Classes="secondary-action" Command="{Binding ((vm:CorePageViewModel)DataContext).RollbackCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Content="恢复此本地版本" Classes="secondary" Command="{Binding ((vm:CorePageViewModel)DataContext).RollbackCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" VerticalAlignment="Center" />
                       </Grid>
                     </Border>
                   </DataTemplate>
@@ -339,7 +422,7 @@
           <!-- 提交历史 -->
           <Border Name="CommitsStage" Classes="workbench" IsVisible="{Binding IsCommitsPage}">
             <StackPanel Margin="14" Spacing="10">
-              <Button Content="← 返回核心总览" Classes="back-action" Command="{Binding BackToOverviewCommand}" HorizontalAlignment="Left" />
+              <Button Content="← 返回核心总览" Classes="secondary" Command="{Binding BackToOverviewCommand}" HorizontalAlignment="Left" />
               <StackPanel Spacing="3">
                 <TextBlock Text="提交历史" FontSize="16" FontWeight="SemiBold" />
                 <TextBlock Text="查看当前分支的代码变更，进入详情核对后可回退到指定版本。" Classes="wb-caption" />
@@ -352,11 +435,11 @@
                       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                         <StackPanel Spacing="4" VerticalAlignment="Center">
                           <TextBlock Text="{Binding Title}" FontSize="12.5" FontWeight="SemiBold" TextWrapping="Wrap" />
-                          <TextBlock Text="{Binding Sha}" Classes="mono-text wb-faint" />
+                          <TextBlock Text="{Binding Sha}" Classes="mono wb-faint" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                          <Button Content="查看变更" Classes="compact-action" Command="{Binding ((vm:CorePageViewModel)DataContext).ShowCommitDetailsCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" />
-                          <Button Content="回退到此版本" Classes="secondary-action" Command="{Binding ((vm:CorePageViewModel)DataContext).RollbackToCommitCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" />
+                          <Button Content="查看变更" Classes="compact" Command="{Binding ((vm:CorePageViewModel)DataContext).ShowCommitDetailsCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" />
+                          <Button Content="回退到此版本" Classes="secondary" Command="{Binding ((vm:CorePageViewModel)DataContext).RollbackToCommitCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" />
                         </StackPanel>
                       </Grid>
                     </Border>
@@ -364,9 +447,9 @@
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
               <Grid ColumnDefinitions="Auto,*,Auto" IsVisible="{Binding HasCommits}">
-                <Button Content="上一页" Classes="ghost-action" Command="{Binding PreviousCommitPageCommand}" IsEnabled="{Binding HasCommitPreviousPage}" />
+                <Button Content="上一页" Classes="ghost" Command="{Binding PreviousCommitPageCommand}" IsEnabled="{Binding HasCommitPreviousPage}" />
                 <TextBlock Grid.Column="1" Text="{Binding PageSummaryText}" Classes="wb-caption" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                <Button Grid.Column="2" Content="下一页" Classes="ghost-action" Command="{Binding NextCommitPageCommand}" IsEnabled="{Binding HasCommitNextPage}" />
+                <Button Grid.Column="2" Content="下一页" Classes="ghost" Command="{Binding NextCommitPageCommand}" IsEnabled="{Binding HasCommitNextPage}" />
               </Grid>
             </StackPanel>
           </Border>
@@ -374,7 +457,7 @@
           <!-- PR 实验室 -->
           <Border Name="PullRequestsStage" Classes="workbench" IsVisible="{Binding IsPullRequestsPage}">
             <StackPanel Margin="14" Spacing="10">
-              <Button Content="← 返回核心总览" Classes="back-action" Command="{Binding BackToOverviewCommand}" HorizontalAlignment="Left" />
+              <Button Content="← 返回核心总览" Classes="secondary" Command="{Binding BackToOverviewCommand}" HorizontalAlignment="Left" />
               <StackPanel Spacing="3">
                 <TextBlock Text="PR 实验室" FontSize="16" FontWeight="SemiBold" />
                 <TextBlock Text="PR 从贡献者仓库安装到自定义核心，并标记为实验版本。" Classes="wb-caption" />
@@ -387,11 +470,11 @@
                         <StackPanel Spacing="4" VerticalAlignment="Center">
                           <TextBlock Text="{Binding Number, StringFormat='PR #{0} · 实验版本'}" Classes="wb-faint" />
                           <TextBlock Text="{Binding Title}" FontSize="12.5" FontWeight="SemiBold" TextWrapping="Wrap" />
-                          <TextBlock Text="{Binding HeadRepository}" Classes="mono-text wb-faint" />
+                          <TextBlock Text="{Binding HeadRepository}" Classes="mono wb-faint" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                          <Button Content="查看变更" Classes="compact-action" Command="{Binding ((vm:CorePageViewModel)DataContext).ShowPullRequestDetailsCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" />
-                          <Button Content="安装 PR" Classes="secondary-action" Command="{Binding ((vm:CorePageViewModel)DataContext).InstallSelectedPullRequestCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" />
+                          <Button Content="查看变更" Classes="compact" Command="{Binding ((vm:CorePageViewModel)DataContext).ShowPullRequestDetailsCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" />
+                          <Button Content="安装 PR" Classes="secondary" Command="{Binding ((vm:CorePageViewModel)DataContext).InstallSelectedPullRequestCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" />
                         </StackPanel>
                       </Grid>
                     </Border>
@@ -399,9 +482,9 @@
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
               <Grid ColumnDefinitions="Auto,*,Auto" IsVisible="{Binding HasPullRequests}">
-                <Button Content="上一页" Classes="ghost-action" Command="{Binding PreviousPullRequestPageCommand}" IsEnabled="{Binding HasPullRequestPreviousPage}" />
+                <Button Content="上一页" Classes="ghost" Command="{Binding PreviousPullRequestPageCommand}" IsEnabled="{Binding HasPullRequestPreviousPage}" />
                 <TextBlock Grid.Column="1" Text="{Binding PullRequestPageSummaryText}" Classes="wb-caption" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                <Button Grid.Column="2" Content="下一页" Classes="ghost-action" Command="{Binding NextPullRequestPageCommand}" IsEnabled="{Binding HasPullRequestNextPage}" />
+                <Button Grid.Column="2" Content="下一页" Classes="ghost" Command="{Binding NextPullRequestPageCommand}" IsEnabled="{Binding HasPullRequestNextPage}" />
               </Grid>
             </StackPanel>
           </Border>
