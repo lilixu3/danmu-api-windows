@@ -158,11 +158,14 @@ public sealed class ToolWorkflowViewTests
     }
 
     /// <summary>
-    /// 工具页整棵树（含子页面）不得再出现旧词汇类名。
+    /// 已迁移的页面不得再出现旧词汇类名。
     /// 新旧混用时同一个元素会有两套外观来源，是最难查的一类视觉问题；
     /// 这条按文件逐个点名，新增视图忘了迁移会在这里失败。
     /// </summary>
     [Theory]
+    [InlineData("ConfigurationView.axaml")]
+    [InlineData("DanmuDownloadView.axaml")]
+    [InlineData("SettingsView.axaml")]
     [InlineData("ToolsView.axaml")]
     [InlineData("DanmuTestView.axaml")]
     [InlineData("AutoMatchView.axaml")]
@@ -174,11 +177,17 @@ public sealed class ToolWorkflowViewTests
     [InlineData("ApiDebugView.axaml")]
     [InlineData("RequestRecordsView.axaml")]
     [InlineData("ServiceManagementView.axaml")]
-    public void ToolsViewsUseOnlyTheSharedVocabulary(string fileName)
+    public void MigratedViewsUseOnlyTheSharedVocabulary(string fileName)
     {
         var path = Path.Combine(RepositoryRoot, "src", "DanmuApi.App", "Views", fileName);
         Assert.True(File.Exists(path), $"找不到视图文件：{path}");
-        var xaml = File.ReadAllText(path);
+        // 注释里可以提到旧类名（例如解释「为什么不再用 muted-row」），
+        // 先把 XML 注释整段去掉再扫，避免文档把自己变成假失败。
+        var xaml = System.Text.RegularExpressions.Regex.Replace(
+            File.ReadAllText(path),
+            "<!--.*?-->",
+            string.Empty,
+            System.Text.RegularExpressions.RegexOptions.Singleline);
 
         string[] retired =
         [

@@ -8,21 +8,19 @@
       <TextBlock Text="工具工作台" Classes="h1" />
       <TextBlock Text="弹幕测试、接口调试、请求记录与设备日志管理；选择分类开始。" Classes="sub" TextWrapping="Wrap" />
     </StackPanel>
-    <!-- 分类侧栏刻意保持与设置页同一套外观（宽度 208、圆角 8、内边距 8、行距与字号）。
+    <!-- 分类侧栏与设置页保持一致（宽度 208、rail 容器、rail-title/rail-caption 行）。
          工具页测试 ToolsCategoriesKeepSettingsStyleSidebar 锁着 208 这个宽度，
-         而且这两页并排切换时侧栏必须长得一样，所以这里不换成 rail-title/rail-caption
-         （那套是 12.5/10.5px，会与设置页的 13/11px 出现肉眼可见的差异）。
-         设置页迁移时两边一起换。 -->
+         两页并排切换时侧栏也必须长得一样，所以两边始终一起改。 -->
     <Grid x:Name="ToolsWorkspace" Grid.Row="1" ColumnDefinitions="208,*" RowDefinitions="Auto,*" ColumnSpacing="20">
-      <Border x:Name="SectionSidebar" Grid.RowSpan="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1" CornerRadius="8" Padding="8">
+      <Border x:Name="SectionSidebar" Grid.RowSpan="2" Classes="rail">
         <Grid RowDefinitions="Auto,*" RowSpacing="8">
           <TextBlock Text="工具分类" Classes="overline" Margin="10,8,10,4" />
           <ListBox Grid.Row="1" Classes="rail-list" ItemsSource="{Binding SectionOptions}" SelectedItem="{Binding SelectedSectionOption, Mode=TwoWay}" Background="Transparent" BorderThickness="0">
             <ListBox.ItemTemplate>
               <DataTemplate x:DataType="vm:ToolsSectionOption">
                 <StackPanel Spacing="3" Margin="10,9">
-                  <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
-                  <TextBlock Text="{Binding Description}" Classes="cap" TextWrapping="Wrap" />
+                  <TextBlock Text="{Binding Title}" Classes="rail-title" />
+                  <TextBlock Text="{Binding Description}" Classes="rail-caption" />
                 </StackPanel>
               </DataTemplate>
             </ListBox.ItemTemplate>
