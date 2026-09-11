@@ -1,0 +1,97 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- ── 设计 token ────────────────────────────────────────────────────
+       全应用唯一的颜色事实来源，按主题分组。键名与从 App.axaml 搬出时完全一致，
+       因此所有页面的 {DynamicResource ...} 引用无需任何改动。
+
+       平台中性灰阶：底色与描边不带蓝，颜色只留给状态与层级（对应设计稿 core.html）。 -->
+  <ResourceDictionary.ThemeDictionaries>
+    <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="AppBackgroundBrush">#F6F7F9</SolidColorBrush>
+      <SolidColorBrush x:Key="SidebarBackgroundBrush">#FFFFFF</SolidColorBrush>
+      <SolidColorBrush x:Key="SurfaceBrush">#FFFFFF</SolidColorBrush>
+      <SolidColorBrush x:Key="SurfaceMutedBrush">#F4F5F7</SolidColorBrush>
+      <SolidColorBrush x:Key="SurfaceHoverBrush">#EEF0F3</SolidColorBrush>
+      <SolidColorBrush x:Key="HairlineBrush">#E6E8EC</SolidColorBrush>
+      <SolidColorBrush x:Key="HairlineStrongBrush">#D3D7DE</SolidColorBrush>
+      <SolidColorBrush x:Key="TextPrimaryBrush">#1B1F26</SolidColorBrush>
+      <SolidColorBrush x:Key="TextSecondaryBrush">#5D6672</SolidColorBrush>
+      <SolidColorBrush x:Key="TextFaintBrush">#98A1AE</SolidColorBrush>
+      <SolidColorBrush x:Key="AccentBrush">#3B6FF5</SolidColorBrush>
+      <SolidColorBrush x:Key="AccentHoverBrush">#2C5BE0</SolidColorBrush>
+      <SolidColorBrush x:Key="AccentSoftBrush">#EAF0FE</SolidColorBrush>
+      <SolidColorBrush x:Key="AccentTextBrush">#FFFFFF</SolidColorBrush>
+      <SolidColorBrush x:Key="AccentGradientEndBrush">#7B4DFF</SolidColorBrush>
+      <SolidColorBrush x:Key="AccentBorderBrush">#9BB8FB</SolidColorBrush>
+      <SolidColorBrush x:Key="AccentBorderStrongBrush">#6E96FF</SolidColorBrush>
+      <SolidColorBrush x:Key="SuccessBrush">#1A7F53</SolidColorBrush>
+      <SolidColorBrush x:Key="SuccessSoftBrush">#E4F4EC</SolidColorBrush>
+      <SolidColorBrush x:Key="SuccessGlowBrush">#D5EEE1</SolidColorBrush>
+      <SolidColorBrush x:Key="WarningBrush">#9A6410</SolidColorBrush>
+      <SolidColorBrush x:Key="WarningSoftBrush">#FAF0DE</SolidColorBrush>
+      <SolidColorBrush x:Key="DangerBrush">#C13B4A</SolidColorBrush>
+      <SolidColorBrush x:Key="DangerSoftBrush">#FBE9EB</SolidColorBrush>
+      <SolidColorBrush x:Key="DangerBorderBrush">#E5A7AE</SolidColorBrush>
+      <SolidColorBrush x:Key="CardShadowBrush">#14000000</SolidColorBrush>
+      <SolidColorBrush x:Key="LogSurfaceBrush">#0F141C</SolidColorBrush>
+      <SolidColorBrush x:Key="LogTextBrush">#D3DCEA</SolidColorBrush>
+      <SolidColorBrush x:Key="LogMutedBrush">#7A869A</SolidColorBrush>
+      <SolidColorBrush x:Key="LogInfoBrush">#3FB950</SolidColorBrush>
+      <SolidColorBrush x:Key="LogWarnBrush">#E3B341</SolidColorBrush>
+      <SolidColorBrush x:Key="LogErrorBrush">#FF6B6B</SolidColorBrush>
+      <SolidColorBrush x:Key="LogSuccessBrush">#5EC4DB</SolidColorBrush>
+      <SolidColorBrush x:Key="LogDebugBrush">#8B949E</SolidColorBrush>
+      <SolidColorBrush x:Key="LogOtherBrush">#A9B4C4</SolidColorBrush>
+      <SolidColorBrush x:Key="LogHighlightBrush">#F2C744</SolidColorBrush>
+      <SolidColorBrush x:Key="LogHighlightTextBrush">#10151D</SolidColorBrush>
+      <SolidColorBrush x:Key="LogRowHoverBrush">#18202B</SolidColorBrush>
+
+      <!-- 中性胶囊：用于「核心默认」「未配置」这类无语义状态，深浅主题各自取灰阶。 -->
+      <SolidColorBrush x:Key="ChipNeutralBrush">#F0F1F4</SolidColorBrush>
+      <SolidColorBrush x:Key="ChipNeutralTextBrush">#5D6672</SolidColorBrush>
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="Dark">
+      <SolidColorBrush x:Key="AppBackgroundBrush">#131519</SolidColorBrush>
+      <SolidColorBrush x:Key="SidebarBackgroundBrush">#171A1F</SolidColorBrush>
+      <SolidColorBrush x:Key="SurfaceBrush">#1D2027</SolidColorBrush>
+      <SolidColorBrush x:Key="SurfaceMutedBrush">#242830</SolidColorBrush>
+      <SolidColorBrush x:Key="SurfaceHoverBrush">#2B3038</SolidColorBrush>
+      <SolidColorBrush x:Key="HairlineBrush">#2E333B</SolidColorBrush>
+      <SolidColorBrush x:Key="HairlineStrongBrush">#3D434D</SolidColorBrush>
+      <SolidColorBrush x:Key="TextPrimaryBrush">#EDEFF3</SolidColorBrush>
+      <SolidColorBrush x:Key="TextSecondaryBrush">#A2AAB6</SolidColorBrush>
+      <SolidColorBrush x:Key="TextFaintBrush">#767E8B</SolidColorBrush>
+      <SolidColorBrush x:Key="AccentBrush">#6E96FF</SolidColorBrush>
+      <SolidColorBrush x:Key="AccentHoverBrush">#8AA9FF</SolidColorBrush>
+      <SolidColorBrush x:Key="AccentSoftBrush">#1D2740</SolidColorBrush>
+      <SolidColorBrush x:Key="AccentTextBrush">#FFFFFF</SolidColorBrush>
+      <SolidColorBrush x:Key="AccentGradientEndBrush">#A98BFF</SolidColorBrush>
+      <SolidColorBrush x:Key="AccentBorderBrush">#3B4C74</SolidColorBrush>
+      <SolidColorBrush x:Key="AccentBorderStrongBrush">#4F6EA8</SolidColorBrush>
+      <SolidColorBrush x:Key="SuccessBrush">#4FB586</SolidColorBrush>
+      <SolidColorBrush x:Key="SuccessSoftBrush">#16301F</SolidColorBrush>
+      <SolidColorBrush x:Key="SuccessGlowBrush">#1D3A2A</SolidColorBrush>
+      <SolidColorBrush x:Key="WarningBrush">#E0A855</SolidColorBrush>
+      <SolidColorBrush x:Key="WarningSoftBrush">#332711</SolidColorBrush>
+      <SolidColorBrush x:Key="DangerBrush">#EE7C8B</SolidColorBrush>
+      <SolidColorBrush x:Key="DangerSoftBrush">#361C21</SolidColorBrush>
+      <SolidColorBrush x:Key="DangerBorderBrush">#6B3A44</SolidColorBrush>
+      <SolidColorBrush x:Key="CardShadowBrush">#3D000000</SolidColorBrush>
+      <SolidColorBrush x:Key="LogSurfaceBrush">#0B0E13</SolidColorBrush>
+      <SolidColorBrush x:Key="LogTextBrush">#C6D2E4</SolidColorBrush>
+      <SolidColorBrush x:Key="LogMutedBrush">#6E7B90</SolidColorBrush>
+      <SolidColorBrush x:Key="LogInfoBrush">#4FB586</SolidColorBrush>
+      <SolidColorBrush x:Key="LogWarnBrush">#E0A855</SolidColorBrush>
+      <SolidColorBrush x:Key="LogErrorBrush">#EE7C8B</SolidColorBrush>
+      <SolidColorBrush x:Key="LogSuccessBrush">#5EC4DB</SolidColorBrush>
+      <SolidColorBrush x:Key="LogDebugBrush">#7D8899</SolidColorBrush>
+      <SolidColorBrush x:Key="LogOtherBrush">#A0AAB9</SolidColorBrush>
+      <SolidColorBrush x:Key="LogHighlightBrush">#F2C744</SolidColorBrush>
+      <SolidColorBrush x:Key="LogHighlightTextBrush">#0B0E13</SolidColorBrush>
+      <SolidColorBrush x:Key="LogRowHoverBrush">#151B24</SolidColorBrush>
+
+      <SolidColorBrush x:Key="ChipNeutralBrush">#2A2F38</SolidColorBrush>
+      <SolidColorBrush x:Key="ChipNeutralTextBrush">#A2AAB6</SolidColorBrush>
+    </ResourceDictionary>
+  </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>

@@ -1,0 +1,267 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- ── 外壳词汇 ──────────────────────────────────────────────────────
+       每个页面用同一套：一个页头、一个卡片、一个区块/侧栏、一个状态胶囊。
+
+       【双写策略 · 不允许省略】
+       每条 Style Selector 同时列出「新类名」与它对应的「旧类名」。
+       本轮只有配置页迁移到新类名，其余页面仍用旧类名；双写保证任何中间态下
+       全应用外观零漂移（判据见 docs/UI-REFACTOR-PLAN.md §8 第 6 条）。
+
+       【只加不改】
+       本文件不覆盖 App.axaml 里已有的任何样式定义，只新增选择器。
+       token 全部引用 Styles/Tokens.axaml 的键名。 -->
+
+  <!-- ── 页头 ──────────────────────────────────────────────────────────
+       h1 统一收敛到 18px。旧 page-title 是 26px，配置页此前在视图里局部覆盖为 22；
+       旧类名保持 26 以维持其余页面零漂移，配置页改用新类名 h1 后自动获得 18。 -->
+  <Style Selector="TextBlock.h1">
+    <Setter Property="FontSize" Value="18" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+  </Style>
+  <Style Selector="TextBlock.page-title">
+    <Setter Property="FontSize" Value="26" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+
+  <Style Selector="TextBlock.sub, TextBlock.page-subtitle">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+  </Style>
+
+  <Style Selector="TextBlock.section, TextBlock.section-title">
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+  </Style>
+
+  <Style Selector="TextBlock.cap, TextBlock.body-muted">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+  </Style>
+
+  <Style Selector="TextBlock.overline">
+    <Setter Property="FontSize" Value="10.5" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
+    <Setter Property="LetterSpacing" Value="1.2" />
+  </Style>
+
+  <!-- mono 不带字号与前景色：调用点仍可局部覆盖（旧 mono-text 就只设字体族）。 -->
+  <Style Selector="TextBlock.mono, TextBlock.mono-text">
+    <Setter Property="FontFamily" Value="Cascadia Mono,Consolas" />
+  </Style>
+
+  <!-- ── 卡片 ──────────────────────────────────────────────────────────
+       刻意不双写 Border.dashboard-panel：旧 dashboard-panel 是「圆角 8 / Padding 18」，
+       新 card 是「圆角 10 / Padding 14,12」，两者视觉差异明显，混写必然改到既有页面。
+       配置页改用 .card 后获得新数值，其余页面继续由 App.axaml 提供旧数值。 -->
+  <Style Selector="Border.card">
+    <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Padding" Value="14,12" />
+  </Style>
+  <Style Selector="Border.card.flat">
+    <Setter Property="Background" Value="{DynamicResource SurfaceMutedBrush}" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+  </Style>
+
+  <!-- 行分隔线。高度由 BorderThickness 决定，所以不给 MinHeight —— 单独使用会塌陷成 1px。 -->
+  <Style Selector="Border.rule">
+    <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+  </Style>
+
+  <!-- 内嵌块：旧 muted-row 是圆角 6 无描边，新 inset 是圆角 8 带描边。
+       两者视觉差异明显，因此不双写，各自独立；配置页只用新的 .inset。 -->
+  <Style Selector="Border.inset">
+    <Setter Property="Background" Value="{DynamicResource SurfaceMutedBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="10,9" />
+  </Style>
+  <Style Selector="Border.muted-row">
+    <Setter Property="Background" Value="{DynamicResource SurfaceMutedBrush}" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="Padding" Value="13,11" />
+  </Style>
+
+  <!-- 分类侧栏容器 -->
+  <Style Selector="Border.rail">
+    <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Padding" Value="6" />
+  </Style>
+
+  <!-- ── 按钮 ──────────────────────────────────────────────────────────
+       新类名与旧类名成对出现。旧 primary-action / secondary-action / ghost-action /
+       compact-action 的数值在 App.axaml:213-257，本文件不重复它们的旧值定义
+       （旧值仍由 App.axaml 提供），但 selector 写在一起以便调用点混用不炸。
+       注意：这里给旧类名写 Setter 会覆盖 App.axaml 的同名 Setter，
+       因此对旧类名一律不写 Setter，只在同一个 selector 里带上它们。 -->
+
+  <Style Selector="Button.primary">
+    <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="7" />
+    <Setter Property="Padding" Value="13,6" />
+    <Setter Property="FontSize" Value="12.5" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="MinHeight" Value="30" />
+  </Style>
+  <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
+  </Style>
+
+  <!-- 次操作：数值保持旧 secondary-action 原样（圆角 7 / Padding 10,4 / 11.5px）。
+       新名与旧名写在同一 selector —— 只改名字，不改外观。 -->
+  <Style Selector="Button.secondary, Button.secondary-action">
+    <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource HairlineStrongBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="7" />
+    <Setter Property="Padding" Value="10,4" />
+    <Setter Property="FontSize" Value="11.5" />
+  </Style>
+  <Style Selector="Button.secondary:pointerover /template/ ContentPresenter,
+                   Button.secondary-action:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource SurfaceHoverBrush}" />
+  </Style>
+
+  <Style Selector="Button.ghost">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="7" />
+    <Setter Property="Padding" Value="9,6" />
+    <Setter Property="FontSize" Value="12.5" />
+    <Setter Property="MinHeight" Value="28" />
+  </Style>
+  <Style Selector="Button.ghost:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource SurfaceHoverBrush}" />
+    <Setter Property="TextElement.Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+  </Style>
+
+  <!-- 破坏性操作。刻意不复用旧类名 danger-action：
+       它在 App.axaml 被定义两次（:304 浅底红字、:500 红描边，后者生效），
+       双写会让本文件的定义以文件顺序参与那场覆盖，结果不可预测。
+       两处重复定义的问题记录在方案 §6.5，本轮不动。 -->
+  <Style Selector="Button.danger">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource DangerBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="7" />
+    <Setter Property="Padding" Value="12,6" />
+    <Setter Property="FontSize" Value="12.5" />
+    <Setter Property="MinHeight" Value="30" />
+  </Style>
+  <Style Selector="Button.danger:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource DangerSoftBrush}" />
+  </Style>
+
+  <Style Selector="Button.compact">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="Padding" Value="9,3" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+
+  <!-- ── 胶囊标签 ──────────────────────────────────────────────────────
+       刻意不双写 Border.status-pill：旧 status-pill 的默认底是 SurfaceMutedBrush、
+       文字是 TextSecondaryBrush、圆角 5；新 chip 是 ChipNeutralBrush / ChipNeutralTextBrush /
+       圆角 999。两者不通用，混写会改到核心页的三处 status-pill。
+       旧 status-pill 的选择器仍由 App.axaml 提供，本文件不重复。 -->
+  <Style Selector="Border.chip">
+    <Setter Property="Background" Value="{DynamicResource ChipNeutralBrush}" />
+    <Setter Property="CornerRadius" Value="999" />
+    <Setter Property="Padding" Value="8,2" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.chip > TextBlock">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource ChipNeutralTextBrush}" />
+  </Style>
+
+  <Style Selector="Border.chip.neutral">
+    <Setter Property="Background" Value="{DynamicResource ChipNeutralBrush}" />
+  </Style>
+  <Style Selector="Border.chip.neutral > TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource ChipNeutralTextBrush}" />
+  </Style>
+
+  <Style Selector="Border.chip.ok">
+    <Setter Property="Background" Value="{DynamicResource SuccessSoftBrush}" />
+  </Style>
+  <Style Selector="Border.chip.ok > TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" />
+  </Style>
+
+  <Style Selector="Border.chip.warn">
+    <Setter Property="Background" Value="{DynamicResource WarningSoftBrush}" />
+  </Style>
+  <Style Selector="Border.chip.warn > TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource WarningBrush}" />
+  </Style>
+
+  <Style Selector="Border.chip.bad">
+    <Setter Property="Background" Value="{DynamicResource DangerSoftBrush}" />
+  </Style>
+  <Style Selector="Border.chip.bad > TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+  </Style>
+
+  <Style Selector="Border.chip.accent">
+    <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+  </Style>
+  <Style Selector="Border.chip.accent > TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+  </Style>
+
+  <!-- ── 侧栏列表 ──────────────────────────────────────────────────────
+       分类项用 ListBoxItem 实现选中态（保留 ListBox + SelectedItem 双向绑定，
+       不换成 Button —— 绑定形态是测试契约）。rail-list 与旧 settings-list 数值一致。 -->
+  <Style Selector="ListBox.rail-list ListBoxItem, ListBox.settings-list ListBoxItem">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Margin" Value="0,2" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+  </Style>
+  <Style Selector="ListBox.rail-list ListBoxItem /template/ ContentPresenter,
+                   ListBox.settings-list ListBoxItem /template/ ContentPresenter">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="CornerRadius" Value="7" />
+  </Style>
+  <Style Selector="ListBox.rail-list ListBoxItem:pointerover /template/ ContentPresenter,
+                   ListBox.settings-list ListBoxItem:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource SurfaceHoverBrush}" />
+  </Style>
+  <Style Selector="ListBox.rail-list ListBoxItem:selected /template/ ContentPresenter,
+                   ListBox.settings-list ListBoxItem:selected /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+  </Style>
+
+  <!-- ── 输入控件 ──────────────────────────────────────────────────────
+       仅新页面使用；加 TextBox/ComboBox 的圆角与高度会让所有既有页面输入框变形，
+       因此这一组不加旧名、不带双写，并在方案 §9.2 记录为「本轮唯一的有意视觉变更范围」。
+       调用点若需要旧外观，继续用默认（不写 Classes）。 -->
+  <Style Selector="TextBox.field">
+    <Setter Property="CornerRadius" Value="7" />
+    <Setter Property="FontSize" Value="12.5" />
+    <Setter Property="MinHeight" Value="30" />
+    <Setter Property="Padding" Value="10,5" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+</Styles>
