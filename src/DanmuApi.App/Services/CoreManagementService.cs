@@ -30,8 +30,18 @@ public sealed class CoreManagementCanceledException : OperationCanceledException
     }
 }
 
+/// <summary>磁盘上的核心安装状态被改动后（安装、更新、回退、删除、改名）发出的通知，
+/// 参数是被改动的变体。托盘「立即更新核心」与后台自动更新都不经过核心页，
+/// 订阅方必须据此回读磁盘，否则版本号会一直停在更新前的值。</summary>
+public sealed class CoreInstallationChangedEventArgs(ManagedCoreVariant variant) : EventArgs
+{
+    public ManagedCoreVariant Variant { get; } = variant;
+}
+
 public interface ICoreManagementService
 {
+    /// <summary>磁盘上的核心安装状态确实发生变化后发出；在操作线程上触发，订阅方需自行回到 UI 线程。</summary>
+    event EventHandler<CoreInstallationChangedEventArgs>? InstallationChanged;
     CoreInstallationInfo Inspect(ManagedCoreVariant variant);
     IReadOnlyList<CoreVersionRecord> GetHistory(ManagedCoreVariant variant);
     Task<GithubRepositoryReference> ResolveRepositoryAsync(
@@ -91,6 +101,8 @@ public sealed class CoreManagementService : ICoreManagementService
     private readonly IRuntimeController _runtimeController;
     private readonly Func<CancellationToken, ValueTask<IAsyncDisposable>>? _preparationLeaseFactory;
     private readonly Func<ManagedCoreVariant> _activeVariantProvider;
+
+    public event EventHandler<CoreInstallationChangedEventArgs>? InstallationChanged;
 
     public CoreManagementService(
         ICoreInstaller installer,
@@ -313,12 +325,16 @@ public sealed class CoreManagementService : ICoreManagementService
             await using var preparationLease = _preparationLeaseFactory is null ? null : await _preparationLeaseFactory(cancellationToken).ConfigureAwait(false);
             _ = RequireInstalledManifest(variant);
             _installer.UpdateDisplayName(variant, displayName.Trim());
-            return new CoreManagementOperationResult(
+            var installation = _installer.Inspect(variant);
+            var result = new CoreManagementOperationResult(
                 true,
                 false,
                 true,
-                _installer.Inspect(variant),
+                installation,
                 "核心显示名称已更新。");
+            // 改名也改了磁盘上的来源 manifest，来源带与版本带同样要立刻跟上。
+            InstallationChanged?.Invoke(this, new CoreInstallationChangedEventArgs(variant));
+            return result;
         }
         catch (Exception error) when (error is InvalidOperationException or IOException or UnauthorizedAccessException)
         {
@@ -401,11 +417,16 @@ public sealed class CoreManagementService : ICoreManagementService
             }
 
             var diskApplied = false;
+            var installationChanged = false;
             Exception? inspectionError = null;
             try
             {
                 // Inspect actual disk state even when the mutation failed after committing.
                 var current = _installer.Inspect(variant);
+                // 与操作前的快照比对：只有磁盘真的变了才通知。"期望的新提交没装上"不算变更，
+                // 但"期望的没装上、磁盘却变成别的样子"（例如装到一半失败）必须通知，否则界面会一直
+                // 显示一个已经不存在的安装状态。
+                installationChanged = !Equals(initialInstallation, current);
                 diskApplied = deleting
                     ? !current.IsInstalled
                     : expectedSha is not null
@@ -469,6 +490,12 @@ public sealed class CoreManagementService : ICoreManagementService
                 RestorationError = restorationError,
                 DiskInspectionError = inspectionError,
             };
+            if (installationChanged)
+            {
+                // 服务恢复失败也要通知：磁盘已经变了，界面显示必须反映真实状态，不能停在旧版本。
+                InstallationChanged?.Invoke(this, new CoreInstallationChangedEventArgs(variant));
+            }
+
             if (mutationError is OperationCanceledException canceled)
             {
                 throw new CoreManagementCanceledException(result, canceled);

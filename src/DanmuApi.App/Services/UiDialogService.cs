@@ -32,6 +32,9 @@ public sealed record GithubTokenDialogResult(bool Cancelled, bool Clear, string?
     public static GithubTokenDialogResult Submit(string token) => new(false, false, token);
 }
 
+/// <summary>文件选择器的过滤器（不泄漏 Avalonia 类型到接口层）。</summary>
+public sealed record UiFileFilter(string Name, IReadOnlyList<string> Patterns);
+
 public interface IUiDialogService
 {
     Task EditPortAsync(MainWindowViewModel viewModel);
@@ -51,6 +54,18 @@ public interface IUiDialogService
     Task<string?> SaveTextFileAsync(string suggestedFileName, string content) => Task.FromResult<string?>(null);
     Task<string?> SaveBytesFileAsync(string suggestedFileName, byte[] content, string contentType) => Task.FromResult<string?>(null);
     Task<string?> PickFolderAsync(string? initialDirectory) => Task.FromResult<string?>(null);
+
+    /// <summary>按调用方给定的标题选文件夹（与下载目录那条语义分开，避免标题张冠李戴）。</summary>
+    Task<string?> PickFolderWithTitleAsync(string title, string? initialDirectory) => Task.FromResult<string?>(null);
+
+    /// <summary>选择本地文件（可多选）。返回空列表表示用户取消；非本地路径会被实现方拒绝。</summary>
+    Task<IReadOnlyList<string>> PickFilesAsync(
+        string title,
+        IReadOnlyList<UiFileFilter> filters,
+        bool allowMultiple = false) => Task.FromResult<IReadOnlyList<string>>([]);
+
+    /// <summary>显示弹幕文件详情弹窗（本地弹幕页用）；关闭由模型的 CloseRequested 驱动。</summary>
+    Task ShowLocalDanmuDetailAsync(LocalDanmuDetailDialogViewModel model) => Task.CompletedTask;
     Task CopyTextAsync(string text);
     Task ShowMessageAsync(string title, string message, bool isError = false) => Task.CompletedTask;
     Task<string?> PromptTextAsync(string title, string description, string initial, string confirmLabel) => Task.FromResult<string?>(null);
@@ -82,8 +97,7 @@ public interface IUiDialogService
 
 public sealed partial class UiDialogService : IUiDialogService
 {
-    private readonly Func<Window?> _ownerProvider;
-    private readonly AppPaths? _paths;
+    private readonly Func<Window?> _ownerProvider;    private readonly AppPaths? _paths;
     private readonly ISettingsStore? _settingsStore;
     private readonly IAdminSessionService? _adminSession;
     private readonly IRuntimeController? _runtimeController;
@@ -457,14 +471,71 @@ public sealed partial class UiDialogService : IUiDialogService
         return known?.Extension() ?? Path.GetExtension(suggestedFileName).TrimStart('.');
     }
 
-    public async Task<string?> PickFolderAsync(string? initialDirectory)
+    public async Task<string?> PickFolderAsync(string? initialDirectory) =>
+        await PickFolderCoreAsync("选择弹幕保存目录", initialDirectory).ConfigureAwait(true);
+
+    public async Task<string?> PickFolderWithTitleAsync(string title, string? initialDirectory) =>
+        await PickFolderCoreAsync(title, initialDirectory).ConfigureAwait(true);
+
+    public async Task<IReadOnlyList<string>> PickFilesAsync(
+        string title,
+        IReadOnlyList<UiFileFilter> filters,
+        bool allowMultiple = false)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+        ArgumentNullException.ThrowIfNull(filters);
+        var owner = GetOwner();
+        var storageProvider = TopLevel.GetTopLevel(owner)?.StorageProvider
+            ?? throw new InvalidOperationException("当前窗口没有可用的文件选择器");
+        var options = new FilePickerOpenOptions
+        {
+            Title = title,
+            AllowMultiple = allowMultiple,
+            FileTypeFilter = filters
+                .Select(filter => new FilePickerFileType(filter.Name) { Patterns = filter.Patterns.ToArray() })
+                .ToArray(),
+        };
+        var files = await storageProvider.OpenFilePickerAsync(options).ConfigureAwait(true);
+        if (files is null || files.Count == 0)
+        {
+            return [];
+        }
+
+        var paths = new List<string>(files.Count);
+        foreach (var file in files)
+        {
+            // 与目录选择保持一致：拿不到本地路径就显式失败，不要静默少一个文件。
+            paths.Add(file.TryGetLocalPath()
+                ?? throw new IOException("所选文件不是本地路径，无法用于本地弹幕导入"));
+        }
+
+        return paths;
+    }
+
+    public async Task ShowLocalDanmuDetailAsync(LocalDanmuDetailDialogViewModel model)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        var owner = GetOwner();
+        var window = new Views.LocalDanmuDetailWindow { DataContext = model };
+        void Close(object? sender, EventArgs args) => window.Close();
+        model.CloseRequested += Close;
+        try
+        {
+            await window.ShowDialog(owner).ConfigureAwait(true);
+        }
+        finally
+        {
+            model.CloseRequested -= Close;
+        }
+    }
+
+    private async Task<string?> PickFolderCoreAsync(string title, string? initialDirectory)    {
         var owner = GetOwner();
         var storageProvider = TopLevel.GetTopLevel(owner)?.StorageProvider
             ?? throw new InvalidOperationException("当前窗口没有可用的文件夹选择器");
         var options = new FolderPickerOpenOptions
         {
-            Title = "选择弹幕保存目录",
+            Title = title,
             AllowMultiple = false,
         };
         if (!string.IsNullOrWhiteSpace(initialDirectory) && Directory.Exists(initialDirectory))

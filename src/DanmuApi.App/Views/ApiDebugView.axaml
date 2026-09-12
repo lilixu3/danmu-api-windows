@@ -5,10 +5,8 @@
              x:Class="DanmuApi.App.Views.ApiDebugView"
              x:DataType="vm:ApiDebugPageViewModel">
   <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
-    <StackPanel Spacing="3">
-      <TextBlock Text="接口调试" Classes="section" />
-      <TextBlock Text="仅调用核心白名单接口；请求预览、CURL、界面响应与复制内容均为完整脱敏副本。" Classes="cap" TextWrapping="Wrap" />
-    </StackPanel>
+    <!-- 分类名由工具页页头承担，这里只留一句说明，不再重复一节标题。 -->
+    <TextBlock Text="仅调用核心白名单接口；请求预览、CURL、界面响应与复制内容均为完整脱敏副本。" Classes="cap" TextWrapping="Wrap" />
     <Grid Grid.Row="1" ColumnDefinitions="220,*,Auto,Auto" ColumnSpacing="10">
       <ComboBox ItemsSource="{Binding Definitions}" SelectedItem="{Binding SelectedApi, Mode=TwoWay}" />
       <TextBlock Grid.Column="1" Text="{Binding RequestSummary}" Classes="mono cap" VerticalAlignment="Center" />

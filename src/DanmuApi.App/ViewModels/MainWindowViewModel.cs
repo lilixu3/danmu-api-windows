@@ -22,6 +22,7 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     private readonly IUiDialogService _dialogService;
     private readonly SettingsPageViewModel _settingsPage;
     private readonly CorePageViewModel? _corePage;
+    private readonly ICoreManagementService? _coreManagement;
     private readonly Func<ActivityPageViewModel>? _activityPageFactory;
     private readonly Func<ToolsPageViewModel>? _toolsPageFactory;
     private readonly Func<DanmuDownloadPageViewModel>? _downloadPageFactory;
@@ -84,7 +85,8 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         ConfigurationPageViewModel? configurationPage = null,
         IAdminWriteGate? writeGate = null,
         ICoreRequestRecordsClient? requestRecordsClient = null,
-        RuntimePreparationService? preparation = null)
+        RuntimePreparationService? preparation = null,
+        ICoreManagementService? coreManagement = null)
     {
         _controller = controller ?? throw new ArgumentNullException(nameof(controller));
         _healthClient = healthClient ?? throw new ArgumentNullException(nameof(healthClient));
@@ -97,6 +99,7 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         _dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
         _settingsPage = settingsPage ?? throw new ArgumentNullException(nameof(settingsPage));
         _corePage = corePage;
+        _coreManagement = coreManagement;
         _activityPageFactory = activityPageFactory;
         _toolsPageFactory = toolsPageFactory;
         _downloadPageFactory = downloadPageFactory;
@@ -113,6 +116,12 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         _preparation = preparation;
         if (_preparation is not null) _preparation.Changed += OnPreparationChanged;
         _settingsPage.SettingsChanged += OnSettingsChanged;
+        if (_coreManagement is not null)
+        {
+            // 核心可能被托盘或后台自动更新换掉，这两条路径都不经过核心页；
+            // 侧栏、概览与关于页的版本文字同样要立刻重读磁盘。
+            _coreManagement.InstallationChanged += OnCoreInstallationChanged;
+        }
         _runtime = controller.Snapshot;
         RequestTrend.Reset(_runtime.State == DesktopRuntimeState.Running);
         NavigationItems =
@@ -704,6 +713,14 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         OnPropertyChanged(nameof(DiagnosticText));
     }
 
+    /// <summary>核心安装被替换（含托盘与后台自动更新）后，侧栏、概览与关于页的版本文字要回 UI 线程重读磁盘。</summary>
+    private void OnCoreInstallationChanged(object? sender, CoreInstallationChangedEventArgs args) =>
+        DispatchToUi(() =>
+        {
+            OnPropertyChanged(nameof(CoreVersionText));
+            OnPropertyChanged(nameof(CoreVersionShortText));
+        });
+
     private void NotifyConfigurationChanged()
     {
         OnPropertyChanged(nameof(PortText));
@@ -984,6 +1001,7 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         }
         _controller.SnapshotChanged -= OnSnapshotChanged;
         if (_preparation is not null) _preparation.Changed -= OnPreparationChanged;
+        if (_coreManagement is not null) _coreManagement.InstallationChanged -= OnCoreInstallationChanged;
         _disposeCts.Cancel();
         try
         {

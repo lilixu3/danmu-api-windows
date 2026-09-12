@@ -6,10 +6,7 @@
              x:DataType="vm:ServiceManagementPageViewModel">
   <ScrollViewer>
     <StackPanel Spacing="12">
-      <StackPanel Spacing="3">
-        <TextBlock Text="设备与访问控制" Classes="section" />
-        <TextBlock Text="查看访问过本服务的设备，设置 IP 黑名单。支持 IPv4 / IPv6，不支持白名单、CIDR 或正则规则。" Classes="cap" TextWrapping="Wrap" />
-      </StackPanel>
+      <TextBlock Text="查看访问过本服务的设备，设置 IP 黑名单。支持 IPv4 / IPv6，不支持白名单、CIDR 或正则规则。" Classes="cap" TextWrapping="Wrap" />
 
       <Border Classes="card">
         <StackPanel Spacing="10">
@@ -48,7 +45,7 @@
               <DataTemplate x:DataType="runtime:AccessDevice">
                 <Border Classes="rule" Padding="0,3,0,8">
                   <StackPanel Spacing="3">
-                    <TextBlock Text="{Binding Ip}" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding Ip}" Classes="mono" FontWeight="SemiBold" />
                     <StackPanel Orientation="Horizontal" Spacing="4">
                       <TextBlock Text="请求 / 允许 / 拦截：" Classes="cap" />
                       <TextBlock Text="{Binding TotalRequests}" />

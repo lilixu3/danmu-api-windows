@@ -163,6 +163,13 @@ public sealed class CoreSetupGuidanceTests : IDisposable
 
     private sealed class StubManagementService : ICoreManagementService
     {
+        // 本桩的 Inspect 永远返回"尚未安装"，不会产生安装变更，因此不需要通知任何订阅方。
+        public event EventHandler<CoreInstallationChangedEventArgs>? InstallationChanged
+        {
+            add { }
+            remove { }
+        }
+
         public CoreInstallationInfo Inspect(ManagedCoreVariant variant) =>
             new(variant, "dir", false, false, null, null, "核心尚未安装");
         public IReadOnlyList<CoreVersionRecord> GetHistory(ManagedCoreVariant variant) => [];

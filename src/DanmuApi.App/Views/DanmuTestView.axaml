@@ -4,14 +4,16 @@
              x:Class="DanmuApi.App.Views.DanmuTestView"
              x:DataType="vm:DanmuTestPageViewModel">
   <Grid RowDefinitions="Auto,*" RowSpacing="12">
-    <Border Classes="card flat" Padding="4">
+    <!-- 模式页签：横排复用 rail-list 的选中态与 rail-title/rail-caption 两行排版，
+         容器用 card 而不是 flat，三段才读得出是一个整体控件。 -->
+    <Border Classes="card" Padding="4">
       <ListBox x:Name="DanmuTabSelector" Classes="rail-list" ItemsSource="{Binding TabOptions}" SelectedItem="{Binding SelectedTabOption, Mode=TwoWay}" Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
         <ListBox.ItemsPanel>
           <ItemsPanelTemplate><UniformGrid Columns="3" /></ItemsPanelTemplate>
         </ListBox.ItemsPanel>
         <ListBox.ItemTemplate>
           <DataTemplate x:DataType="vm:DanmuTestTabOption">
-            <StackPanel Spacing="3" Margin="14,9">
+            <StackPanel Spacing="2" Margin="10,7">
               <TextBlock Text="{Binding Title}" Classes="rail-title" />
               <TextBlock Text="{Binding Description}" Classes="rail-caption" />
             </StackPanel>

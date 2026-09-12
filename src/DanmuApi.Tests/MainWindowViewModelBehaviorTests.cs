@@ -27,6 +27,31 @@ public sealed partial class MainWindowViewModelBehaviorTests
     }
 
     [Fact]
+    public async Task ReplacedCoreUpdatesTheShellVersionWithoutRefreshOrRestart()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = CreateRuntime(pathsRoot: directory.Path, token: "token");
+        WriteCoreVersion(paths, "stable", "1.20.10");
+        var controller = new RecordingRuntimeController(new RuntimeSnapshot(
+            DesktopRuntimeState.Stopped,
+            Port: 9321));
+        var management = new StubCoreManagementService();
+        await using var viewModel = CreateViewModel(
+            paths,
+            new RecordingSettingsStore(),
+            controller,
+            coreManagement: management);
+        Assert.Equal("1.20.10", viewModel.CoreVersionText);
+
+        // 托盘「立即更新核心」或后台自动更新把磁盘换成新提交：不重启界面，也不该再显示旧版本号。
+        WriteCoreVersion(paths, "stable", "1.21.0");
+        management.Announce(ManagedCoreVariant.Stable);
+
+        Assert.Equal("1.21.0", viewModel.CoreVersionText);
+        Assert.Equal("1.21.0", viewModel.CoreVersionShortText);
+    }
+
+    [Fact]
     public async Task SameTokenDoesNotWriteEnvOrRestart()
     {
         using var directory = new TemporaryDirectory();
@@ -417,7 +442,8 @@ public sealed partial class MainWindowViewModelBehaviorTests
         RecordingDialogService? dialogs = null,
         RecordingCoreCacheClient? cacheClient = null,
         IRuntimeHealthClient? healthClient = null,
-        RuntimePreparationService? preparation = null)
+        RuntimePreparationService? preparation = null,
+        StubCoreManagementService? coreManagement = null)
     {
         var settingsPage = new SettingsPageViewModel(
             settings,
@@ -432,7 +458,38 @@ public sealed partial class MainWindowViewModelBehaviorTests
             paths,
             dialogs ?? new RecordingDialogService(),
             settingsPage,
-            adminSession ?? new StubAdminSessionService(), preparation: preparation);
+            adminSession ?? new StubAdminSessionService(), preparation: preparation,
+            coreManagement: coreManagement);
+    }
+
+    /// <summary>写出一个可被 CoreVersionReader 识别的核心目录：worker.js 决定"已安装"，
+    /// configs/globals.js 的 VERSION 决定显示的版本号。</summary>
+    private static void WriteCoreVersion(AppPaths paths, string variant, string version)
+    {
+        var directory = Path.Combine(paths.NodeProjectDirectory, $"danmu_api_{variant}");
+        Directory.CreateDirectory(Path.Combine(directory, "configs"));
+        File.WriteAllText(Path.Combine(directory, "worker.js"), "// entry" + Environment.NewLine);
+        File.WriteAllText(Path.Combine(directory, "configs", "globals.js"), $"export const VERSION = '{version}';" + Environment.NewLine);
+    }
+
+    private sealed class StubCoreManagementService : ICoreManagementService
+    {
+        public event EventHandler<CoreInstallationChangedEventArgs>? InstallationChanged;
+
+        public void Announce(ManagedCoreVariant variant) =>
+            InstallationChanged?.Invoke(this, new CoreInstallationChangedEventArgs(variant));
+
+        public CoreInstallationInfo Inspect(ManagedCoreVariant variant) => throw new NotSupportedException();
+        public IReadOnlyList<CoreVersionRecord> GetHistory(ManagedCoreVariant variant) => throw new NotSupportedException();
+        public Task<GithubRepositoryReference> ResolveRepositoryAsync(GithubRepositoryReference repository, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<CoreManagementOperationResult> InstallBranchAsync(ManagedCoreVariant variant, GithubRepositoryReference repository, string displayName, string proxyId, IProgress<CoreInstallProgress>? progress = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<CoreManagementOperationResult> InstallCommitAsync(ManagedCoreVariant variant, GithubRepositoryReference repository, string branch, string commitSha, string displayName, string proxyId, IProgress<CoreInstallProgress>? progress = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<CoreManagementOperationResult> InstallPullRequestAsync(GithubRepositoryReference baseRepository, int pullRequestNumber, string displayName, string proxyId, IProgress<CoreInstallProgress>? progress = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<CoreManagementOperationResult> ApplyUpdateAsync(CoreUpdateCheckResult update, string proxyId, IProgress<CoreInstallProgress>? progress = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<CoreManagementOperationResult> ReinstallAsync(ManagedCoreVariant variant, string proxyId, IProgress<CoreInstallProgress>? progress = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<CoreManagementOperationResult> RollbackAsync(ManagedCoreVariant variant, string historyId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<CoreManagementOperationResult> RenameAsync(ManagedCoreVariant variant, string displayName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<CoreManagementOperationResult> DeleteAsync(ManagedCoreVariant variant, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private static AppPaths CreateRuntime(string pathsRoot, string token)

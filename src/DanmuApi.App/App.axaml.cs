@@ -122,6 +122,8 @@ public partial class App : Application
             viewModel.ApplicationUpdates = applicationUpdates;
             viewModel.SettingsPage.ApplicationUpdates = applicationUpdates;
             applicationUpdates.ShowUpdatePage = () => viewModel.NavigateTo("about");
+            // 工具页里的页面（本地弹幕的「核心配置」）在构造期拿不到外壳，这里补上跳转入口。
+            _services.GetRequiredService<ShellNavigationAccessor>().NavigateTo = viewModel.NavigateTo;
             applicationUpdates.UpdateBlockedReason = () => viewModel.HasActiveDownload || viewModel.CorePage?.IsBusy == true || _services.GetRequiredService<IPendingCoreUpdateService>().IsApplying
                 ? "请先完成或暂停弹幕下载及核心安装/更新，再进行软件更新。" : null;
             applicationUpdates.IsServiceRunningBeforeUpdate = () => viewModel.IsServiceRunning;
@@ -502,11 +504,27 @@ public partial class App : Application
             provider.GetRequiredService<IDanmuApiClient>(),
             provider.GetRequiredService<IUiDialogService>(),
             provider.GetRequiredService<IAppDiagnostics>()));
+        services.AddSingleton<ICoreLocalDanmuClient>(provider => new CoreLocalDanmuClient());
+        services.AddSingleton<ILocalDanmuCacheReader>(_ => new LocalDanmuCacheReader());
+        services.AddSingleton<ShellNavigationAccessor>();
+        services.AddSingleton<Func<LocalDanmuPageViewModel>>(provider => () => new LocalDanmuPageViewModel(
+            provider.GetRequiredService<RuntimeApiContext>(),
+            provider.GetRequiredService<ICoreLocalDanmuClient>(),
+            provider.GetRequiredService<ILocalDanmuCacheReader>(),
+            provider.GetRequiredService<IDanmuApiClient>(),
+            provider.GetRequiredService<ICoreEnvClient>(),
+            provider.GetRequiredService<IUiDialogService>(),
+            provider.GetRequiredService<IAdminWriteGate>(),
+            provider.GetRequiredService<IAdminSessionService>(),
+            provider.GetRequiredService<IAppDiagnostics>(),
+            provider.GetRequiredService<ShellNavigationAccessor>(),
+            provider.GetRequiredService<AppPaths>()));
         services.AddSingleton<Func<ToolsPageViewModel>>(provider => () => new ToolsPageViewModel(
             provider.GetRequiredService<Func<DanmuTestPageViewModel>>(),
             provider.GetRequiredService<Func<ApiDebugPageViewModel>>(),
             provider.GetRequiredService<Func<ServiceManagementPageViewModel>>(),
-            provider.GetRequiredService<Func<RequestRecordsPageViewModel>>()));
+            provider.GetRequiredService<Func<RequestRecordsPageViewModel>>(),
+            provider.GetRequiredService<Func<LocalDanmuPageViewModel>>()));
         services.AddSingleton<Func<DanmuDownloadPageViewModel>>(provider => () => new DanmuDownloadPageViewModel(
             provider.GetRequiredService<RuntimeApiContext>(),
             provider.GetRequiredService<IDanmuApiClient>(),
@@ -532,7 +550,8 @@ public partial class App : Application
             provider.GetRequiredService<ConfigurationPageViewModel>(),
             provider.GetRequiredService<IAdminWriteGate>(),
             provider.GetRequiredService<ICoreRequestRecordsClient>(),
-            provider.GetRequiredService<RuntimePreparationService>()));
+            provider.GetRequiredService<RuntimePreparationService>(),
+            provider.GetRequiredService<ICoreManagementService>()));
         services.AddSingleton<AppLifecycleCoordinator>(provider => new AppLifecycleCoordinator(
             provider.GetRequiredService<IRuntimeController>(),
             provider.GetRequiredService<ISettingsStore>(),

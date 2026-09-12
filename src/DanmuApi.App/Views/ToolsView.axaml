@@ -3,31 +3,49 @@
              xmlns:vm="using:DanmuApi.App.ViewModels"
              x:Class="DanmuApi.App.Views.ToolsView"
              x:DataType="vm:ToolsPageViewModel">
-  <Grid RowDefinitions="Auto,*" RowSpacing="12">
-    <StackPanel Spacing="3">
-      <TextBlock Text="工具工作台" Classes="h1" />
-      <TextBlock Text="弹幕测试、接口调试、请求记录与设备日志管理；选择分类开始。" Classes="sub" TextWrapping="Wrap" />
-    </StackPanel>
-    <!-- 分类侧栏与设置页保持一致（宽度 208、rail 容器、rail-title/rail-caption 行）。
-         工具页测试 ToolsCategoriesKeepSettingsStyleSidebar 锁着 208 这个宽度，
-         两页并排切换时侧栏也必须长得一样，所以两边始终一起改。 -->
-    <Grid x:Name="ToolsWorkspace" Grid.Row="1" ColumnDefinitions="208,*" RowDefinitions="Auto,*" ColumnSpacing="20">
-      <Border x:Name="SectionSidebar" Grid.RowSpan="2" Classes="rail">
-        <Grid RowDefinitions="Auto,*" RowSpacing="8">
-          <TextBlock Text="工具分类" Classes="overline" Margin="10,8,10,4" />
-          <ListBox Grid.Row="1" Classes="rail-list" ItemsSource="{Binding SectionOptions}" SelectedItem="{Binding SelectedSectionOption, Mode=TwoWay}" Background="Transparent" BorderThickness="0">
-            <ListBox.ItemTemplate>
-              <DataTemplate x:DataType="vm:ToolsSectionOption">
-                <StackPanel Spacing="3" Margin="10,9">
-                  <TextBlock Text="{Binding Title}" Classes="rail-title" />
-                  <TextBlock Text="{Binding Description}" Classes="rail-caption" />
-                </StackPanel>
-              </DataTemplate>
-            </ListBox.ItemTemplate>
-          </ListBox>
-        </Grid>
-      </Border>
-      <ContentControl x:Name="ToolContent" Grid.Column="1" Grid.RowSpan="2" Content="{Binding CurrentSection}" />
+  <!-- 分类侧栏 + 内容列，骨架与配置页、设置页一致（宽度 216、列间距 14、
+       两行表头、1100/900 断点收敛，收敛逻辑在 ResponsiveWorkspace 里）。
+       页级标题由 MainWindow 头部统一承担，这里只显示当前分类的标题与说明。 -->
+  <Grid x:Name="LayoutRoot" ColumnDefinitions="216,*" ColumnSpacing="14">
+    <Border x:Name="CategoryRail" Classes="rail" VerticalAlignment="Top">
+      <Grid RowDefinitions="Auto,*" RowSpacing="6">
+        <StackPanel x:Name="RailHeader" Margin="8,6,8,2" Spacing="3">
+          <TextBlock Text="工具分类" Classes="overline" />
+          <TextBlock Text="弹幕测试、接口调试与运维工具" Classes="rail-caption" />
+        </StackPanel>
+        <ListBox x:Name="CategoryList"
+                 Grid.Row="1"
+                 Classes="rail-list"
+                 ItemsSource="{Binding SectionOptions}"
+                 SelectedItem="{Binding SelectedSectionOption, Mode=TwoWay}"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 Background="Transparent"
+                 BorderThickness="0">
+          <ListBox.ItemsPanel>
+            <ItemsPanelTemplate>
+              <VirtualizingStackPanel />
+            </ItemsPanelTemplate>
+          </ListBox.ItemsPanel>
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:ToolsSectionOption">
+              <StackPanel Spacing="2" Margin="10,7">
+                <TextBlock Text="{Binding Title}" Classes="rail-title" />
+                <TextBlock Text="{Binding Description}" Classes="rail-caption" />
+              </StackPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </Grid>
+    </Border>
+
+    <Grid x:Name="ContentColumn" Grid.Column="1" RowDefinitions="Auto,*" RowSpacing="12">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+        <StackPanel Spacing="2">
+          <TextBlock Text="{Binding SelectedSectionOption.Title}" Classes="h1" />
+          <TextBlock Text="{Binding SelectedSectionOption.Description}" Classes="sub" TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+      </Grid>
+      <ContentControl x:Name="ToolContent" Grid.Row="1" Content="{Binding CurrentSection}" />
     </Grid>
   </Grid>
 </UserControl>

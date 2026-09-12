@@ -12,10 +12,8 @@
     <ScrollViewer MaxHeight="270" HorizontalScrollBarVisibility="Disabled">
       <StackPanel Spacing="12">
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-          <StackPanel Spacing="4">
-            <TextBlock Text="请求记录" Classes="h1" />
-            <TextBlock Text="本会话与核心请求历史 · 详情均已脱敏" Classes="cap" TextWrapping="Wrap" />
-          </StackPanel>
+          <!-- 分类名由工具页页头承担，这里只留一句说明与刷新动作。 -->
+          <TextBlock Text="本会话与核心请求历史 · 详情均已脱敏" Classes="cap" TextWrapping="Wrap" VerticalAlignment="Center" />
           <Button x:Name="RefreshRecordsButton" Grid.Column="1" Content="刷新" Classes="secondary" Command="{Binding RefreshCommand}" IsEnabled="{Binding !IsBusy}" VerticalAlignment="Center" />
         </Grid>
         <Border Classes="card">

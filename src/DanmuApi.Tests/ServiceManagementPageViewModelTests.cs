@@ -90,13 +90,19 @@ public sealed class ServiceManagementPageViewModelTests
                 Avalonia.Threading.Dispatcher.UIThread.RunJobs();
                 Assert.Same(danmu.TabOptions[index], danmu.SelectedTabOption);
             }
+            tools.SelectedSectionOption = tools.SectionOptions.Single(x => x.Value == ToolsSection.ApiDebug);
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            Assert.Contains(Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(view), x => x is DanmuApi.App.Views.ApiDebugView);
+            Capture(window, $"tools-apidebug-{dark}-{width}");
             tools.SelectedSectionOption = tools.SectionOptions.Single(x => x.Value == ToolsSection.RequestRecords);
             Avalonia.Threading.Dispatcher.UIThread.RunJobs();
             var requests = Assert.IsType<RequestRecordsPageViewModel>(tools.CurrentSection);
             Assert.Contains(Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(view), x => x is DanmuApi.App.Views.RequestRecordsView);
+            Capture(window, $"tools-requests-{dark}-{width}");
             tools.SelectedSectionOption = tools.SectionOptions.Single(x => x.Value == ToolsSection.ServiceManagement);
             Avalonia.Threading.Dispatcher.UIThread.RunJobs();
             Assert.Contains(Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(view), x => x is DanmuApi.App.Views.ServiceManagementView);
+            Capture(window, $"tools-management-{dark}-{width}");
             Assert.Throws<ObjectDisposedException>(() => requests.Start());
 
         }

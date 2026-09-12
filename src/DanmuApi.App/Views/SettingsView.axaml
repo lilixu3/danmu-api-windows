@@ -5,9 +5,10 @@
              x:Class="DanmuApi.App.Views.SettingsView"
              x:DataType="vm:SettingsPageViewModel">
   <UserControl.Styles>
-    <!-- 设置行：一行一件事，行间用 1px 分隔线，最后一行不带线。 -->
+    <!-- 设置行：一行一件事，行间用 1px 分隔线，最后一行不带线。
+         行距与配置页的密集行对齐（0,14 而不是松散的 0,16）。 -->
     <Style Selector="Border.setting-row">
-      <Setter Property="Padding" Value="0,16" />
+      <Setter Property="Padding" Value="0,14" />
       <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
       <Setter Property="BorderThickness" Value="0,0,0,1" />
     </Style>
@@ -31,22 +32,32 @@
     </Style>
   </UserControl.Styles>
 
-  <!-- 侧栏外观与工具页保持一致（宽度 208、圆角 8、内边距 8、rail 行）；
-         工具页的测试锁着它自己那条侧栏 208，这两页并排切换时必须长得一样，
-         所以两边的侧栏要一起改。 -->
-  <Grid ColumnDefinitions="208,*" ColumnSpacing="20">
-    <Border Classes="rail">
-      <Grid RowDefinitions="Auto,*" RowSpacing="8">
-        <TextBlock Text="设置分类" Classes="overline" Margin="10,8,10,4" />
-        <ListBox Grid.Row="1"
+  <!-- 侧栏与内容列，骨架与配置页、工具页一致（216 宽、列间距 14、两行表头、
+       1100/900 断点收敛，收敛逻辑在 ResponsiveWorkspace 里）。
+       页级标题由 MainWindow 头部统一承担，这里只显示当前分类的标题与说明。 -->
+  <Grid x:Name="LayoutRoot" ColumnDefinitions="216,*" ColumnSpacing="14">
+    <Border x:Name="CategoryRail" Classes="rail" VerticalAlignment="Top">
+      <Grid RowDefinitions="Auto,*" RowSpacing="6">
+        <StackPanel x:Name="RailHeader" Margin="8,6,8,2" Spacing="3">
+          <TextBlock Text="设置分类" Classes="overline" />
+          <TextBlock Text="按用途分组的服务与外观设置" Classes="rail-caption" />
+        </StackPanel>
+        <ListBox x:Name="CategoryList"
+                 Grid.Row="1"
                  Classes="rail-list"
                  ItemsSource="{Binding Categories}"
                  SelectedItem="{Binding SelectedCategory, Mode=TwoWay}"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                  Background="Transparent"
                  BorderThickness="0">
+          <ListBox.ItemsPanel>
+            <ItemsPanelTemplate>
+              <VirtualizingStackPanel />
+            </ItemsPanelTemplate>
+          </ListBox.ItemsPanel>
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="vm:SettingsCategory">
-              <StackPanel Spacing="3" Margin="10,9">
+              <StackPanel Spacing="2" Margin="10,7">
                 <TextBlock Text="{Binding Title}" Classes="rail-title" />
                 <TextBlock Text="{Binding Description}" Classes="rail-caption" />
               </StackPanel>
@@ -56,8 +67,10 @@
       </Grid>
     </Border>
 
-    <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
-      <StackPanel Spacing="14" MaxWidth="940" HorizontalAlignment="Stretch">
+    <ScrollViewer x:Name="SettingsScroller" Grid.Column="1" VerticalScrollBarVisibility="Auto">
+      <!-- 内容块必须用满内容列。原先带 MaxWidth=940 + Stretch，宽窗口下会被居中收窄，
+           两侧各留几百像素空白（最大化时最明显）。 -->
+      <StackPanel Spacing="14" HorizontalAlignment="Stretch">
         <StackPanel Spacing="3" Margin="2,0,0,4">
           <TextBlock Text="{Binding SelectedCategory.Title}" Classes="h1" />
           <TextBlock Text="{Binding SelectedCategoryDescription}" Classes="sub" />
@@ -67,20 +80,21 @@
 
         <Border Classes="card" IsVisible="{Binding IsGeneralCategory}">
           <StackPanel Spacing="0">
-            <StackPanel Spacing="3" Margin="0,0,0,6">
-              <TextBlock Text="窗口与启动" Classes="section" />
-              <TextBlock Text="更改后立即保存；不会再要求额外点击保存按钮。" Classes="cap" />
-            </StackPanel>
+            <!-- 页头已经写明分类名与说明，卡内不再重复一行 section 标题，只留一句行为说明。 -->
+            <TextBlock Text="更改后立即保存；不会再要求额外点击保存按钮。" Classes="cap" Margin="0,0,0,4" />
             <Border Classes="setting-row">
               <Grid ColumnDefinitions="*,240" ColumnSpacing="28">
                 <StackPanel Spacing="6">
                   <TextBlock Text="系统通知" Classes="setting-title" />
                   <TextBlock Text="更新包含软件和核心更新；启动成功仅指开机自启。关闭通知不影响手动操作结果及错误提示。" Classes="setting-description" />
+                  <!-- 状态是「当前值」而不是说明：用配置页那套 inset 值条承载，位置与其它行一致（左列）。 -->
+                  <Border Classes="inset">
+                    <TextBlock Text="{Binding NotificationStatusText}" Classes="cap" TextWrapping="Wrap" />
+                  </Border>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Spacing="8">
                   <ComboBox ItemsSource="{Binding NotificationLevelOptions}" SelectedItem="{Binding SelectedNotificationLevelOption, Mode=TwoWay}" HorizontalAlignment="Stretch" />
                   <Button Content="发送测试通知" Classes="compact" Command="{Binding TestNotificationCommand}" ToolTip.Tip="测试会绕过应用通知偏好，仍遵守 Windows 通知设置" HorizontalAlignment="Left" />
-                  <TextBlock Text="{Binding NotificationStatusText}" Classes="cap" TextWrapping="Wrap" />
                 </StackPanel>
               </Grid>
             </Border>
@@ -102,10 +116,15 @@
                 <StackPanel Spacing="4">
                   <TextBlock Text="开机自启" Classes="setting-title" />
                   <TextBlock Text="登录 Windows 后在后台启动服务和托盘，不主动显示主窗口。" Classes="setting-description" />
-                  <TextBlock Text="{Binding AutostartStatusText}" Classes="cap" TextWrapping="Wrap" />
+                  <Border Classes="inset">
+                    <TextBlock Text="{Binding AutostartStatusText}" Classes="cap" TextWrapping="Wrap" />
+                  </Border>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Spacing="8" VerticalAlignment="Center">
-                  <TextBlock Text="{Binding AutostartStateLabel}" FontWeight="SemiBold" />
+                  <!-- 自启状态用胶囊表达（已登记=绿），下面才是开关与重新读取动作。 -->
+                  <Border Classes="chip" Classes.ok="{Binding IsAutostartEnabled}" HorizontalAlignment="Right">
+                    <TextBlock Text="{Binding AutostartStateLabel}" />
+                  </Border>
                   <ToggleSwitch Classes="setting-control"
                                 IsChecked="{Binding IsAutostartEnabled, Mode=OneWay}"
                                 Command="{Binding ToggleAutostartCommand}"
@@ -120,10 +139,7 @@
 
         <Border Classes="card" IsVisible="{Binding IsThemeCategory}">
           <StackPanel Spacing="0">
-            <StackPanel Spacing="3" Margin="0,0,0,6">
-              <TextBlock Text="主题与外观" Classes="section" />
-              <TextBlock Text="选择浅色、深色，或跟随 Windows 系统外观；选择后立即保存并生效。" Classes="cap" />
-            </StackPanel>
+            <TextBlock Text="选择浅色、深色，或跟随 Windows 系统外观；选择后立即保存并生效。" Classes="cap" Margin="0,0,0,4" />
             <Border Classes="setting-row">
               <StackPanel Spacing="10">
                 <WrapPanel Orientation="Horizontal">
@@ -173,10 +189,7 @@
 
         <Border Classes="card" IsVisible="{Binding IsServiceCategory}">
           <StackPanel Spacing="0">
-            <StackPanel Spacing="3" Margin="0,0,0,6">
-              <TextBlock Text="服务监听" Classes="section" />
-              <TextBlock Text="端口与监听协议会直接影响局域网设备的访问地址。" Classes="cap" />
-            </StackPanel>
+            <TextBlock Text="端口与监听协议会直接影响局域网设备的访问地址。" Classes="cap" Margin="0,0,0,4" />
             <Border Classes="setting-row">
               <Grid ColumnDefinitions="*,240" ColumnSpacing="28">
                 <StackPanel Spacing="4">
@@ -191,7 +204,9 @@
                 <StackPanel Spacing="4">
                   <TextBlock Text="IPv6 双栈监听" Classes="setting-title" />
                   <TextBlock Text="对齐移动端：开启后同时接受 IPv4 与 IPv6 连接；IPv4 入口始终保留。" Classes="setting-description" />
-                  <TextBlock Text="{Binding Ipv6StatusText}" Classes="setting-description" />
+                  <Border Classes="inset">
+                    <TextBlock Text="{Binding Ipv6StatusText}" Classes="cap" TextWrapping="Wrap" />
+                  </Border>
                 </StackPanel>
                 <ToggleSwitch Grid.Column="1"
                               Classes="setting-control"
@@ -204,10 +219,7 @@
 
         <Border Classes="card" IsVisible="{Binding IsStorageCategory}">
           <StackPanel Spacing="14">
-            <StackPanel Spacing="4">
-              <TextBlock Text="核心运行目录" Classes="section" />
-              <TextBlock Text="Node、核心变体、config、日志与临时数据都位于当前运行根目录。更改后需要重启应用。" Classes="cap" TextWrapping="Wrap" />
-            </StackPanel>
+            <TextBlock Text="Node、核心变体、config、日志与临时数据都位于当前运行根目录。更改后需要重启应用。" Classes="cap" TextWrapping="Wrap" />
             <Border Classes="inset">
               <TextBlock Text="{Binding RuntimeRoot}" Classes="mono cap" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding RuntimeRoot}" />
             </Border>
@@ -220,15 +232,14 @@
 
         <Border Classes="card" IsVisible="{Binding IsNetworkCategory}">
           <StackPanel Spacing="0">
-            <StackPanel Spacing="3" Margin="0,0,0,6">
-              <TextBlock Text="GitHub 与更新检查" Classes="section" />
-              <TextBlock Text="线路、检查频率与更新动作都会立即保存。" Classes="cap" />
-            </StackPanel>
+            <TextBlock Text="线路、检查频率与更新动作都会立即保存。" Classes="cap" Margin="0,0,0,4" />
             <Border Classes="setting-row">
               <Grid ColumnDefinitions="*,240" ColumnSpacing="28">
                 <StackPanel Spacing="4">
                   <TextBlock Text="核心下载线路" Classes="setting-title" />
-                  <TextBlock Text="{Binding GithubRouteStatusText}" Classes="setting-description" />
+                  <Border Classes="inset">
+                    <TextBlock Text="{Binding GithubRouteStatusText}" Classes="cap" TextWrapping="Wrap" />
+                  </Border>
                 </StackPanel>
                 <Button Grid.Column="1" Width="240" Content="测速并选择" Command="{Binding ChooseGithubRouteCommand}" Classes="secondary" VerticalAlignment="Center" />
               </Grid>
@@ -237,7 +248,9 @@
               <Grid ColumnDefinitions="*,240" ColumnSpacing="28">
                 <StackPanel Spacing="4">
                   <TextBlock Text="GitHub Token" Classes="setting-title" />
-                  <TextBlock Text="{Binding GithubTokenStatusText}" Classes="setting-description" />
+                  <Border Classes="inset">
+                    <TextBlock Text="{Binding GithubTokenStatusText}" Classes="cap" TextWrapping="Wrap" />
+                  </Border>
                   <TextBlock Text="Token 会先通过 GitHub 官方 API 验证，再保存到 Windows DPAPI 安全存储。" Classes="setting-description" />
                 </StackPanel>
                 <Button Grid.Column="1"
@@ -305,9 +318,16 @@
               <Border Width="42" Height="42" CornerRadius="6" Background="{DynamicResource AccentSoftBrush}">
                 <TextBlock Text="&#xE72E;" FontFamily="Segoe MDL2 Assets" FontSize="19" Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
               </Border>
-              <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
-                <TextBlock Text="{Binding AdminModeStatusText}" Classes="section" />
-                <TextBlock Text="{Binding AdminTokenStatusText}" Classes="cap" TextWrapping="Wrap" />
+              <StackPanel Grid.Column="1" Spacing="5" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <TextBlock Text="管理员模式" Classes="setting-title" VerticalAlignment="Center" />
+                  <Border Classes="chip" Classes.ok="{Binding IsAdminMode}" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding AdminModeStatusText}" />
+                  </Border>
+                </StackPanel>
+                <Border Classes="inset">
+                  <TextBlock Text="{Binding AdminTokenStatusText}" Classes="cap" TextWrapping="Wrap" />
+                </Border>
               </StackPanel>
               <Button Grid.Column="2"
                       Content="退出管理员模式"
@@ -321,7 +341,7 @@
 
             <StackPanel Spacing="12" IsVisible="{Binding IsAdminFirstSetup}">
               <StackPanel Spacing="4">
-                <TextBlock Text="首次配置" Classes="section" />
+                <TextBlock Text="首次配置" Classes="overline" />
                 <TextBlock Text="{Binding AdminSecurityDescription}" Classes="cap" TextWrapping="Wrap" />
               </StackPanel>
               <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
@@ -355,7 +375,7 @@
 
             <StackPanel Spacing="12" IsVisible="{Binding IsAdminLoginRequired}">
               <StackPanel Spacing="4">
-                <TextBlock Text="验证身份" Classes="section" />
+                <TextBlock Text="验证身份" Classes="overline" />
                 <TextBlock Text="{Binding AdminSecurityDescription}" Classes="cap" TextWrapping="Wrap" />
               </StackPanel>
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
@@ -397,14 +417,16 @@
 
         <Border Classes="card" IsVisible="{Binding IsDiagnosticsCategory}">
           <StackPanel Spacing="8">
-            <TextBlock Text="Windows 通知" Classes="section" />
-            <TextBlock Text="{Binding NotificationStatusText}" Classes="cap" TextWrapping="Wrap" />
+            <TextBlock Text="Windows 通知" Classes="overline" />
+            <Border Classes="inset">
+              <TextBlock Text="{Binding NotificationStatusText}" Classes="cap" TextWrapping="Wrap" />
+            </Border>
             <WrapPanel>
               <Button Content="发送测试通知" Command="{Binding TestNotificationCommand}" Classes="secondary" Margin="0,8,12,8" />
               <Button Content="系统通知设置" Command="{Binding OpenSystemNotificationsCommand}" Classes="ghost" Margin="0,8,0,8" />
             </WrapPanel>
             <Border Classes="rule" />
-            <TextBlock Text="诊断与日志" Classes="section" />
+            <TextBlock Text="诊断与日志" Classes="overline" />
             <TextBlock Text="运行状态、健康检查时间和失败原因显示在概览页；核心业务日志、Node 输出和宿主日志可在活动页查看。" Classes="cap" TextWrapping="Wrap" />
           </StackPanel>
         </Border>

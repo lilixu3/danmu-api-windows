@@ -7,7 +7,8 @@
              x:DataType="vm:AutoMatchPageViewModel">
   <ScrollViewer VerticalScrollBarVisibility="Auto">
     <StackPanel Spacing="14">
-      <StackPanel Spacing="3"><TextBlock Text="自动匹配" Classes="section" /><TextBlock Text="把视频文件名交给核心匹配；匹配算法、标题清洗和跨季映射由 Node 核心负责。" Classes="cap" TextWrapping="Wrap" /></StackPanel>
+      <!-- 模式名由工具页页头与弹幕测试页签承担，这里只留一句说明，不再重复一节标题。 -->
+      <TextBlock Text="把视频文件名交给核心匹配；匹配算法、标题清洗和跨季映射由 Node 核心负责。" Classes="cap" TextWrapping="Wrap" />
       <Border Classes="card"><Grid ColumnDefinitions="*,Auto" ColumnSpacing="10"><TextBox Classes="field" Text="{Binding FileName, Mode=TwoWay}" Watermark="例如：生万物 S02E08" controls:EnterKeyCommand.Command="{Binding MatchCommand}" /><Button Grid.Column="1" Content="开始匹配" Classes="primary" Command="{Binding MatchCommand}" IsEnabled="{Binding !IsBusy}" /></Grid></Border>
       <TextBlock Text="{Binding Diagnostic}" Classes="cap" TextWrapping="Wrap" />
       <ItemsControl ItemsSource="{Binding Matches}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="rt:DanmuAnimeMatch"><Border Classes="inset" Margin="0,0,0,8"><Grid ColumnDefinitions="*,Auto" ColumnSpacing="12"><StackPanel Spacing="3"><TextBlock Text="{Binding AnimeTitle}" Classes="section" /><TextBlock Text="{Binding EpisodeTitle}" /><TextBlock Text="{Binding TypeDescription}" Classes="cap" /><TextBlock Text="{Binding EpisodeId, StringFormat='集 ID：{0}'}" Classes="mono cap" /></StackPanel><Button Grid.Column="1" Content="查看弹幕" Classes="secondary" Command="{Binding $parent[ItemsControl].DataContext.OpenMatchCommand}" CommandParameter="{Binding}" VerticalAlignment="Center" /></Grid></Border></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>

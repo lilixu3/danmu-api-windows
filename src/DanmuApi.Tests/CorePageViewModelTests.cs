@@ -521,6 +521,42 @@ public sealed partial class CorePageViewModelTests
         Assert.False(success.IsError);
     }
 
+    [Fact]
+    public void CoreReplacedElsewhereRefreshesVersionCommitAndInstallTimeWithoutAPageOperation()
+    {
+        var management = new RecordingManagementService { Installation = Installed() };
+        var viewModel = CreateViewModel(management, new RecordingRoutePreferenceStore(true), new RecordingDialogService());
+        Assert.Equal("1.0.0", viewModel.VersionDisplay);
+        Assert.Equal("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", viewModel.CommitDisplay);
+
+        var replaced = Installed() with
+        {
+            Manifest = Installed().Manifest! with
+            {
+                CommitSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                Version = "1.21.0",
+                InstalledAt = DateTimeOffset.Parse("2026-09-12T13:08:23Z"),
+            },
+        };
+        management.ReplaceInstallationOutOfBand(replaced, ManagedCoreVariant.Stable);
+
+        Assert.Equal("1.21.0", viewModel.VersionDisplay);
+        Assert.Equal("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", viewModel.CommitDisplay);
+        Assert.Equal(DateTimeOffset.Parse("2026-09-12T13:08:23Z").ToLocalTime().ToString("yyyy-MM-dd HH:mm"), viewModel.InstalledAtDisplay);
+    }
+
+    [Fact]
+    public void CoreReplacedForAnotherVariantLeavesThisPageUntouched()
+    {
+        var management = new RecordingManagementService { Installation = Installed() };
+        var viewModel = CreateViewModel(management, new RecordingRoutePreferenceStore(true), new RecordingDialogService());
+
+        management.ReplaceInstallationOutOfBand(InstalledCustom(), ManagedCoreVariant.Custom);
+
+        Assert.Equal("1.0.0", viewModel.VersionDisplay);
+        Assert.Equal("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", viewModel.CommitDisplay);
+    }
+
     private static CorePageViewModel CreateViewModel(
         RecordingManagementService management,
         RecordingRoutePreferenceStore routeStore,
@@ -590,7 +626,16 @@ public sealed partial class CorePageViewModelTests
 
     private sealed class RecordingManagementService : ICoreManagementService
     {
-        public CoreInstallationInfo Installation { get; init; } = new(
+        public event EventHandler<CoreInstallationChangedEventArgs>? InstallationChanged;
+
+        /// <summary>模拟托盘/后台自动更新把磁盘上的核心换掉：先改 Inspect 的返回值，再发出变更通知。</summary>
+        public void ReplaceInstallationOutOfBand(CoreInstallationInfo installation, ManagedCoreVariant variant)
+        {
+            Installation = installation;
+            InstallationChanged?.Invoke(this, new CoreInstallationChangedEventArgs(variant));
+        }
+
+        public CoreInstallationInfo Installation { get; set; } = new(
             ManagedCoreVariant.Stable,
             "dir",
             false,

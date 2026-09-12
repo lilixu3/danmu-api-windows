@@ -10,7 +10,7 @@
       <Button Content="返回上一层" Classes="secondary" Command="{Binding BackCommand}" HorizontalAlignment="Left" />
       <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="16">
         <StackPanel Spacing="4">
-          <TextBlock Text="弹幕详情" Classes="section" />
+          <TextBlock Text="弹幕详情" Classes="overline" />
           <TextBlock Text="{Binding Title}" Classes="h1" TextWrapping="Wrap" />
           <TextBlock Text="{Binding SourceUrlText}" Classes="mono cap" TextWrapping="Wrap" />
           <StackPanel Orientation="Horizontal" Spacing="8">

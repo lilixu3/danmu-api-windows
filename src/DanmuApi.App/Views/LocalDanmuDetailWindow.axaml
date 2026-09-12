@@ -1,0 +1,79 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:DanmuApi.App.ViewModels"
+        x:Class="DanmuApi.App.Views.LocalDanmuDetailWindow"
+        x:DataType="vm:LocalDanmuDetailDialogViewModel"
+        Title="弹幕文件详情"
+        Width="440"
+        Height="560"
+        MinWidth="360"
+        MinHeight="400"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True">
+  <!-- 详情改成弹窗：列表独占整列高度，详情也不会再被窗口高度挤压（用户实测反馈）。
+       内容自己可滚动，窗口再矮也能看到全部字段。 -->
+  <Grid Margin="20" RowDefinitions="Auto,*,Auto" RowSpacing="12">
+    <StackPanel Spacing="3">
+      <TextBlock Text="{Binding Title}" Classes="h1" TextWrapping="Wrap" />
+      <TextBlock Text="{Binding EpisodeLabel}" Classes="sub" />
+    </StackPanel>
+
+    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+      <StackPanel Spacing="10">
+        <Border Classes="rule" />
+        <StackPanel Spacing="3">
+          <TextBlock Text="文件名" Classes="overline" />
+          <TextBlock Text="{Binding FileName}" Classes="mono" TextWrapping="Wrap" />
+        </StackPanel>
+        <StackPanel Spacing="3">
+          <TextBlock Text="当前值" Classes="overline" />
+          <Border Classes="inset">
+            <TextBlock Text="{Binding MetaText}" Classes="cap" TextWrapping="Wrap" />
+          </Border>
+        </StackPanel>
+        <StackPanel Spacing="3">
+          <TextBlock Text="resourceKey" Classes="overline" />
+          <TextBlock Text="{Binding ResourceKey}" Classes="mono" FontSize="11" TextWrapping="Wrap" />
+        </StackPanel>
+        <Border Classes="notice-panel" IsVisible="{Binding HasDiagnostic}">
+          <TextBlock Text="{Binding Diagnostic}" Classes="cap" TextWrapping="Wrap" />
+        </Border>
+        <StackPanel Spacing="6" IsVisible="{Binding IsPreviewOpen}">
+          <TextBlock Text="{Binding PreviewSummaryText}" Classes="cap" />
+          <Border Classes="inset">
+            <ScrollViewer MaxHeight="320">
+              <ItemsControl ItemsSource="{Binding PreviewLines}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:LocalDanmuPreviewLine">
+                    <Grid ColumnDefinitions="52,*" ColumnSpacing="8">
+                      <TextBlock Text="{Binding TimeText}" Classes="mono" FontSize="11.5" />
+                      <TextBlock Grid.Column="1" Text="{Binding Text}" TextWrapping="Wrap" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </Border>
+        </StackPanel>
+      </StackPanel>
+    </ScrollViewer>
+
+    <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8">
+      <Button x:Name="LocalDanmuPreviewButton"
+              Content="{Binding PreviewToggleText}"
+              Classes="secondary"
+              Command="{Binding TogglePreviewCommand}"
+              IsEnabled="{Binding !IsPreviewBusy}" />
+      <Button Grid.Column="1"
+              Content="删除"
+              Classes="danger"
+              IsVisible="{Binding CanWrite}"
+              Command="{Binding DeleteCommand}" />
+      <Button x:Name="LocalDanmuDetailCloseButton"
+              Grid.Column="3"
+              Content="关闭"
+              Classes="primary"
+              Command="{Binding CloseCommand}" />
+    </Grid>
+  </Grid>
+</Window>

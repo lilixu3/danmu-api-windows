@@ -66,6 +66,11 @@ public sealed class ToolWorkflowViewTests
         Assert.NotNull(records.FindControl<ComboBox>("TimeRangeFilter"));
     }
 
+    /// <summary>
+    /// 工具页侧栏与设置页共用一套外观（216 宽、rail 容器、rail-title/rail-caption 两行）。
+    /// 窄窗口不再硬撑双栏：&lt;900 时侧栏塌到内容上方单列（与配置页同一套断点），
+    /// 但「紧凑选择器」这类替代控件仍然不许出现——侧栏始终在，只是换位置。
+    /// </summary>
     [AvaloniaTheory]
     [InlineData(720)]
     [InlineData(960)]
@@ -78,12 +83,54 @@ public sealed class ToolWorkflowViewTests
         try
         {
             Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            view.ApplyLayoutForWidth(width);
             window.UpdateLayout();
+
             Assert.Null(view.FindControl<ComboBox>("CompactSectionSelector"));
-            Assert.True(view.FindControl<Border>("SectionSidebar")!.IsVisible);
-            Assert.Equal(208, view.FindControl<Border>("SectionSidebar")!.Bounds.Width);
-            Assert.Equal(1, Grid.GetColumn(view.FindControl<ContentControl>("ToolContent")!));
-            Assert.True(view.FindControl<ContentControl>("ToolContent")!.Bounds.Width > 0);
+            var rail = view.FindControl<Border>("CategoryRail")!;
+            var content = view.FindControl<Grid>("ContentColumn")!;
+            var railHeader = view.FindControl<StackPanel>("RailHeader")!;
+            Assert.True(rail.IsVisible);
+            Assert.True(content.Bounds.Width > 0, "内容区必须有实际宽度");
+
+            if (width >= 900)
+            {
+                Assert.Equal(216, rail.Bounds.Width);
+                Assert.Equal(0, Grid.GetColumn(rail));
+                Assert.Equal(1, Grid.GetColumn(content));
+                Assert.Equal(0, Grid.GetRow(content));
+                Assert.True(railHeader.IsVisible, "宽档位保留侧栏表头说明");
+            }
+            else
+            {
+                // 单栏档位：侧栏铺满整行、内容落到下一行，表头说明隐藏省高度。
+                Assert.True(rail.Bounds.Width > 216, $"单栏档位侧栏应铺满整行：{rail.Bounds}");
+                Assert.Equal(1, Grid.GetRow(content));
+                Assert.Equal(0, Grid.GetColumn(content));
+                Assert.False(railHeader.IsVisible, "单栏档位隐藏表头说明");
+            }
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>900 断点：两侧都必须是「900 并排、899 单列」，与配置页同一阈值。</summary>
+    [AvaloniaTheory]
+    [InlineData(900, true)]
+    [InlineData(899, false)]
+    public void ToolsWorkspaceCollapsesAtTheSharedBreakpoint(int width, bool sideBySide)
+    {
+        var view = new ToolsView();
+        var window = new Window { Width = width, Height = 800, Content = view };
+        window.Show();
+        try
+        {
+            Dispatcher.UIThread.RunJobs();
+            view.ApplyLayoutForWidth(width);
+            window.UpdateLayout();
+
+            var content = view.FindControl<Grid>("ContentColumn")!;
+            Assert.Equal(sideBySide ? 1 : 0, Grid.GetColumn(content));
+            Assert.Equal(sideBySide ? 0 : 1, Grid.GetRow(content));
         }
         finally { window.Close(); }
     }
@@ -119,9 +166,9 @@ public sealed class ToolWorkflowViewTests
     }
 
     /// <summary>
-    /// 工具页的可视契约（不靠看图）：分类侧栏是设置页那套外观并保持 208px 宽，
-    /// 内容区固定在第二列；分类列表用与设置页一致的类名（rail-list 与 settings-list
-    /// 在 Shell.axaml 里双写、数值相同），并渲染出「标题 + 说明」两行。
+    /// 工具页的可视契约（不靠看图）：分类侧栏是配置页/设置页那套外观（216px、rail 容器、
+    /// rail-list 列表），内容列固定在工作台第二列，页头显示当前分类的标题与说明。
+    /// 页级标题由 MainWindow 头部统一承担，页面内不再重复一行「工具工作台」。
     /// </summary>
     [AvaloniaTheory]
     [InlineData(960)]
@@ -135,19 +182,21 @@ public sealed class ToolWorkflowViewTests
         try
         {
             Dispatcher.UIThread.RunJobs();
+            view.ApplyLayoutForWidth(width);
             window.UpdateLayout();
 
-            var sidebar = view.FindControl<Border>("SectionSidebar")!;
+            var sidebar = view.FindControl<Border>("CategoryRail")!;
+            var contentColumn = view.FindControl<Grid>("ContentColumn")!;
             var content = view.FindControl<ContentControl>("ToolContent")!;
             Assert.True(sidebar.IsVisible);
-            Assert.Equal(208, sidebar.Bounds.Width);
-            Assert.Equal(1, Grid.GetColumn(content));
+            Assert.Equal(216, sidebar.Bounds.Width);
+            Assert.Equal(1, Grid.GetColumn(contentColumn));
             Assert.True(content.Bounds.Width > 0, "内容区必须有实际宽度");
             Assert.True(sidebar.Bounds.Bottom <= window.Height, $"侧栏纵向溢出：{sidebar.Bounds}");
             Assert.True(content.Bounds.Right <= window.Width + 0.5, $"内容区横向溢出：{content.Bounds}");
 
             // 侧栏列表必须用 rail-list（新词汇），旧 settings-list 已退役。
-            var list = sidebar.GetVisualDescendants().OfType<ListBox>().Single();
+            var list = view.FindControl<ListBox>("CategoryList")!;
             Assert.Contains("rail-list", list.Classes);
             Assert.DoesNotContain("settings-list", list.Classes);
         }
@@ -180,6 +229,9 @@ public sealed class ToolWorkflowViewTests
     [InlineData("ApiDebugView.axaml")]
     [InlineData("RequestRecordsView.axaml")]
     [InlineData("ServiceManagementView.axaml")]
+    [InlineData("BackupView.axaml")]
+    [InlineData("LocalDanmuView.axaml")]
+    [InlineData("LocalDanmuDetailWindow.axaml")]
     public void MigratedViewsUseOnlyTheSharedVocabulary(string fileName)
     {
         var path = Path.Combine(RepositoryRoot, "src", "DanmuApi.App", "Views", fileName);

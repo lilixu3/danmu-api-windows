@@ -5,7 +5,8 @@
              x:Class="DanmuApi.App.Views.ManualSearchView"
              x:DataType="vm:ManualSearchPageViewModel">
   <StackPanel Spacing="14">
-    <StackPanel Spacing="3"><TextBlock Text="手动匹配" Classes="section" /><TextBlock Text="先搜索动漫，再进入番剧详情和剧集列表；每一步都是独立页面。" Classes="cap" TextWrapping="Wrap" /></StackPanel>
+    <!-- 模式名由工具页页头与弹幕测试页签承担，这里只留一句说明。 -->
+    <TextBlock Text="先搜索动漫，再进入番剧详情和剧集列表；每一步都是独立页面。" Classes="cap" TextWrapping="Wrap" />
     <Border Classes="card"><Grid ColumnDefinitions="*,Auto" ColumnSpacing="10"><TextBox Classes="field" Text="{Binding Keyword, Mode=TwoWay}" Watermark="输入动漫名称或播放链接" controls:EnterKeyCommand.Command="{Binding SearchCommand}" /><Button Grid.Column="1" Content="搜索动漫" Classes="primary" Command="{Binding SearchCommand}" /></Grid></Border>
     <TextBlock Text="{Binding Diagnostic}" Classes="cap" TextWrapping="Wrap" />
   </StackPanel>

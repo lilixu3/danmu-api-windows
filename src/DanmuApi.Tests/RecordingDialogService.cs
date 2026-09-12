@@ -20,6 +20,9 @@ internal sealed class RecordingDialogService : IUiDialogService
     public List<string> RoutePrompts { get; } = [];
     public List<string> SelectedRoutes { get; } = [];
     public List<string> Confirmations { get; } = [];
+
+    /// <summary>确认弹窗的标题与正文（正文里通常带着影响面，例如「将删除 N 个文件」）。</summary>
+    public List<(string Title, string Message)> ConfirmationMessages { get; } = [];
     public List<(string Title, string Message, bool IsError)> Messages { get; } = [];
     public List<string> ProgressTitles { get; } = [];
     public List<string> PromptRequests { get; } = [];
@@ -66,6 +69,7 @@ internal sealed class RecordingDialogService : IUiDialogService
     public Task<bool> ConfirmAsync(string title, string message, string confirmLabel)
     {
         Confirmations.Add(confirmLabel);
+        ConfirmationMessages.Add((title, message));
         return Task.FromResult(Confirmation);
     }
 
@@ -115,6 +119,47 @@ internal sealed class RecordingDialogService : IUiDialogService
         }
 
         return Task.FromResult(PickedFolder);
+    }
+
+    /// <summary>按标题选目录（本地弹幕导入用；为空则回落到 <see cref="PickedFolder"/>）。</summary>
+    public string? PickedFolderWithTitle { get; set; }
+
+    public List<string> PickedFolderTitles { get; } = [];
+
+    public Task<string?> PickFolderWithTitleAsync(string title, string? initialDirectory)
+    {
+        PickedFolderTitles.Add(title);
+        return Task.FromResult(PickedFolderWithTitle ?? PickedFolder);
+    }
+
+    /// <summary>多选文件（本地上传与批量导入用）。</summary>
+    public List<string> PickedFiles { get; } = [];
+
+    public List<string> PickedFileTitles { get; } = [];
+
+    public Task<IReadOnlyList<string>> PickFilesAsync(
+        string title,
+        IReadOnlyList<UiFileFilter> filters,
+        bool allowMultiple = false)
+    {
+        PickedFileTitles.Add(title);
+        return Task.FromResult<IReadOnlyList<string>>(PickedFiles.ToArray());
+    }
+
+    /// <summary>详情弹窗：记录被打开过几次以及最后一次的模型（并可立即让弹窗自行关闭）。</summary>
+    public List<LocalDanmuDetailDialogViewModel> LocalDanmuDetailDialogs { get; } = [];
+
+    public bool CloseLocalDanmuDetailImmediately { get; set; }
+
+    public Task ShowLocalDanmuDetailAsync(LocalDanmuDetailDialogViewModel model)
+    {
+        LocalDanmuDetailDialogs.Add(model);
+        if (CloseLocalDanmuDetailImmediately)
+        {
+            model.RequestClose();
+        }
+
+        return Task.CompletedTask;
     }
 
     public Task CopyTextAsync(string text)

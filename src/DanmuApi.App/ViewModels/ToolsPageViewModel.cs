@@ -8,6 +8,7 @@ namespace DanmuApi.App.ViewModels;
 public enum ToolsSection
 {
     DanmuTest,
+    LocalDanmu,
     ApiDebug,
     RequestRecords,
     ServiceManagement,
@@ -58,6 +59,7 @@ public sealed class RuntimeApiContext
 public sealed partial class ToolsPageViewModel : ViewModelBase, IAsyncDisposable
 {
     private readonly Func<DanmuTestPageViewModel> _danmuFactory;
+    private readonly Func<LocalDanmuPageViewModel>? _localDanmuFactory;
     private readonly Func<ApiDebugPageViewModel> _apiFactory;
     private readonly Func<ServiceManagementPageViewModel>? _managementFactory;
     private readonly Func<RequestRecordsPageViewModel>? _requestsFactory;
@@ -73,17 +75,24 @@ public sealed partial class ToolsPageViewModel : ViewModelBase, IAsyncDisposable
         Func<DanmuTestPageViewModel> danmuFactory,
         Func<ApiDebugPageViewModel> apiFactory,
         Func<ServiceManagementPageViewModel>? managementFactory = null,
-        Func<RequestRecordsPageViewModel>? requestsFactory = null)
+        Func<RequestRecordsPageViewModel>? requestsFactory = null,
+        Func<LocalDanmuPageViewModel>? localDanmuFactory = null)
     {
         _danmuFactory = danmuFactory ?? throw new ArgumentNullException(nameof(danmuFactory));
         _apiFactory = apiFactory ?? throw new ArgumentNullException(nameof(apiFactory));
         _managementFactory = managementFactory;
         _requestsFactory = requestsFactory;
+        _localDanmuFactory = localDanmuFactory;
         var sections = new List<ToolsSectionOption>
         {
             new(ToolsSection.DanmuTest, "弹幕测试", "自动匹配、手动匹配和收藏"),
-            new(ToolsSection.ApiDebug, "接口调试", "标准与兼容核心 API"),
         };
+        if (localDanmuFactory is not null)
+        {
+            sections.Add(new(ToolsSection.LocalDanmu, "本地弹幕", "导入、维护与预览本地弹幕文件"));
+        }
+
+        sections.Add(new(ToolsSection.ApiDebug, "接口调试", "标准与兼容核心 API"));
         if (requestsFactory is not null) sections.Add(new(ToolsSection.RequestRecords, "请求记录", "请求筛选、统计与脱敏详情"));
         if (managementFactory is not null) sections.Add(new(ToolsSection.ServiceManagement, "设备与日志管理", "设备访问控制、核心日志清理"));
         SectionOptions = sections;
@@ -99,15 +108,18 @@ public sealed partial class ToolsPageViewModel : ViewModelBase, IAsyncDisposable
         {
             _pendingDisposals.Add(disposable.DisposeAsync().AsTask());
         }
+
         CurrentSection = value.Value switch
         {
             ToolsSection.DanmuTest => _danmuFactory(),
+            ToolsSection.LocalDanmu when _localDanmuFactory is not null => _localDanmuFactory(),
             ToolsSection.ApiDebug => _apiFactory(),
             ToolsSection.RequestRecords when _requestsFactory is not null => _requestsFactory(),
             ToolsSection.ServiceManagement when _managementFactory is not null => _managementFactory(),
             _ => throw new InvalidOperationException("工具页面未注册"),
         };
         if (CurrentSection is RequestRecordsPageViewModel requests) requests.Start();
+        if (CurrentSection is LocalDanmuPageViewModel localDanmu) _ = localDanmu.LoadAsync(force: false);
     }
 
     public async ValueTask DisposeAsync()

@@ -71,6 +71,77 @@ public sealed class CoreManagementServiceTests
     }
 
     [Fact]
+    public async Task SuccessfulInstallAnnouncesTheChangedInstallation()
+    {
+        var calls = new List<string>();
+        var installer = new RecordingInstaller(Installed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), calls)
+        {
+            InstallResult = Installed("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+        };
+        var runtime = new RecordingRuntimeController(
+            new RuntimeSnapshot(DesktopRuntimeState.Running, 9321, 42),
+            calls);
+        var service = CreateService(installer, runtime, ManagedCoreVariant.Stable);
+        var announced = new List<ManagedCoreVariant>();
+        service.InstallationChanged += (_, args) => announced.Add(args.Variant);
+
+        await service.InstallCommitAsync(
+            ManagedCoreVariant.Stable,
+            GithubRepositoryReference.Official("main"),
+            "main",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "官方核心",
+            GithubProxyCatalog.OriginalId);
+
+        Assert.Equal([ManagedCoreVariant.Stable], announced);
+    }
+
+    [Fact]
+    public async Task FailedInstallThatLeavesDiskUntouchedAnnouncesNothing()
+    {
+        var calls = new List<string>();
+        var installer = new RecordingInstaller(Installed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), calls)
+        {
+            InstallError = new IOException("download failed"),
+        };
+        var runtime = new RecordingRuntimeController(
+            new RuntimeSnapshot(DesktopRuntimeState.Running, 9321, 42),
+            calls);
+        var service = CreateService(installer, runtime, ManagedCoreVariant.Stable);
+        var announced = new List<ManagedCoreVariant>();
+        service.InstallationChanged += (_, args) => announced.Add(args.Variant);
+
+        await service.InstallCommitAsync(
+            ManagedCoreVariant.Stable,
+            GithubRepositoryReference.Official("main"),
+            "main",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "官方核心",
+            GithubProxyCatalog.OriginalId);
+
+        Assert.Empty(announced);
+    }
+
+    [Fact]
+    public async Task DeletingTheActiveCoreAnnouncesThatItIsGone()
+    {
+        var calls = new List<string>();
+        var installer = new RecordingInstaller(Installed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), calls);
+        var runtime = new RecordingRuntimeController(new RuntimeSnapshot(DesktopRuntimeState.Stopped), calls)
+        {
+            StartWithoutCore = true,
+        };
+        var service = CreateService(installer, runtime, ManagedCoreVariant.Stable);
+        var announced = new List<ManagedCoreVariant>();
+        service.InstallationChanged += (_, args) => announced.Add(args.Variant);
+
+        var result = await service.DeleteAsync(ManagedCoreVariant.Stable);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal([ManagedCoreVariant.Stable], announced);
+    }
+
+    [Fact]
     public async Task FailedInstallRestartsPreviousServiceAndPreservesFailure()
     {
         var calls = new List<string>();
@@ -173,6 +244,38 @@ public sealed class CoreManagementServiceTests
 
         Assert.Contains("已变化", error.Message, StringComparison.Ordinal);
         Assert.Empty(calls);
+    }
+
+    [Fact]
+    public async Task TrayOrBackgroundUpdateAnnouncesTheNewInstallation()
+    {
+        var calls = new List<string>();
+        var current = Installed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        var installer = new RecordingInstaller(current, calls)
+        {
+            InstallResult = Installed("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+        };
+        var runtime = new RecordingRuntimeController(
+            new RuntimeSnapshot(DesktopRuntimeState.Running, 9321, 42),
+            calls);
+        var service = CreateService(installer, runtime, ManagedCoreVariant.Stable);
+        var announced = new List<ManagedCoreVariant>();
+        service.InstallationChanged += (_, args) => announced.Add(args.Variant);
+        var update = new CoreUpdateCheckResult(
+            ManagedCoreVariant.Stable,
+            CoreUpdateCheckStatus.Checked,
+            true,
+            current.Manifest,
+            RemoteCommit("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+            null,
+            DateTimeOffset.UtcNow,
+            "update");
+
+        // 托盘「立即更新核心」与后台自动更新走的就是这条路径：不经过核心页，也必须通知界面。
+        var result = await service.ApplyUpdateAsync(update, GithubProxyCatalog.OriginalId);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal([ManagedCoreVariant.Stable], announced);
     }
 
     [Fact]
@@ -288,6 +391,8 @@ public sealed class CoreManagementServiceTests
             AsyncStart = () => { entered.SetResult(); return restore.Task; },
         };
         var service = CreateService(installer, runtime, ManagedCoreVariant.Stable);
+        var announced = new List<ManagedCoreVariant>();
+        service.InstallationChanged += (_, args) => announced.Add(args.Variant);
         var operation = service.InstallCommitAsync(ManagedCoreVariant.Stable,
             GithubRepositoryReference.Official("main"), "main", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             "core", GithubProxyCatalog.OriginalId);
@@ -303,6 +408,8 @@ public sealed class CoreManagementServiceTests
         Assert.Same(original, result.MutationError);
         Assert.Same(recovery, result.RestorationError);
         Assert.Equal("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", result.Installation!.Manifest!.CommitSha);
+        // 服务没能恢复也要通知：磁盘已经是新核心了，界面不能继续显示旧版本。
+        Assert.Equal([ManagedCoreVariant.Stable], announced);
     }
 
     private static CoreManagementService CreateService(

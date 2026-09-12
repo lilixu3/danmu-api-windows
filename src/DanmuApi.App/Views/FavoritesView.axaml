@@ -4,11 +4,10 @@
              x:Class="DanmuApi.App.Views.FavoritesView"
              x:DataType="vm:FavoritesPageViewModel">
   <ScrollViewer VerticalScrollBarVisibility="Auto">
-    <StackPanel Spacing="12" MaxWidth="960">
-      <StackPanel Spacing="3">
-        <TextBlock Text="收藏" Classes="section" />
-        <TextBlock Text="收藏会保存关键词对应的搜索结果快照；写入、刷新和删除遵守核心能力与管理员权限。" Classes="cap" TextWrapping="Wrap" />
-      </StackPanel>
+    <!-- 内容块用满内容列：不再带 MaxWidth（宽窗口下会被居中收窄、两侧留白）。 -->
+    <StackPanel Spacing="12" HorizontalAlignment="Stretch">
+      <!-- 模式名由弹幕测试页签承担，这里只留一句说明。 -->
+      <TextBlock Text="收藏会保存关键词对应的搜索结果快照；写入、刷新和删除遵守核心能力与管理员权限。" Classes="cap" TextWrapping="Wrap" />
       <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
         <TextBox Classes="field" Text="{Binding SearchText, Mode=TwoWay}" Watermark="过滤收藏关键词（边输入边筛选）" />
         <Button Grid.Column="1" Content="添加收藏" Classes="primary" Command="{Binding AddCommand}" IsEnabled="{Binding CanWrite}" />

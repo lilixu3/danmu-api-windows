@@ -4,27 +4,8 @@
              x:Class="DanmuApi.App.Views.ConfigurationView"
              x:DataType="vm:ConfigurationPageViewModel">
   <UserControl.Styles>
-    <!-- 分类项的标题与说明在深/浅两套主题下都要保持主次分明的对比度：
-         全局的 ListBoxItem 悬停/选中底色已经是 SurfaceHoverBrush / AccentSoftBrush，
-         这里只补数据模板内部的文字色，保证选中态下标题不会被强调色吞掉。 -->
-    <Style Selector="ListBox.rail-list ListBoxItem /template/ ContentPresenter TextBlock">
-      <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
-    </Style>
-    <Style Selector="ListBox.rail-list ListBoxItem /template/ ContentPresenter TextBlock.rail-caption">
-      <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
-    </Style>
-
-    <!-- 分类项：标题 + 说明两行。 -->
-    <Style Selector="TextBlock.rail-title">
-      <Setter Property="FontSize" Value="12.5" />
-      <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
-    </Style>
-    <Style Selector="TextBlock.rail-caption">
-      <Setter Property="FontSize" Value="10.5" />
-      <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
-      <Setter Property="TextWrapping" Value="Wrap" />
-    </Style>
+    <!-- rail 条目的标题/说明排版（rail-title / rail-caption）与选中态前景色
+         已经提升到 Styles\Shell.axaml 全局，配置页、设置页、工具页共用一份定义。 -->
 
     <!-- 变量行：键名等宽 + 说明单行截断；行底 1px 分隔线。 -->
     <Style Selector="ListBox.variable-list ListBoxItem">

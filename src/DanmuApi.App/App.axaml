@@ -46,6 +46,9 @@
     <DataTemplate DataType="vm:ToolsPageViewModel">
       <views:ToolsView />
     </DataTemplate>
+    <DataTemplate DataType="vm:LocalDanmuPageViewModel">
+      <views:LocalDanmuView />
+    </DataTemplate>
     <DataTemplate DataType="vm:DanmuTestPageViewModel">
       <views:DanmuTestView />
     </DataTemplate>

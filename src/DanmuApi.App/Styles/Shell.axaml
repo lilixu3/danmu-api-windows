@@ -312,6 +312,39 @@
     <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
   </Style>
 
+  <!-- ── 侧栏条目排版 ──────────────────────────────────────────────────
+       分类项统一是「标题 + 说明」两行。这两条必须放在全局：原先它们只定义在
+       ConfigurationView 的页面作用域里，设置页与工具页写了同样的类名却拿不到样式，
+       条目退化成裸文本、长说明还会溢出侧栏（0.3.10 的 HANDOFF 有取证）。
+       说明最多两行并省略，避免长描述把侧栏条目撑高。 -->
+  <!-- ── 列表行标题 ────────────────────────────────────────────────────
+       密集列表里的一行主标题（本地弹幕的分组标题、后续其它列表页可复用）。 -->
+  <Style Selector="TextBlock.item-title">
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+  </Style>
+
+  <Style Selector="TextBlock.rail-title">
+    <Setter Property="FontSize" Value="12.5" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+  </Style>
+  <Style Selector="TextBlock.rail-caption">
+    <Setter Property="FontSize" Value="10.5" />
+    <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="MaxLines" Value="2" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <!-- 选中态底下是强调色，条目文字必须自己保住主次：标题用主文字色，说明保持浅色。 -->
+  <Style Selector="ListBox.rail-list ListBoxItem /template/ ContentPresenter TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+  </Style>
+  <Style Selector="ListBox.rail-list ListBoxItem /template/ ContentPresenter TextBlock.rail-caption">
+    <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
+  </Style>
+
   <!-- ── 输入控件 ──────────────────────────────────────────────────────
        仅新页面使用；加 TextBox/ComboBox 的圆角与高度会让所有既有页面输入框变形，
        因此这一组不加旧名、不带双写，并在方案 §9.2 记录为「本轮唯一的有意视觉变更范围」。

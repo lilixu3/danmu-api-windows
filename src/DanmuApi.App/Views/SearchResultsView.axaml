@@ -8,8 +8,9 @@
       <Button Content="返回手动匹配" Classes="secondary" Command="{Binding BackCommand}" HorizontalAlignment="Left" />
       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
         <StackPanel Spacing="3">
-          <TextBlock Text="搜索结果" Classes="section" />
-          <TextBlock Text="{Binding Keyword, StringFormat='关键词：{0}'}" Classes="cap" />
+          <!-- 下钻页：模式标签降为眉标，真正的主标题是关键词。 -->
+          <TextBlock Text="搜索结果" Classes="overline" />
+          <TextBlock Text="{Binding Keyword, StringFormat='关键词：{0}'}" Classes="h1" TextWrapping="Wrap" />
           <TextBlock Text="{Binding FavoriteCapabilityText}" Classes="cap" TextWrapping="Wrap" />
         </StackPanel>
         <Button x:Name="FavoriteSnapshotButton" Grid.Column="1"

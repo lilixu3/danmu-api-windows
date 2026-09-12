@@ -141,6 +141,9 @@ public sealed partial class CorePageViewModel : ViewModelBase
     {
         _verifyDependencies = verifyDependencies;
         _management = management ?? throw new ArgumentNullException(nameof(management));
+        // 托盘「立即更新核心」和后台自动更新都不经过本页，订阅安装状态变更后
+        // 版本号、提交与安装时间才会在更新完成的瞬间自动回读，不需要用户手动刷新。
+        _management.InstallationChanged += OnInstallationChanged;
         _remote = remote ?? throw new ArgumentNullException(nameof(remote));
         _routePreferences = routePreferences ?? throw new ArgumentNullException(nameof(routePreferences));
         _speedTester = speedTester ?? throw new ArgumentNullException(nameof(speedTester));
@@ -407,6 +410,9 @@ public sealed partial class CorePageViewModel : ViewModelBase
                 }
 
                 var result = await ReadWithProgressAsync("检查核心更新", token => _updateScheduler.CheckManualAsync(SelectedVariant, token)).ConfigureAwait(true);
+                // 先回读磁盘再采信检查结论：核心若被本应用之外改动过，会出现
+                // 「弹窗说当前已是最新提交、页头还挂着旧版本号」的自相矛盾。
+                RefreshInstallationState();
                 _updateResult = result;
                 _updateResultCommit = Manifest?.CommitSha;
                 NotifyUpdateChanged();
@@ -919,6 +925,25 @@ public sealed partial class CorePageViewModel : ViewModelBase
         OnPropertyChanged(nameof(CoreDependencyStatusText));
         OnPropertyChanged(nameof(IsCoreDependencyHealthy));
         OnPropertyChanged(nameof(IsCoreDependencyFailed));
+    }
+
+    /// <summary>核心在别处被换掉后（托盘「立即更新核心」、后台自动更新、PR 安装），
+    /// 本页持有的安装快照就过期了，必须回读磁盘。</summary>
+    private void OnInstallationChanged(object? sender, CoreInstallationChangedEventArgs args)
+    {
+        if (args.Variant != SelectedVariant)
+        {
+            return;
+        }
+
+        void Update() => RefreshInstallationState();
+        if (_uiContext is null || SynchronizationContext.Current == _uiContext)
+        {
+            Update();
+            return;
+        }
+
+        _uiContext.Post(_ => Update(), null);
     }
 
     /// <summary>启动准备在后台线程推进，状态带必须回到 UI 线程再通知，并合并高频进度回调。</summary>

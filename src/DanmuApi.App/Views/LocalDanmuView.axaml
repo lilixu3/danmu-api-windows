@@ -1,0 +1,331 @@
+﻿<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:DanmuApi.App.ViewModels"
+             x:Class="DanmuApi.App.Views.LocalDanmuView"
+             x:DataType="vm:LocalDanmuPageViewModel">
+  <UserControl.Styles>
+    <!-- 类型筛选按钮：chip 形态的开关（选中态用强调色底）。 -->
+    <Style Selector="Button.filter-chip">
+      <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="999" />
+      <Setter Property="Padding" Value="12,3" />
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button.filter-chip.active">
+      <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentBorderBrush}" />
+    </Style>
+    <!-- 集行：行底 1px 分隔线，与配置页的密集列表一致。 -->
+    <Style Selector="ListBox.local-episodes ListBoxItem">
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="ListBox.local-episodes ListBoxItem /template/ ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+    </Style>
+    <Style Selector="ListBox.local-episodes ListBoxItem:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource SurfaceHoverBrush}" />
+    </Style>
+    <Style Selector="ListBox.local-episodes ListBoxItem:selected /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+    </Style>
+  </UserControl.Styles>
+
+  <!-- 分类名与页级说明由工具页页头承担；本页只负责本地弹幕自己的工作台。 -->
+  <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
+    <!-- 工具条：类型筛选 + 搜索 + 动作 -->
+    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+      <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+        <ItemsControl ItemsSource="{Binding FilterOptions}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <StackPanel Orientation="Horizontal" Spacing="6" />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:LocalDanmuFilterChip">
+              <Button Content="{Binding Label}"
+                      Classes="filter-chip"
+                      Classes.active="{Binding IsActive}"
+                      Command="{Binding $parent[UserControl].((vm:LocalDanmuPageViewModel)DataContext).SelectFilterCommand}"
+                      CommandParameter="{Binding}" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+      <TextBox x:Name="LocalDanmuSearchBox"
+               Grid.Column="1"
+               Classes="field"
+               VerticalAlignment="Center"
+               Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+               Watermark="搜索标题、文件名或集数" />
+      <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+        <Button Content="刷新" Classes="secondary" Command="{Binding RefreshCommand}" />
+        <Button x:Name="LocalDanmuUploadButton" Content="上传弹幕" Classes="primary" Command="{Binding ToggleUploadPanelCommand}" IsVisible="{Binding CanWrite}" />
+        <Button x:Name="LocalDanmuImportFolderButton" Content="文件夹导入" Classes="secondary" Command="{Binding ImportFolderCommand}" IsVisible="{Binding CanWrite}" />
+      </StackPanel>
+    </Grid>
+
+    <StackPanel Grid.Row="1" Spacing="10">
+      <!-- 统计带 -->
+      <Border Classes="card">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+          <WrapPanel>
+            <StackPanel MinWidth="90" Margin="0,0,20,0">
+              <TextBlock Text="资源" Classes="stat-label" />
+              <TextBlock Text="{Binding Groups.Count}" Classes="stat-value" />
+            </StackPanel>
+            <StackPanel MinWidth="90" Margin="0,0,20,0">
+              <TextBlock Text="文件" Classes="stat-label" />
+              <TextBlock Text="{Binding FileCount}" Classes="stat-value" />
+            </StackPanel>
+            <StackPanel MinWidth="90" Margin="0,0,20,0">
+              <TextBlock Text="弹幕" Classes="stat-label" />
+              <TextBlock Text="{Binding CommentCount}" Classes="stat-value" />
+            </StackPanel>
+            <StackPanel MinWidth="90">
+              <TextBlock Text="占用" Classes="stat-label" />
+              <TextBlock Text="{Binding SizeText}" Classes="stat-value" />
+            </StackPanel>
+          </WrapPanel>
+          <TextBlock Grid.Column="1" Text="{Binding StatsText}" Classes="cap" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+
+      <!-- 只读态：给出两条可操作的出路 -->
+      <Border Classes="notice-panel" IsVisible="{Binding IsReadOnly}">
+        <StackPanel Spacing="8">
+          <TextBlock Text="{Binding WriteAccessText}" Classes="cap" TextWrapping="Wrap" />
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Content="管理员设置" Classes="secondary" Command="{Binding OpenAdminSettingsCommand}" />
+            <Button Content="核心配置" Classes="secondary" Command="{Binding OpenCoreConfigurationCommand}" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <!-- 本地源提示：没把 local 加进 SOURCE_ORDER 时，搜索是看不到这些弹幕的 -->
+      <Border Classes="notice-panel" IsVisible="{Binding ShowSourceOrderHint}">
+        <StackPanel Spacing="8">
+          <TextBlock Text="搜索还看不到本地弹幕？" Classes="cap" FontWeight="SemiBold" />
+          <TextBlock Text="{Binding SourceOrderHintText}" Classes="cap" TextWrapping="Wrap" />
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Content="优先本地" Classes="secondary" Command="{Binding EnableLocalSourceFirstCommand}" />
+            <Button Content="作为补充" Classes="secondary" Command="{Binding EnableLocalSourceLastCommand}" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <Border Classes="notice-panel" IsVisible="{Binding HasDiagnostic}">
+        <TextBlock Text="{Binding Diagnostic}" Classes="cap" TextWrapping="Wrap" />
+      </Border>
+
+      <TextBlock Text="{Binding StorageHintText}" Classes="cap" TextWrapping="Wrap" />
+
+      <!-- 上传面板（内联，不上弹窗：表单要能边看列表边改） -->
+      <Border x:Name="LocalDanmuUploadPanel" Classes="card" IsVisible="{Binding IsUploadPanelOpen}">
+        <StackPanel Spacing="10">
+          <TextBlock Text="上传本地弹幕" Classes="section" />
+          <TextBlock Text="自动解析文件名，可手动修正后上传。支持 XML / JSON / ASS / SSA / CSV / TXT，单个文件不超过 10 MB。" Classes="cap" TextWrapping="Wrap" />
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+            <Border Classes="inset" VerticalAlignment="Center">
+              <TextBlock Text="{Binding UploadFileName, TargetNullValue=尚未选择文件}" Classes="mono" TextTrimming="CharacterEllipsis" />
+            </Border>
+            <Button x:Name="LocalDanmuPickFileButton" Grid.Column="1" Content="选择文件" Classes="secondary" Command="{Binding PickUploadFileCommand}" />
+          </Grid>
+          <TextBlock Text="{Binding UploadNotes}" Classes="cap" TextWrapping="Wrap" IsVisible="{Binding HasUploadNotes}" />
+          <Grid ColumnDefinitions="*,110,130,90,90" ColumnSpacing="10">
+            <StackPanel Spacing="4">
+              <TextBlock Text="标题（必填）" Classes="overline" />
+              <TextBox Classes="field" Text="{Binding UploadTitle, Mode=TwoWay}" Watermark="自动从文件名解析" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Spacing="4">
+              <TextBlock Text="年份（必填）" Classes="overline" />
+              <NumericUpDown Minimum="1900" Maximum="2100" Value="{Binding UploadYear, Mode=TwoWay}" />
+            </StackPanel>
+            <StackPanel Grid.Column="2" Spacing="4">
+              <TextBlock Text="类型（必填）" Classes="overline" />
+              <ComboBox ItemsSource="{Binding TypeOptions}"
+                        SelectedItem="{Binding SelectedUploadTypeOption, Mode=TwoWay}"
+                        HorizontalAlignment="Stretch" />
+            </StackPanel>
+            <StackPanel Grid.Column="3" Spacing="4">
+              <TextBlock Text="季" Classes="overline" />
+              <NumericUpDown Minimum="1" Maximum="99" Value="{Binding UploadSeason, Mode=TwoWay}" />
+            </StackPanel>
+            <StackPanel Grid.Column="4" Spacing="4">
+              <TextBlock Text="集" Classes="overline" />
+              <TextBox Classes="field" Text="{Binding UploadEpisodeText, Mode=TwoWay}" Watermark="电影可留空" />
+            </StackPanel>
+          </Grid>
+          <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+            <Button Content="取消" Classes="secondary" Command="{Binding CloseUploadPanelCommand}" />
+            <Button x:Name="LocalDanmuSubmitUploadButton" Content="上传并解析" Classes="primary" Command="{Binding SubmitUploadCommand}" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <!-- 批量导入面板 -->
+      <Border x:Name="LocalDanmuBatchPanel" Classes="card" IsVisible="{Binding IsBatchPanelOpen}">
+        <StackPanel Spacing="10">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+            <StackPanel Spacing="3">
+              <TextBlock Text="批量导入" Classes="section" />
+              <TextBlock Text="{Binding BatchSummaryText}" Classes="cap" TextWrapping="Wrap" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+              <Button Content="重试失败"
+                      Classes="secondary"
+                      IsVisible="{Binding HasFailedItems}"
+                      Command="{Binding RetryFailedCommand}" />
+              <Button x:Name="LocalDanmuCloseBatchButton"
+                      Content="{Binding BatchActionText}"
+                      Classes="secondary"
+                      Command="{Binding CancelBatchCommand}" />
+              <Button x:Name="LocalDanmuSubmitBatchButton"
+                      Content="导入选中项"
+                      Classes="primary"
+                      IsEnabled="{Binding CanSubmitBatch}"
+                      Command="{Binding SubmitBatchCommand}" />
+            </StackPanel>
+          </Grid>
+          <!-- 扫描目录时用不确定进度条：目录里文件多时用户才不会以为卡死。 -->
+          <ProgressBar x:Name="LocalDanmuScanProgress"
+                       Height="4"
+                       IsIndeterminate="True"
+                       IsVisible="{Binding IsScanningImport}" />
+          <!-- 批量进度条：导入过程中在面板里推进，不弹窗（N 个文件弹 N 次窗是用户实测反馈的问题）。 -->
+          <ProgressBar x:Name="LocalDanmuBatchProgress"
+                       Height="4"
+                       Minimum="0"
+                       Maximum="1"
+                       Value="{Binding BatchProgress}"
+                       IsVisible="{Binding IsBatchRunning}" />
+          <ScrollViewer MaxHeight="320">
+            <ItemsControl ItemsSource="{Binding PendingItems}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:LocalDanmuPendingItem">
+                  <Border Classes="rule" Padding="0,8">
+                    <StackPanel Spacing="6">
+                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                        <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1" Spacing="2">
+                          <TextBlock Text="{Binding FileName}" Classes="mono" TextTrimming="CharacterEllipsis" />
+                          <TextBlock Text="{Binding NotesText}" Classes="cap" TextWrapping="Wrap" IsVisible="{Binding HasNotes}" />
+                        </StackPanel>
+                        <TextBlock Grid.Column="2" Text="{Binding StatusText}" Classes="cap" VerticalAlignment="Center" />
+                      </Grid>
+                      <Grid ColumnDefinitions="*,90,110,80,80" ColumnSpacing="10">
+                        <TextBox Classes="field" Text="{Binding Title, Mode=TwoWay}" Watermark="标题" />
+                        <TextBox Grid.Column="1" Classes="field" Text="{Binding Year, Mode=TwoWay}" Watermark="年份" />
+                        <ComboBox Grid.Column="2"
+                                  ItemsSource="{Binding $parent[UserControl].((vm:LocalDanmuPageViewModel)DataContext).TypeOptions}"
+                                  SelectedValue="{Binding Type, Mode=TwoWay}"
+                                  SelectedValueBinding="{Binding Value}"
+                                  HorizontalAlignment="Stretch" />
+                        <TextBox Grid.Column="3" Classes="field" Text="{Binding Season, Mode=TwoWay}" Watermark="季" />
+                        <TextBox Grid.Column="4" Classes="field" Text="{Binding EpisodeText, Mode=TwoWay}" Watermark="集" IsEnabled="{Binding IsTv}" />
+                      </Grid>
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </StackPanel>
+      </Border>
+    </StackPanel>
+
+    <!-- 列表独占整列：详情改成弹窗后不再需要两栏，窄屏也没有"上下堆叠 + 详情被截"的问题，
+         列表能吃满剩余高度、一次看到更多集。 -->
+    <Border x:Name="LocalDanmuListPanel" Grid.Row="2" Classes="card">
+      <Grid RowDefinitions="Auto,*" RowSpacing="8">
+        <TextBlock Text="按「标题 · 年份 · 类型 · 季」分组；同一季同一集重新上传会覆盖原文件。点「详情」看文件名与弹幕预览。"
+                   Classes="cap"
+                   TextWrapping="Wrap" />
+        <ScrollViewer x:Name="LocalDanmuGroupScroller" Grid.Row="1" VerticalScrollBarVisibility="Auto">
+          <StackPanel Spacing="8">
+            <TextBlock Text="还没有导入本地弹幕。点上面的「上传弹幕」选一个文件，或用「文件夹导入」批量导入。"
+                       Classes="cap"
+                       TextWrapping="Wrap"
+                       IsVisible="{Binding IsEmpty}" />
+            <ItemsControl ItemsSource="{Binding Groups}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:LocalDanmuGroupRow">
+                  <Border Classes="rule" Padding="0,10">
+                    <StackPanel Spacing="6">
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                        <StackPanel Spacing="3">
+                          <TextBlock Text="{Binding Title}" Classes="item-title" TextWrapping="Wrap" />
+                          <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="{Binding SubtitleText}" Classes="cap" VerticalAlignment="Center" />
+                            <Border Classes="chip neutral" VerticalAlignment="Center">
+                              <TextBlock Text="{Binding EpisodeCountText}" />
+                            </Border>
+                            <Border Classes="chip neutral" VerticalAlignment="Center">
+                              <TextBlock Text="{Binding CountText}" />
+                            </Border>
+                            <TextBlock Text="{Binding SizeText}" Classes="cap" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding UpdatedText}" Classes="cap" VerticalAlignment="Center" />
+                          </StackPanel>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                          <Button Content="{Binding ExpandText}"
+                                  Classes="compact"
+                                  Command="{Binding $parent[UserControl].((vm:LocalDanmuPageViewModel)DataContext).ToggleGroupCommand}"
+                                  CommandParameter="{Binding}" />
+                          <Button Content="删除本季"
+                                  Classes="compact"
+                                  IsVisible="{Binding $parent[UserControl].((vm:LocalDanmuPageViewModel)DataContext).CanWrite}"
+                                  Command="{Binding $parent[UserControl].((vm:LocalDanmuPageViewModel)DataContext).DeleteSeasonCommand}"
+                                  CommandParameter="{Binding}" />
+                          <Button Content="删除整部"
+                                  Classes="compact"
+                                  IsVisible="{Binding $parent[UserControl].((vm:LocalDanmuPageViewModel)DataContext).CanWrite}"
+                                  Command="{Binding $parent[UserControl].((vm:LocalDanmuPageViewModel)DataContext).DeleteTitleCommand}"
+                                  CommandParameter="{Binding}" />
+                        </StackPanel>
+                      </Grid>
+                      <ItemsControl IsVisible="{Binding IsExpanded}" ItemsSource="{Binding Episodes}">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="vm:LocalDanmuEpisodeRow">
+                            <Grid ColumnDefinitions="110,*,Auto" ColumnSpacing="10" Margin="0,7">
+                              <TextBlock Text="{Binding EpisodeLabel}" Classes="item-title" VerticalAlignment="Center" />
+                              <StackPanel Grid.Column="1" Spacing="3">
+                                <TextBlock Text="{Binding FileName}" Classes="mono" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding FileName}" />
+                                <TextBlock Text="{Binding MetaText}" Classes="cap" />
+                              </StackPanel>
+                              <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <Button x:Name="LocalDanmuDetailButton"
+                                        Content="详情"
+                                        Classes="secondary"
+                                        Command="{Binding $parent[UserControl].((vm:LocalDanmuPageViewModel)DataContext).OpenDetailCommand}"
+                                        CommandParameter="{Binding}" />
+                                <Button Content="删除"
+                                        Classes="ghost"
+                                        IsVisible="{Binding $parent[UserControl].((vm:LocalDanmuPageViewModel)DataContext).CanWrite}"
+                                        Command="{Binding $parent[UserControl].((vm:LocalDanmuPageViewModel)DataContext).DeleteEpisodeCommand}"
+                                        CommandParameter="{Binding}" />
+                              </StackPanel>
+                            </Grid>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </ScrollViewer>
+      </Grid>
+    </Border>
+  </Grid>
+</UserControl>
