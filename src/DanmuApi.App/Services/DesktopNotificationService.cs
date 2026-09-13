@@ -7,7 +7,7 @@ namespace DanmuApi.App.Services;
 
 public sealed record DesktopNotificationAction(string Label, string ActivationUri);
 
-public enum DesktopNotificationKind { General, UpdateDiscovered, UpdateCompleted, UpdateFailed, CoreDependencyMissing, StartupSucceeded, ManualTest }
+public enum DesktopNotificationKind { General, UpdateDiscovered, UpdateCompleted, UpdateFailed, CoreDependencyMissing, StartupSucceeded, StartupFailed, ManualTest }
 public enum DesktopNotificationStatus { Submitted, SuppressedByPreference, Failed }
 public enum DesktopNotificationLevel { Off, Updates, StartupSuccess, All }
 
@@ -59,7 +59,7 @@ public static class DesktopNotificationPolicy
     public static bool Allows(DesktopNotificationLevel level, DesktopNotificationKind kind) =>
         kind == DesktopNotificationKind.ManualTest || level == DesktopNotificationLevel.All ||
         (level == DesktopNotificationLevel.Updates && kind is DesktopNotificationKind.UpdateDiscovered or DesktopNotificationKind.UpdateCompleted or DesktopNotificationKind.UpdateFailed or DesktopNotificationKind.CoreDependencyMissing) ||
-        (level == DesktopNotificationLevel.StartupSuccess && kind == DesktopNotificationKind.StartupSucceeded);
+        (level == DesktopNotificationLevel.StartupSuccess && kind is DesktopNotificationKind.StartupSucceeded or DesktopNotificationKind.StartupFailed);
 }
 
 public sealed class PreferenceDesktopNotificationService(IDesktopNotificationService transport, ISettingsStore settings) : IDesktopNotificationService

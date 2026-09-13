@@ -58,19 +58,25 @@
       </StackPanel>
     </ScrollViewer>
 
-    <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8">
+    <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="8">
       <Button x:Name="LocalDanmuPreviewButton"
               Content="{Binding PreviewToggleText}"
               Classes="secondary"
               Command="{Binding TogglePreviewCommand}"
               IsEnabled="{Binding !IsPreviewBusy}" />
-      <Button Grid.Column="1"
+      <Button x:Name="LocalDanmuDetailEditButton"
+              Grid.Column="1"
+              Content="编辑"
+              Classes="secondary"
+              IsVisible="{Binding CanWrite}"
+              Command="{Binding EditCommand}" />
+      <Button Grid.Column="2"
               Content="删除"
               Classes="danger"
               IsVisible="{Binding CanWrite}"
               Command="{Binding DeleteCommand}" />
       <Button x:Name="LocalDanmuDetailCloseButton"
-              Grid.Column="3"
+              Grid.Column="4"
               Content="关闭"
               Classes="primary"
               Command="{Binding CloseCommand}" />

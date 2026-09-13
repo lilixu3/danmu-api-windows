@@ -1,0 +1,93 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:DanmuApi.App.ViewModels"
+        x:Class="DanmuApi.App.Views.LocalDanmuEditWindow"
+        x:DataType="vm:LocalDanmuEditDialogViewModel"
+        Title="编辑本地弹幕"
+        Width="460"
+        Height="470"
+        MinWidth="380"
+        MinHeight="360"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True">
+  <!-- 编辑弹窗：单集只改集数/文件名，整组改标题/年份/类型/季（核心 PATCH 的两种 scope）。 -->
+  <Grid Margin="20" RowDefinitions="Auto,*,Auto" RowSpacing="12">
+    <StackPanel Spacing="3">
+      <TextBlock Text="{Binding Heading}" Classes="h1" TextWrapping="Wrap" />
+      <TextBlock Text="{Binding SubjectText}" Classes="sub" TextWrapping="Wrap" />
+    </StackPanel>
+
+    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+      <StackPanel Spacing="10">
+        <Border Classes="rule" />
+
+        <Border Classes="notice-panel" IsVisible="{Binding HasGroupHint}">
+          <TextBlock Text="{Binding GroupHintText}" Classes="cap" TextWrapping="Wrap" />
+        </Border>
+
+        <!-- 整组：标题 / 年份 / 类型 / 季 -->
+        <StackPanel Spacing="10" IsVisible="{Binding IsGroupScope}">
+          <StackPanel Spacing="4">
+            <TextBlock Text="标题（必填）" Classes="overline" />
+            <TextBox Classes="field" Text="{Binding TitleInput, Mode=TwoWay}" Watermark="例如 逐玉" />
+          </StackPanel>
+          <Grid ColumnDefinitions="*,*,*" ColumnSpacing="10">
+            <StackPanel Spacing="4">
+              <TextBlock Text="年份（必填）" Classes="overline" />
+              <NumericUpDown Minimum="1900" Maximum="2100" Value="{Binding YearInput, Mode=TwoWay}" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Spacing="4">
+              <TextBlock Text="类型（必填）" Classes="overline" />
+              <ComboBox ItemsSource="{Binding TypeOptions}"
+                        SelectedItem="{Binding SelectedTypeOption, Mode=TwoWay}"
+                        HorizontalAlignment="Stretch" />
+            </StackPanel>
+            <StackPanel Grid.Column="2" Spacing="4">
+              <TextBlock Text="季（必填）" Classes="overline" />
+              <NumericUpDown Minimum="1" Maximum="99" Value="{Binding SeasonInput, Mode=TwoWay}" />
+            </StackPanel>
+          </Grid>
+        </StackPanel>
+
+        <!-- 单集：集数 / 文件名 -->
+        <StackPanel Spacing="10" IsVisible="{Binding IsResourceScope}">
+          <StackPanel Spacing="4">
+            <TextBlock Text="集数" Classes="overline" />
+            <Grid ColumnDefinitions="120,*" ColumnSpacing="10">
+              <TextBox Classes="field" Text="{Binding EpisodeText, Mode=TwoWay}" />
+              <TextBlock Grid.Column="1" Text="{Binding EpisodeHint}" Classes="cap" VerticalAlignment="Center" />
+            </Grid>
+          </StackPanel>
+          <StackPanel Spacing="4">
+            <TextBlock Text="文件名" Classes="overline" />
+            <TextBox Classes="field" Text="{Binding FileNameInput, Mode=TwoWay}" Watermark="例如 逐玉_E05_第5集.xml" />
+          </StackPanel>
+          <StackPanel Spacing="3">
+            <TextBlock Text="resourceKey" Classes="overline" />
+            <TextBlock Text="{Binding ResourceKey}" Classes="mono" FontSize="11" TextWrapping="Wrap" />
+            <TextBlock Text="改集数或改名会重建 resourceKey，保存后列表会自动刷新。" Classes="cap" TextWrapping="Wrap" />
+          </StackPanel>
+        </StackPanel>
+
+        <Border Classes="notice-panel" IsVisible="{Binding HasValidationMessage}">
+          <TextBlock Text="{Binding ValidationMessage}" Classes="cap" TextWrapping="Wrap" />
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+
+    <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+      <TextBlock Text="写操作需要管理员模式" Classes="cap" VerticalAlignment="Center" IsVisible="{Binding !CanWrite}" />
+      <Button x:Name="LocalDanmuEditCancelButton"
+              Grid.Column="1"
+              Content="取消"
+              Classes="secondary"
+              Command="{Binding CloseCommand}" />
+      <Button x:Name="LocalDanmuEditSaveButton"
+              Grid.Column="2"
+              Content="保存"
+              Classes="primary"
+              IsEnabled="{Binding !IsBusy}"
+              Command="{Binding SubmitCommand}" />
+    </Grid>
+  </Grid>
+</Window>

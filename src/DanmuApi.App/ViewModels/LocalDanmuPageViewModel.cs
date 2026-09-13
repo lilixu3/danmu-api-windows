@@ -49,6 +49,8 @@ public sealed partial class LocalDanmuPageViewModel : ViewModelBase, IAsyncDispo
     private string? _snapshotFingerprint;
     private CancellationTokenSource? _batchCancellation;
     private string? _sourceOrderValue;
+    /// <summary>编辑弹窗的提交目标：打开时记下当前资源，提交时按它取 resourceKey 与类型。</summary>
+    private CoreLocalDanmuResource? _editingResource;
 
     public LocalDanmuPageViewModel(
         RuntimeApiContext context,
@@ -89,7 +91,8 @@ public sealed partial class LocalDanmuPageViewModel : ViewModelBase, IAsyncDispo
         _selectedFilter = FilterOptions[0];
         _selectedUploadTypeOption = TypeOptions[0];
         SyncFilterChips();
-        DetailDialog = new LocalDanmuDetailDialogViewModel(LoadPreviewAsync, DeleteFromDialogAsync);
+        DetailDialog = new LocalDanmuDetailDialogViewModel(LoadPreviewAsync, DeleteFromDialogAsync, EditFromDialogAsync);
+        EditDialog = new LocalDanmuEditDialogViewModel(SubmitEditAsync, TypeOptions);
         _context.RuntimeStateChanged += OnRuntimeStateChanged;
     }
 
@@ -174,6 +177,9 @@ public sealed partial class LocalDanmuPageViewModel : ViewModelBase, IAsyncDispo
     /// <summary>弹幕文件详情（弹窗形态）：列表独占整列高度，详情不再受窗口高度挤压。</summary>
     public LocalDanmuDetailDialogViewModel DetailDialog { get; }
 
+    /// <summary>编辑弹窗：单集改集数/文件名，整组改标题/年份/类型/季（核心 1.21.1 的 PATCH）。</summary>
+    public LocalDanmuEditDialogViewModel EditDialog { get; }
+
     /// <summary>批量面板右下角那颗按钮：导入中它是「取消导入」，闲时它是「返回列表」。</summary>
     public string BatchActionText => IsBatchRunning ? "取消导入" : "返回列表";
     public bool HasFailedItems => PendingItems.Any(item => item.IsFailed);
@@ -186,9 +192,9 @@ public sealed partial class LocalDanmuPageViewModel : ViewModelBase, IAsyncDispo
 
     public string WriteAccessText => WriteAccess switch
     {
-        LocalDanmuWriteAccess.Writable => "可上传和删除本地弹幕",
-        LocalDanmuWriteAccess.AdminRequired => "只读模式：上传和删除需要先进入管理员模式",
-        _ => "只读模式：上传和删除需要配置 ADMIN_TOKEN，或在核心配置里开启 LOCAL_DANMU_NOT_REQUIRE_ADMIN",
+        LocalDanmuWriteAccess.Writable => "可上传、编辑和删除本地弹幕",
+        LocalDanmuWriteAccess.AdminRequired => "只读模式：上传、编辑和删除需要先进入管理员模式",
+        _ => "只读模式：上传、编辑和删除需要配置 ADMIN_TOKEN，或在核心配置里开启 LOCAL_DANMU_NOT_REQUIRE_ADMIN",
     };
 
     public bool HasDiagnostic => Diagnostic.Length > 0;
@@ -1045,6 +1051,133 @@ public sealed partial class LocalDanmuPageViewModel : ViewModelBase, IAsyncDispo
         return failed == 0
             ? $"{prefix}：成功 {succeeded} 个"
             : $"{prefix}：成功 {succeeded} 个，失败 {failed} 个（可重试失败项）";
+    }
+
+    // ── 编辑（核心 1.21.1 的 PATCH /api/v2/local-danmu/{key}） ──────────
+    /// <summary>行内「编辑」：单集只改集数与文件名。</summary>
+    [RelayCommand]
+    private Task EditEpisodeAsync(LocalDanmuEpisodeRow? row) =>
+        row is null ? Task.CompletedTask : OpenEditDialogAsync(row.Resource, groupFileCount: 0);
+
+    /// <summary>组内「编辑信息」：改标题/年份/类型/季，组内所有文件一起改名（各自集数与文件名保留）。</summary>
+    [RelayCommand]
+    private Task EditGroupAsync(LocalDanmuGroupRow? group) =>
+        group is null || group.Episodes.Count == 0
+            ? Task.CompletedTask
+            : OpenEditDialogAsync(group.Episodes[0].Resource, group.Episodes.Count);
+
+    /// <summary>详情弹窗里点「编辑」：按 resourceKey 回查列表里的当前资源（弹窗上的文案可能已过期）。</summary>
+    private async Task EditFromDialogAsync()
+    {
+        var resource = _resources.FirstOrDefault(item =>
+            string.Equals(item.ResourceKey, DetailDialog.ResourceKey, StringComparison.Ordinal));
+        if (resource is null)
+        {
+            DetailDialog.Diagnostic = "该资源已不在当前列表里，请刷新后重试";
+            return;
+        }
+
+        await OpenEditDialogAsync(resource, groupFileCount: 0).ConfigureAwait(true);
+        if (EditDialog.Saved)
+        {
+            // 编辑可能改了 resourceKey，详情弹窗里的旧 key 已失效。
+            DetailDialog.RequestClose();
+        }
+    }
+
+    private async Task OpenEditDialogAsync(CoreLocalDanmuResource resource, int groupFileCount)
+    {
+        if (IsBusy)
+        {
+            return;
+        }
+
+        if (!await EnsureWriteAccessAsync(groupFileCount > 0 ? "编辑整组本地弹幕信息" : "编辑本地弹幕").ConfigureAwait(true))
+        {
+            return;
+        }
+
+        _editingResource = resource;
+        if (groupFileCount > 0)
+        {
+            EditDialog.ShowForGroup(resource, groupFileCount, CanWrite);
+        }
+        else
+        {
+            EditDialog.ShowForResource(resource, CanWrite);
+        }
+
+        await _dialogs.ShowLocalDanmuEditAsync(EditDialog).ConfigureAwait(true);
+    }
+
+    /// <summary>编辑弹窗的「保存」：本地校验 → 核心 PATCH → 成功即整表刷新（resourceKey 可能变了）。</summary>
+    private async Task SubmitEditAsync()
+    {
+        var resource = _editingResource;
+        if (resource is null || IsBusy)
+        {
+            return;
+        }
+
+        var validation = EditDialog.Validate(DateTimeOffset.Now.Year);
+        if (validation is not null)
+        {
+            EditDialog.ValidationMessage = validation;
+            return;
+        }
+
+        IsBusy = true;
+        EditDialog.IsBusy = true;
+        EditDialog.ValidationMessage = string.Empty;
+        var saved = false;
+        try
+        {
+            _context.EnsureRunning();
+            var request = EditDialog.IsGroupScope
+                ? CoreLocalDanmuUpdateRequest.ForGroup(
+                    EditDialog.TitleInput,
+                    EditDialog.YearInput ?? DateTimeOffset.Now.Year,
+                    EditDialog.TypeValue,
+                    EditDialog.SeasonInput)
+                : CoreLocalDanmuUpdateRequest.ForResource(EditDialog.ParsedEpisode, EditDialog.FileNameInput);
+            var result = await _client
+                .UpdateAsync(
+                    _context.Host,
+                    _context.Port!.Value,
+                    _context.Token,
+                    _context.AdminToken(),
+                    resource.ResourceKey,
+                    request)
+                .ConfigureAwait(true);
+            if (!result.Succeeded)
+            {
+                // 失败留在弹窗里（含 409 冲突 / 404 资源已变 / 核心过旧），用户可以直接改完再存一次。
+                EditDialog.ValidationMessage = result.Diagnostic;
+                Diagnostic = result.Diagnostic;
+                _diagnostics.Record($"编辑本地弹幕失败：{result.Diagnostic}");
+                return;
+            }
+
+            Diagnostic = string.Empty;
+            saved = true;
+            EditDialog.MarkSaved();
+            EditDialog.RequestClose();
+        }
+        catch (DanmuApiException error)
+        {
+            EditDialog.ValidationMessage = error.Message;
+        }
+        finally
+        {
+            EditDialog.IsBusy = false;
+            IsBusy = false;
+        }
+
+        if (saved)
+        {
+            await _dialogs.ShowMessageAsync("编辑本地弹幕", "已保存，列表已刷新").ConfigureAwait(true);
+            await LoadAsync(force: true).ConfigureAwait(true);
+        }
     }
 
     private async Task DeleteKeysAsync(IReadOnlyList<string> keys, string title, string message)

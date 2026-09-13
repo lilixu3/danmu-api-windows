@@ -281,6 +281,11 @@
                                   Classes="compact"
                                   Command="{Binding $parent[UserControl].((vm:LocalDanmuPageViewModel)DataContext).ToggleGroupCommand}"
                                   CommandParameter="{Binding}" />
+                          <Button Content="编辑信息"
+                                  Classes="compact"
+                                  IsVisible="{Binding $parent[UserControl].((vm:LocalDanmuPageViewModel)DataContext).CanWrite}"
+                                  Command="{Binding $parent[UserControl].((vm:LocalDanmuPageViewModel)DataContext).EditGroupCommand}"
+                                  CommandParameter="{Binding}" />
                           <Button Content="删除本季"
                                   Classes="compact"
                                   IsVisible="{Binding $parent[UserControl].((vm:LocalDanmuPageViewModel)DataContext).CanWrite}"
@@ -307,6 +312,12 @@
                                         Content="详情"
                                         Classes="secondary"
                                         Command="{Binding $parent[UserControl].((vm:LocalDanmuPageViewModel)DataContext).OpenDetailCommand}"
+                                        CommandParameter="{Binding}" />
+                                <Button x:Name="LocalDanmuEditEpisodeButton"
+                                        Content="编辑"
+                                        Classes="secondary"
+                                        IsVisible="{Binding $parent[UserControl].((vm:LocalDanmuPageViewModel)DataContext).CanWrite}"
+                                        Command="{Binding $parent[UserControl].((vm:LocalDanmuPageViewModel)DataContext).EditEpisodeCommand}"
                                         CommandParameter="{Binding}" />
                                 <Button Content="删除"
                                         Classes="ghost"

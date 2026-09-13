@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 
 namespace DanmuApi.Runtime;
@@ -12,14 +13,16 @@ public enum LocalDanmuFailureKind
     None,
     /// <summary>401：路径里的 TOKEN 不被核心接受。</summary>
     Authentication,
-    /// <summary>403：上传/删除需要 ADMIN_TOKEN，或需要开启 LOCAL_DANMU_NOT_REQUIRE_ADMIN。</summary>
+    /// <summary>403：上传/编辑/删除需要 ADMIN_TOKEN，或需要开启 LOCAL_DANMU_NOT_REQUIRE_ADMIN。</summary>
     AdminRequired,
     /// <summary>404：单条资源不存在。</summary>
     NotFound,
-    /// <summary>404 且发生在列表接口：核心版本过旧，没有本地弹幕路由。</summary>
+    /// <summary>404 且发生在列表接口，或编辑接口返回的不是「资源不存在」：核心版本过旧，没有对应路由。</summary>
     CoreUnsupported,
     /// <summary>413：单文件超过核心的 10 MB 上限。</summary>
     FileTooLarge,
+    /// <summary>409：编辑后的资源键与另一个资源冲突（核心拒绝覆盖）。</summary>
+    Conflict,
     /// <summary>400：核心的字段校验失败（Diagnostic 是核心返回的原文）。</summary>
     Validation,
     Timeout,
@@ -101,6 +104,84 @@ public sealed record CoreLocalDanmuUploadRequest(
     Stream Content,
     long ContentLength);
 
+/// <summary>编辑范围：单个资源只改集数/文件名；整组按「标题+年份+类型+季」重命名，组内各文件保留自己的集数与文件名。</summary>
+public enum LocalDanmuEditScope
+{
+    Resource,
+    Group,
+}
+
+/// <summary>
+/// 编辑请求（核心 <c>PATCH /api/v2/local-danmu/{key}</c> 的 JSON 体）。
+/// 字段与核心 <c>handleLocalDanmuUpdate</c> 的读取方式一一对应：
+/// - <c>scope=resource</c>：只接受 <see cref="Episode"/> 与 <see cref="FileName"/>；
+///   <c>episode=null</c> 表示清空（仅电影允许，电视剧核心会报「电视剧集数不能为空」）。
+/// - <c>scope=group</c>：接受 <see cref="Title"/>/<see cref="Year"/>/<see cref="Type"/>/<see cref="Season"/>，
+///   组内每个文件保留自己的 episode 与 filename。
+/// </summary>
+public sealed record CoreLocalDanmuUpdateRequest
+{
+    private CoreLocalDanmuUpdateRequest(LocalDanmuEditScope scope) => Scope = scope;
+
+    public LocalDanmuEditScope Scope { get; }
+
+    /// <summary>resource 范围：目标集数；null 表示清空集数（电影）。</summary>
+    public int? Episode { get; private init; }
+
+    /// <summary>resource 范围：文件名（核心会 trim 并截断到 240 字符）。</summary>
+    public string? FileName { get; private init; }
+
+    public string? Title { get; private init; }
+    public int? Year { get; private init; }
+    public string? Type { get; private init; }
+    public int? Season { get; private init; }
+
+    public static CoreLocalDanmuUpdateRequest ForResource(int? episode, string fileName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
+        return new CoreLocalDanmuUpdateRequest(LocalDanmuEditScope.Resource)
+        {
+            Episode = episode,
+            FileName = fileName.Trim(),
+        };
+    }
+
+    public static CoreLocalDanmuUpdateRequest ForGroup(string title, int year, string type, int season)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+        ArgumentException.ThrowIfNullOrWhiteSpace(type);
+        return new CoreLocalDanmuUpdateRequest(LocalDanmuEditScope.Group)
+        {
+            Title = title.Trim(),
+            Year = year,
+            Type = type.Trim(),
+            Season = season,
+        };
+    }
+}
+
+/// <summary>编辑结果：核心返回改后的资源数组（resourceKey 可能因为改名/改集数而变化）。</summary>
+public sealed record CoreLocalDanmuUpdateResult(
+    bool Succeeded,
+    IReadOnlyList<CoreLocalDanmuResource> Resources,
+    LocalDanmuEditScope Scope,
+    string Diagnostic,
+    LocalDanmuFailureKind FailureKind = LocalDanmuFailureKind.None)
+{
+    public static CoreLocalDanmuUpdateResult Success(
+        IReadOnlyList<CoreLocalDanmuResource> resources,
+        LocalDanmuEditScope scope) =>
+        new(true, resources, scope,
+            resources.Count == 0
+                ? "已更新本地弹幕"
+                : scope == LocalDanmuEditScope.Group
+                    ? $"已更新 {resources.Count} 个文件"
+                    : $"已更新「{resources[0].Title}」");
+
+    public static CoreLocalDanmuUpdateResult Failure(string diagnostic, LocalDanmuFailureKind kind) =>
+        new(false, [], LocalDanmuEditScope.Resource, diagnostic, kind);
+}
+
 public interface ICoreLocalDanmuClient
 {
     Task<CoreLocalDanmuListResult> ListAsync(
@@ -125,6 +206,16 @@ public interface ICoreLocalDanmuClient
         IProgress<long>? uploadProgress = null,
         CancellationToken cancellationToken = default);
 
+    /// <summary>编辑元数据（集数/文件名，或整组改名）。需要管理员令牌，与上传/删除同一门禁。</summary>
+    Task<CoreLocalDanmuUpdateResult> UpdateAsync(
+        string host,
+        int port,
+        string? token,
+        string? adminToken,
+        string resourceKey,
+        CoreLocalDanmuUpdateRequest request,
+        CancellationToken cancellationToken = default);
+
     Task<CoreLocalDanmuOperationResult> DeleteAsync(
         string host,
         int port,
@@ -137,13 +228,16 @@ public interface ICoreLocalDanmuClient
 /// <summary>
 /// 核心本地弹幕接口客户端（<c>/{TOKEN}/api/v2/local-danmu/...</c>）。
 ///
-/// 契约要点（全部来自核心 1.21.0 的实现，改动前请复核）：
+/// 契约要点（全部来自核心 1.21.1 的实现，改动前请复核）：
 /// - 鉴权沿用「token 作路径第一段」的既有约定，没有 Authorization 头分支；
-///   上传/删除要求 ADMIN_TOKEN，除非核心侧 LOCAL_DANMU_NOT_REQUIRE_ADMIN=true。
+///   上传/编辑/删除要求 ADMIN_TOKEN，除非核心侧 LOCAL_DANMU_NOT_REQUIRE_ADMIN=true。
 /// - 单文件上限 10 MB（超限核心返回 413），单文件最多解析 200000 行，不支持压缩包。
 /// - 列表接口无分页，一次返回全部元数据。
 /// - DELETE 幂等：核心对不存在的资源也返回 200，因此 DELETE 收到 404 只可能是路由不存在
 ///   （核心版本过旧），不能当成功处理。
+/// - PATCH（编辑，核心 1.21.1 起）按 <c>scope</c> 分两种：<c>resource</c> 只改集数/文件名，
+///   <c>group</c> 按标题+年份+类型+季整组改名；改名或改集数会重建 resourceKey，
+///   与既有资源冲突时返回 409，资源不存在时返回 404 且 errorMessage 为「资源不存在」。
 /// </summary>
 public sealed class CoreLocalDanmuClient : ICoreLocalDanmuClient
 {
@@ -337,6 +431,147 @@ public sealed class CoreLocalDanmuClient : ICoreLocalDanmuClient
                 LocalDanmuFailureKind.Protocol);
         }
     }
+
+    /// <summary>
+    /// 编辑本地弹幕元数据（核心 1.21.1 起支持）。与上传/删除同一门禁：走 ADMIN_TOKEN 路径段。
+    /// 改名或改集数会重建 resourceKey，调用方必须按返回的资源重建列表。
+    /// </summary>
+    public async Task<CoreLocalDanmuUpdateResult> UpdateAsync(
+        string host,
+        int port,
+        string? token,
+        string? adminToken,
+        string resourceKey,
+        CoreLocalDanmuUpdateRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var effectiveToken = EffectiveToken(token);
+        var writeToken = EffectiveWriteToken(effectiveToken, adminToken);
+        var endpoint = BuildResourceUri(host, port, writeToken, resourceKey);
+        using var content = new StringContent(BuildUpdateBody(request), Encoding.UTF8, "application/json");
+        var (status, body, failure) = await SendAsync(
+            HttpMethod.Patch,
+            endpoint,
+            content,
+            writeToken,
+            adminToken,
+            _requestTimeout,
+            MaximumMetadataBytes,
+            cancellationToken).ConfigureAwait(false);
+        if (failure is not null)
+        {
+            return CoreLocalDanmuUpdateResult.Failure(failure.Value.Diagnostic, failure.Value.Kind);
+        }
+
+        if (status != HttpStatusCode.OK)
+        {
+            var coreMessage = TryReadErrorMessage(body);
+            // 编辑接口对不存在的资源返回 404 + 「资源不存在」；其它 404 只可能是路由不存在
+            // （1.21.0 及更早没有编辑接口），必须与「资源已被别人删掉」区分开。
+            if (status == HttpStatusCode.NotFound && !IsMissingResourceMessage(coreMessage))
+            {
+                return CoreLocalDanmuUpdateResult.Failure(
+                    "当前核心不支持编辑本地弹幕，请先到「核心」页更新核心（需要 1.21.1 及以上）",
+                    LocalDanmuFailureKind.CoreUnsupported);
+            }
+
+            var mapped = MapFailure(status, coreMessage, isListRoute: false);
+            return CoreLocalDanmuUpdateResult.Failure(mapped.Diagnostic, mapped.Kind);
+        }
+
+        if (body.Length == 0)
+        {
+            return CoreLocalDanmuUpdateResult.Failure(EmptyResponse, LocalDanmuFailureKind.Protocol);
+        }
+
+        try
+        {
+            return ParseUpdateResponse(body);
+        }
+        catch (Exception error) when (error is JsonException or InvalidDataException)
+        {
+            return CoreLocalDanmuUpdateResult.Failure(
+                $"核心编辑响应格式无效：{Describe(error.Message, writeToken, adminToken)}",
+                LocalDanmuFailureKind.Protocol);
+        }
+    }
+
+    /// <summary>编辑请求体：只写该 scope 下核心会读的字段（多余字段会被忽略，但少字段会导致语义变化）。</summary>
+    public static string BuildUpdateBody(CoreLocalDanmuUpdateRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        using var buffer = new MemoryStream();
+        // 中文标题不转义成 \uXXXX：这是发给核心的 JSON 请求体（不是 HTML），保持可读便于排查。
+        using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions
+               {
+                   Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+               }))
+        {
+            writer.WriteStartObject();
+            if (request.Scope == LocalDanmuEditScope.Group)
+            {
+                writer.WriteString("scope", "group");
+                writer.WriteString("title", request.Title ?? throw new InvalidOperationException("整组编辑缺少 title"));
+                writer.WriteNumber("year", request.Year ?? throw new InvalidOperationException("整组编辑缺少 year"));
+                writer.WriteString("type", request.Type ?? throw new InvalidOperationException("整组编辑缺少 type"));
+                writer.WriteNumber("season", request.Season ?? throw new InvalidOperationException("整组编辑缺少 season"));
+            }
+            else
+            {
+                writer.WriteString("scope", "resource");
+                // episode 必须显式出现：核心按 hasOwnProperty('episode') 决定是否改动集数，
+                // null 表示清空（只有电影允许）。
+                if (request.Episode is int episode)
+                {
+                    writer.WriteNumber("episode", episode);
+                }
+                else
+                {
+                    writer.WriteNull("episode");
+                }
+
+                writer.WriteString("filename", request.FileName ?? string.Empty);
+            }
+
+            writer.WriteEndObject();
+        }
+
+        return Encoding.UTF8.GetString(buffer.ToArray());
+    }
+
+    /// <summary>编辑响应：<c>{success:true, scope, resources:[...], resource:{...}}</c>。</summary>
+    public static CoreLocalDanmuUpdateResult ParseUpdateResponse(ReadOnlySpan<byte> body)
+    {
+        using var document = JsonDocument.Parse(body.ToArray());
+        var root = RequireObject(document.RootElement);
+        EnsureSuccess(root, "本地弹幕编辑");
+        var scope = string.Equals(OptionalString(root, "scope"), "group", StringComparison.Ordinal)
+            ? LocalDanmuEditScope.Group
+            : LocalDanmuEditScope.Resource;
+        var resources = new List<CoreLocalDanmuResource>();
+        if (root.TryGetProperty("resources", out var array) && array.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var element in array.EnumerateArray())
+            {
+                resources.Add(ParseResource(element));
+            }
+        }
+        else if (root.TryGetProperty("resource", out var single) && single.ValueKind == JsonValueKind.Object)
+        {
+            resources.Add(ParseResource(single));
+        }
+
+        if (resources.Count == 0)
+        {
+            throw new InvalidDataException("编辑响应既没有 resources 数组也没有 resource 对象");
+        }
+
+        return CoreLocalDanmuUpdateResult.Success(resources, scope);
+    }
+
+    private static bool IsMissingResourceMessage(string? message) =>
+        message is not null && message.Contains("资源不存在", StringComparison.Ordinal);
 
     public async Task<CoreLocalDanmuOperationResult> DeleteAsync(
         string host,
@@ -594,6 +829,9 @@ public sealed class CoreLocalDanmuClient : ICoreLocalDanmuClient
             HttpStatusCode.RequestEntityTooLarge => (
                 coreMessage is null ? "单文件不能超过核心 10 MB 上限" : $"单文件不能超过核心 10 MB 上限：{coreMessage}",
                 LocalDanmuFailureKind.FileTooLarge),
+            HttpStatusCode.Conflict => (
+                coreMessage is null ? "目标资源已存在，无法覆盖" : $"目标资源已存在，无法覆盖：{coreMessage}",
+                LocalDanmuFailureKind.Conflict),
             HttpStatusCode.BadRequest or HttpStatusCode.UnprocessableEntity => (
                 coreMessage is null ? "请求参数或弹幕文件无效" : $"请求参数或弹幕文件无效：{coreMessage}",
                 LocalDanmuFailureKind.Validation),

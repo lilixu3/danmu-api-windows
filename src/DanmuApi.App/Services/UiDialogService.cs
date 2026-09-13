@@ -66,6 +66,9 @@ public interface IUiDialogService
 
     /// <summary>显示弹幕文件详情弹窗（本地弹幕页用）；关闭由模型的 CloseRequested 驱动。</summary>
     Task ShowLocalDanmuDetailAsync(LocalDanmuDetailDialogViewModel model) => Task.CompletedTask;
+
+    /// <summary>显示本地弹幕编辑弹窗（核心 1.21.1 的 PATCH 接口）；关闭由模型的 CloseRequested 驱动。</summary>
+    Task ShowLocalDanmuEditAsync(LocalDanmuEditDialogViewModel model) => Task.CompletedTask;
     Task CopyTextAsync(string text);
     Task ShowMessageAsync(string title, string message, bool isError = false) => Task.CompletedTask;
     Task<string?> PromptTextAsync(string title, string description, string initial, string confirmLabel) => Task.FromResult<string?>(null);
@@ -529,6 +532,23 @@ public sealed partial class UiDialogService : IUiDialogService
         }
     }
 
+    public async Task ShowLocalDanmuEditAsync(LocalDanmuEditDialogViewModel model)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        var owner = GetOwner();
+        var window = new Views.LocalDanmuEditWindow { DataContext = model };
+        void Close(object? sender, EventArgs args) => window.Close();
+        model.CloseRequested += Close;
+        try
+        {
+            await window.ShowDialog(owner).ConfigureAwait(true);
+        }
+        finally
+        {
+            model.CloseRequested -= Close;
+        }
+    }
+
     private async Task<string?> PickFolderCoreAsync(string title, string? initialDirectory)    {
         var owner = GetOwner();
         var storageProvider = TopLevel.GetTopLevel(owner)?.StorageProvider
@@ -658,11 +678,9 @@ public sealed partial class UiDialogService : IUiDialogService
             return await PromptColorPaletteAsync(definition, initial, configured, description).ConfigureAwait(true);
         }
 
-        if (definition.Key == "BLOCKED_WORDS")
-        {
-            return await PromptLineListAsync(definition, initial, configured, description, ",").ConfigureAwait(true);
-        }
-
+        // BLOCKED_WORDS 刻意不做结构化编辑器：它的值是一整段「正则 + 逗号」文本，
+        // 拆成一条一条显示一定会被误读/误改（正则里的 {2,4}、[a,b] 都带逗号）。
+        // 与移动端一致：用一个多行文本框原样显示整段值，保存时只写用户输入的那一串。
         if (definition.Key == "BILIBILI_COOKIE")
         {
             return await PromptBilibiliCookieAsync(definition, initial, configured, description).ConfigureAwait(true);
@@ -794,33 +812,6 @@ public sealed partial class UiDialogService : IUiDialogService
     {
         CoreEnvStructuredValidation.Validate(definition, initial);
         var editor = new MappingTableEditor(initial);
-        var error = CreateErrorText();
-        var dialog = CreateConfigurationEditorDialog($"编辑 {definition.Key}", description, editor, error, out var save);
-        save.Click += (_, _) =>
-        {
-            try
-            {
-                CoreEnvStructuredValidation.Validate(definition, editor.Value);
-                dialog.Result = CoreEnvEditResult.Set(editor.Value);
-                dialog.Close();
-            }
-            catch (Exception exception) when (exception is ArgumentException or FormatException)
-            {
-                error.Text = exception.Message;
-            }
-        };
-        await dialog.ShowDialog(GetOwner());
-        return dialog.Result;
-    }
-
-    private async Task<CoreEnvEditResult> PromptLineListAsync(
-        CoreEnvDefinition definition,
-        string initial,
-        bool configured,
-        string description,
-        string separator)
-    {
-        var editor = new LineListEditor(initial, separator);
         var error = CreateErrorText();
         var dialog = CreateConfigurationEditorDialog($"编辑 {definition.Key}", description, editor, error, out var save);
         save.Click += (_, _) =>

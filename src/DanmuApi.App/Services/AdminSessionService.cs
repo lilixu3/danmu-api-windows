@@ -23,7 +23,10 @@ public interface IAdminSessionService
 {
     AdminSessionState State { get; }
 
-    /// <summary>重读 .env 与本地会话，收敛会话有效性并刷新状态。IO 异常显式抛出。</summary>
+    /// <summary>.env 读取失败时的显式原因；正常时为 null。管理员功能按不可用处理，但不影响应用启动。</summary>
+    string? LoadDiagnostic { get; }
+
+    /// <summary>重读 .env 与本地会话，收敛会话有效性并刷新状态。读取失败不抛出，写入 <see cref="LoadDiagnostic"/>。</summary>
     void Refresh();
 
     /// <summary>管理员模式下返回会话令牌（核心管理接口路径参数）；否则 null。</summary>
@@ -42,22 +45,47 @@ public sealed class AdminSessionService : IAdminSessionService
 {
     private readonly IProtectedStringStore _sessionStore;
     private readonly Func<string> _envPathProvider;
+    private readonly Action<string>? _report;
     private string _sessionToken = string.Empty;
     private string _configuredToken = string.Empty;
 
-    public AdminSessionService(IProtectedStringStore sessionStore, Func<string> envPathProvider)
+    public AdminSessionService(
+        IProtectedStringStore sessionStore,
+        Func<string> envPathProvider,
+        Action<string>? diagnosticSink = null)
     {
         _sessionStore = sessionStore ?? throw new ArgumentNullException(nameof(sessionStore));
         _envPathProvider = envPathProvider ?? throw new ArgumentNullException(nameof(envPathProvider));
-        _sessionToken = _sessionStore.Load() ?? string.Empty;
+        _report = diagnosticSink;
+        _sessionToken = LoadSessionToken();
         Refresh();
     }
 
     public AdminSessionState State { get; private set; } = new(false, false, "未配置");
 
+    public string? LoadDiagnostic { get; private set; }
+
     public void Refresh()
     {
-        _configuredToken = DotEnvFile.ReadValue(_envPathProvider(), "ADMIN_TOKEN")?.Trim() ?? string.Empty;
+        string configured;
+        try
+        {
+            configured = DotEnvFile.ReadValue(_envPathProvider(), "ADMIN_TOKEN")?.Trim() ?? string.Empty;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or FormatException or ArgumentException or NotSupportedException)
+        {
+            // 本服务在启动路径上被 DI 解析（MainWindowViewModel 的构造依赖它）。这里若把异常抛出去，
+            // 整个应用会连窗口都建不出来，而故障其实只影响管理员功能。因此显式降级为"不可用"：
+            // 保留原因（LoadDiagnostic + 诊断汇），不静默当作"未配置"，也不清掉已保存的会话。
+            LoadDiagnostic = $"读取管理员配置失败（{_envPathProvider()}）：{error.GetType().Name}: {error.Message}";
+            _configuredToken = string.Empty;
+            _report?.Invoke($"管理员会话不可用，已按未配置处理；{LoadDiagnostic}");
+            State = new AdminSessionState(false, false, "读取失败");
+            return;
+        }
+
+        LoadDiagnostic = null;
+        _configuredToken = configured;
         if (_sessionToken.Length > 0 &&
             (_configuredToken.Length == 0 || !string.Equals(_sessionToken, _configuredToken, StringComparison.Ordinal)))
         {
@@ -70,6 +98,20 @@ public sealed class AdminSessionService : IAdminSessionService
             _sessionToken.Length > 0 && string.Equals(_sessionToken, _configuredToken, StringComparison.Ordinal),
             _configuredToken.Length > 0,
             MaskToken(_configuredToken));
+    }
+
+    private string LoadSessionToken()
+    {
+        try
+        {
+            return _sessionStore.Load() ?? string.Empty;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException or ArgumentException)
+        {
+            // 会话文件损坏/被占用同样不能让应用起不来；会话丢失只意味着需要重新输入管理员密码。
+            _report?.Invoke($"读取已保存的管理员会话失败，本次按未登录处理：{error.GetType().Name}: {error.Message}");
+            return string.Empty;
+        }
     }
 
     public string? CurrentAdminTokenOrNull() => State.IsAdminMode ? _sessionToken : null;

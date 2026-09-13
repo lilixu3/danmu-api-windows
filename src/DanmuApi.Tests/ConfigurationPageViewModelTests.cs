@@ -314,6 +314,11 @@ public sealed class ConfigurationPageViewModelTests
         Assert.Equal(
             ConfigurationEditorTemplate.MultiSelect,
             ConfigurationPageViewModel.ResolveEditorTemplate(Definition("FUTURE_ORDER", CoreEnvType.MultiSelect)));
+        // 屏蔽词不再走结构化「规则」编辑器：它的值是一整段「正则 + 逗号」文本，
+        // 拆成一条一条显示会被误读/误改（用户实测反馈），改为整段文本编辑。
+        Assert.Equal(
+            ConfigurationEditorTemplate.Text,
+            ConfigurationPageViewModel.ResolveEditorTemplate(Definition("BLOCKED_WORDS", CoreEnvType.Text)));
     }
 
     [Fact]

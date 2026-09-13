@@ -6,14 +6,14 @@ using DanmuApi.Runtime;
 namespace DanmuApi.App.ViewModels;
 
 /// <summary>本地弹幕的写权限三态。默认（未开管理员模式、也没开 LOCAL_DANMU_NOT_REQUIRE_ADMIN）
-/// 只能看列表——与核心的 403 规则一致。</summary>
+/// 只能看列表——与核心的 403 规则一致（上传/编辑/删除同一门禁）。</summary>
 public enum LocalDanmuWriteAccess
 {
     /// <summary>只能查看列表：需要配置 ADMIN_TOKEN 或开启 LOCAL_DANMU_NOT_REQUIRE_ADMIN。</summary>
     ReadOnly,
     /// <summary>已配置管理员密码但还没进入管理员模式，引导用户先开管理员模式。</summary>
     AdminRequired,
-    /// <summary>可上传/删除。</summary>
+    /// <summary>可上传、编辑、删除。</summary>
     Writable,
 }
 

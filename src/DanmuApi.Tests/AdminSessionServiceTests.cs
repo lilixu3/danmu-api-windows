@@ -166,6 +166,70 @@ public sealed class AdminSessionServiceTests : IDisposable
         Assert.Throws<ArgumentException>(() => store.Save("   "));
     }
 
+    [Fact]
+    public void CoreWrittenQuotedRegexInEnvNoLongerBreaksAdminSession()
+    {
+        // 0.4.4 试用反馈：核心给 BLOCKED_WORDS 写出的双引号正则曾让这里的读取抛
+        // FormatException（.env 双引号值包含未知转义序列），进而让整个应用启动失败。
+        WriteEnv(_root, "TOKEN=87654321\nADMIN_TOKEN=" + Password + "\nBLOCKED_WORDS=\"/^\\d+广告/\"\n");
+
+        var service = new AdminSessionService(CreateStore(), () => EnvPath);
+
+        Assert.Null(service.LoadDiagnostic);
+        Assert.True(service.State.HasAdminTokenConfigured);
+        Assert.True(service.Login(Password).Succeeded);
+    }
+
+    [Fact]
+    public void UnreadableEnvFileKeepsTheAppStartableAndReportsDiagnostic()
+    {
+        WriteEnv(_root, "TOKEN=87654321\nADMIN_TOKEN=" + Password + "\n");
+        var diagnostics = new List<string>();
+        using var exclusive = new FileStream(EnvPath, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        var service = new AdminSessionService(CreateStore(), () => EnvPath, diagnostics.Add);
+
+        Assert.False(service.State.IsAdminMode);
+        Assert.False(service.State.HasAdminTokenConfigured);
+        Assert.Equal("读取失败", service.State.TokenHint);
+        Assert.NotNull(service.LoadDiagnostic);
+        Assert.Contains("读取管理员配置失败", service.LoadDiagnostic, StringComparison.Ordinal);
+        Assert.Contains(diagnostics, line => line.Contains("管理员会话不可用", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void InvalidUtf8EnvFileDoesNotKillStartup()
+    {
+        // 用记事本另存为 ANSI/GBK 的 .env 是 Windows 上的常见操作，字节不是合法 UTF-8。
+        Directory.CreateDirectory(Path.GetDirectoryName(EnvPath)!);
+        File.WriteAllBytes(EnvPath, [0xD6, 0xD0, 0xCE, 0xC4, (byte)'=', (byte)'x', (byte)'\n']);
+
+        var service = new AdminSessionService(CreateStore(), () => EnvPath);
+
+        Assert.False(service.State.IsAdminMode);
+        Assert.NotNull(service.LoadDiagnostic);
+    }
+
+    [Fact]
+    public void BrokenSessionStoreDoesNotKillStartup()
+    {
+        WriteEnv(_root, "ADMIN_TOKEN=" + Password + "\n");
+        var diagnostics = new List<string>();
+
+        var service = new AdminSessionService(new ThrowingLoadStore(), () => EnvPath, diagnostics.Add);
+
+        Assert.False(service.State.IsAdminMode);
+        Assert.True(service.State.HasAdminTokenConfigured);
+        Assert.Contains(diagnostics, line => line.Contains("读取已保存的管理员会话失败", StringComparison.Ordinal));
+    }
+
+    private sealed class ThrowingLoadStore : IProtectedStringStore
+    {
+        public string? Load() => throw new IOException("DPAPI 会话文件损坏");
+        public void Save(string value) { }
+        public void Clear() { }
+    }
+
     private sealed class FailingProtectedStringStore(Action? onSave = null) : IProtectedStringStore
     {
         public string? Load() => null;

@@ -210,7 +210,17 @@ public partial class App : Application
                             }
                             else
                             {
-                                _diagnostics.Record($"--autostart 未启动：{controller.Snapshot.State}；{controller.Snapshot.FailureReason ?? "未提供失败原因"}");
+                                var reason = $"{controller.Snapshot.State}；{controller.Snapshot.FailureReason ?? "未提供失败原因"}";
+                                _diagnostics.Record($"--autostart 未启动：{reason}");
+                                var failureNotification = await notifications.ShowAsync(
+                                    DesktopNotificationKind.StartupFailed,
+                                    "弹幕 API 自启失败",
+                                    $"服务未能在后台启动：{reason}。请打开应用查看原因。").ConfigureAwait(true);
+                                if (failureNotification.Status == DesktopNotificationStatus.Failed)
+                                {
+                                    _diagnostics.Record($"自启失败通知提交失败: {failureNotification.Diagnostic}");
+                                }
+
                                 var exited = await _lifecycleCoordinator.TryExitApplicationAsync().ConfigureAwait(true);
                                 if (!exited)
                                 {
@@ -295,7 +305,8 @@ public partial class App : Application
             () => Path.Combine(
                 provider.GetRequiredService<AppPaths>().NodeProjectDirectory,
                 "config",
-                ".env")));
+                ".env"),
+            diagnosticSink: message => provider.GetRequiredService<IAppDiagnostics>().Record(message)));
         services.AddSingleton<IAdminWriteGate, AdminWriteGate>();
         services.AddSingleton<GithubHttpClientResources>();
         services.AddSingleton<IGithubCoreRemote>(provider => new GithubCoreRemote(
@@ -363,7 +374,8 @@ public partial class App : Application
             provider.GetRequiredService<ICoreCredentialClient>()));
         services.AddSingleton<INodeSupervisor>(provider => new NodeSupervisor(
             provider.GetRequiredService<IRuntimeHealthClient>(),
-            provider.GetRequiredService<IProcessTerminator>()));
+            provider.GetRequiredService<IProcessTerminator>(),
+            diagnosticSink: message => provider.GetRequiredService<IAppDiagnostics>().Record(message)));
         services.AddSingleton<IRuntimeController>(provider =>
         {
             var settingsStore = provider.GetRequiredService<ISettingsStore>();

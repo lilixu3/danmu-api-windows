@@ -13,7 +13,7 @@ public sealed class NotificationPreferenceTests
         foreach (var kind in Enum.GetValues<DesktopNotificationKind>())
             yield return new object[] { level, kind, kind == DesktopNotificationKind.ManualTest || level == "all" ||
                 (level == "updates" && kind is DesktopNotificationKind.UpdateDiscovered or DesktopNotificationKind.UpdateCompleted or DesktopNotificationKind.UpdateFailed or DesktopNotificationKind.CoreDependencyMissing) ||
-                (level == "startup_success" && kind == DesktopNotificationKind.StartupSucceeded) };
+                (level == "startup_success" && kind is DesktopNotificationKind.StartupSucceeded or DesktopNotificationKind.StartupFailed) };
     }
 
     [Theory, MemberData(nameof(Matrix))]

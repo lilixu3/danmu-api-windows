@@ -7,17 +7,19 @@ namespace DanmuApi.App.ViewModels;
 /// 「弹幕文件详情」弹窗的状态。以前这些内容放在列表右侧的详情卡里，窄窗口叠成上下两栏后
 /// 既显示不全又要来回滚动；改成弹窗后列表独占整列高度，详情也不再受窗口高度挤压。
 ///
-/// 数据由页面 VM 填（页面持有客户端与对话框），本类只负责弹窗内的展示与「预览 / 删除 / 关闭」动作。
+/// 数据由页面 VM 填（页面持有客户端与对话框），本类只负责弹窗内的展示与「预览 / 编辑 / 删除 / 关闭」动作。
 /// </summary>
 public sealed partial class LocalDanmuDetailDialogViewModel : ObservableObject
 {
     private readonly Func<Task> _loadPreview;
     private readonly Func<Task> _delete;
+    private readonly Func<Task> _edit;
 
-    public LocalDanmuDetailDialogViewModel(Func<Task> loadPreview, Func<Task> delete)
+    public LocalDanmuDetailDialogViewModel(Func<Task> loadPreview, Func<Task> delete, Func<Task> edit)
     {
         _loadPreview = loadPreview ?? throw new ArgumentNullException(nameof(loadPreview));
         _delete = delete ?? throw new ArgumentNullException(nameof(delete));
+        _edit = edit ?? throw new ArgumentNullException(nameof(edit));
     }
 
     /// <summary>弹窗请求关闭（删除成功或用户点关闭）。</summary>
@@ -101,6 +103,10 @@ public sealed partial class LocalDanmuDetailDialogViewModel : ObservableObject
 
     [RelayCommand]
     private Task DeleteAsync() => _delete();
+
+    /// <summary>弹窗里点「编辑」：交给页面 VM 打开编辑弹窗（按 resourceKey 回查当前值）。</summary>
+    [RelayCommand]
+    private Task EditAsync() => _edit();
 
     [RelayCommand]
     private void Close() => RequestClose();

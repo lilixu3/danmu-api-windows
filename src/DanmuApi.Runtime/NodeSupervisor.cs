@@ -1,7 +1,5 @@
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Net;
-using System.Net.Sockets;
 
 namespace DanmuApi.Runtime;
 
@@ -10,6 +8,8 @@ public sealed class NodeSupervisor : INodeSupervisor
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly IRuntimeHealthClient _healthClient;
     private readonly IProcessTerminator _terminator;
+    private readonly Action<string>? _report;
+    private readonly TimeSpan _transientPortWait;
     private RuntimeSnapshot _snapshot = new(DesktopRuntimeState.Stopped);
     private Process? _process;
     private StartConfig? _config;
@@ -21,10 +21,20 @@ public sealed class NodeSupervisor : INodeSupervisor
     private Task? _stderrPump;
     private Task? _disposeTask;
 
-    public NodeSupervisor(IRuntimeHealthClient? healthClient = null, IProcessTerminator? terminator = null)
+    public NodeSupervisor(
+        IRuntimeHealthClient? healthClient = null,
+        IProcessTerminator? terminator = null,
+        Action<string>? diagnosticSink = null,
+        TimeSpan? transientPortWait = null)
     {
         _healthClient = healthClient ?? new RuntimeHealthClient();
         _terminator = terminator ?? throw new ArgumentNullException(nameof(terminator), "必须由组合根注入 Windows 进程终止器");
+        _report = diagnosticSink;
+        _transientPortWait = transientPortWait ?? TimeSpan.FromSeconds(20);
+        if (_transientPortWait <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(transientPortWait), "端口临时占用等待时间必须大于零");
+        }
     }
 
     public RuntimeSnapshot Snapshot
@@ -58,7 +68,7 @@ public sealed class NodeSupervisor : INodeSupervisor
                 _identity = EnsureIdentity(config.IdentityFile ?? Path.Combine(config.ScriptDir, "instance-id"));
                 PrepareRuntime(config);
                 cancellationToken.ThrowIfCancellationRequested();
-                PreflightPort(config.Port, _identity);
+                await PreflightPortAsync(config.Port, _identity, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException error)
             {
@@ -345,6 +355,18 @@ public sealed class NodeSupervisor : INodeSupervisor
             var process = _process;
             if (process is null)
             {
+                if (current.Pid is null)
+                {
+                    // 本实例从未启动或认领过 Node（Pid 为空）：端口上的占用属于别的进程或系统临时分配，
+                    // 不是"停止失败"。在这里判失败会让 AppLifecycleCoordinator 拒绝退出，
+                    // 应用就会变成"隐藏窗口 + 退不出去"的坏实例。占用本身已由启动失败原因和诊断汇记录。
+                    _report?.Invoke(
+                        $"停止时端口 {current.Port?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "未指定"} 仍不可用，" +
+                        "但本实例从未运行 Node 子进程，按未运行处理");
+                    SetSnapshot(new(DesktopRuntimeState.Stopped));
+                    return Snapshot;
+                }
+
                 if (current.Port is not null && !await WaitForPortFreeAsync(current.Port.Value, cancellationToken).ConfigureAwait(false))
                 {
                     return SetFailure($"停止失败：没有可验证的 Node 子进程，端口 {current.Port} 仍被占用");
@@ -686,27 +708,64 @@ public sealed class NodeSupervisor : INodeSupervisor
         DotEnvFile.UpdateValues(Path.Combine(config.ScriptDir, "config", ".env"), updates);
     }
 
-    private void PreflightPort(int port, string identity)
+    /// <summary>
+    /// 启动前的只读端口预检。绝不代杀进程：占用是外部/系统行为，只做判定与诊断。
+    /// 端口"不可绑定但没有监听者"是 Windows 把动态端口范围内的端口临时借给别的连接，
+    /// 会自行释放，因此先等一小段时间再决定是否判失败。
+    /// </summary>
+    private async Task PreflightPortAsync(int port, string identity, CancellationToken cancellationToken)
     {
-        if (IsPortFree(port))
+        var initial = PortAvailability.Probe(port);
+        if (initial == PortAvailabilityState.Free)
         {
             return;
         }
 
-        try
+        if (initial == PortAvailabilityState.Listening)
         {
-            var health = _healthClient.ReadAsync("127.0.0.1", port).GetAwaiter().GetResult();
-            if (string.Equals(health.RuntimeIdentity, identity, StringComparison.Ordinal))
-            {
-                throw new IOException($"端口 {port} 已被本应用实例占用，请在已有窗口或托盘中停止服务");
-            }
-        }
-        catch (RuntimeHealthException)
-        {
-            // A non-health process still owns the port; the explicit occupancy failure below is retained.
+            throw await DescribePortOccupancyAsync(port, identity).ConfigureAwait(false);
         }
 
-        throw new IOException($"端口 {port} 已有其他实例在运行，请先停止外部进程");
+        var watch = Stopwatch.StartNew();
+        var state = await PortAvailability.WaitForReleaseAsync(
+            port,
+            _transientPortWait,
+            TimeSpan.FromMilliseconds(500),
+            cancellationToken).ConfigureAwait(false);
+        if (state == PortAvailabilityState.Free)
+        {
+            _report?.Invoke($"端口 {port} 启动前被临时占用（无监听进程），等待 {watch.Elapsed.TotalSeconds:0.0}s 后已释放，继续启动");
+            return;
+        }
+
+        if (state == PortAvailabilityState.Listening)
+        {
+            throw await DescribePortOccupancyAsync(port, identity).ConfigureAwait(false);
+        }
+
+        throw new IOException(
+            $"端口 {port} 当前无法绑定，但没有任何进程在监听：该端口很可能落在系统动态端口范围内，" +
+            "被其它程序的外联连接临时占用（与弹幕 API 无关）。请稍后重试，或在设置中改用动态范围外的端口");
+    }
+
+    private async Task<IOException> DescribePortOccupancyAsync(int port, string identity)
+    {
+        try
+        {
+            var health = await _healthClient.ReadAsync("127.0.0.1", port).ConfigureAwait(false);
+            if (string.Equals(health.RuntimeIdentity, identity, StringComparison.Ordinal))
+            {
+                return new IOException($"端口 {port} 已被本应用实例占用，请在已有窗口或托盘中停止服务");
+            }
+
+            return new IOException($"端口 {port} 已有其他实例在运行，请先停止外部进程");
+        }
+        catch (RuntimeHealthException healthError)
+        {
+            // 有监听进程但不是可识别的健康接口；保留占用判定，同时把健康检查失败原因带出来，
+            // 否则失败原因只剩一句"其他实例"，无法区分"别家的进程"和"本应用留下的孤儿进程"。
+            return new IOException($"端口 {port} 已有其他实例在运行，请先停止外部进程（健康检查失败: {healthError.Message}）");
+        }
     }
 
     private static bool MatchesRunning(StartConfig config, Process process, string identity, RuntimeHealthSnapshot health)
@@ -765,20 +824,7 @@ public sealed class NodeSupervisor : INodeSupervisor
         return identity;
     }
 
-    private static bool IsPortFree(int port)
-    {
-        try
-        {
-            using var listener = new TcpListener(IPAddress.Any, port);
-            listener.Start();
-            listener.Stop();
-            return true;
-        }
-        catch (SocketException)
-        {
-            return false;
-        }
-    }
+    private static bool IsPortFree(int port) => PortAvailability.IsBindable(port);
 
     private static async Task<bool> WaitForPortFreeAsync(int port, CancellationToken cancellationToken)
     {

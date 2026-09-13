@@ -13,6 +13,7 @@ public sealed class StubAdminSessionService : IAdminSessionService
 
     public string? Token { get; set; }
     public AdminSessionState State { get; set; }
+    public string? LoadDiagnostic { get; set; }
     public int RefreshCalls { get; private set; }
     public int LogoutCalls { get; private set; }
     public List<string> LoginInputs { get; } = [];

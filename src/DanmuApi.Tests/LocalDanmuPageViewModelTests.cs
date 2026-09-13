@@ -655,6 +655,196 @@ public sealed partial class LocalDanmuPageViewModelTests : IDisposable
             entry => entry.Title == "确认删除本地弹幕" && entry.Message.Contains("第 1 集", StringComparison.Ordinal));
     }
 
+    // ── 编辑（核心 1.21.1 的 PATCH 接口） ───────────────────────────────
+    /// <summary>单集编辑只发 resource 范围：集数 + 文件名，并按返回结果刷新列表。</summary>
+    [Fact]
+    public async Task EditEpisodeSendsResourceScopeAndReloads()
+    {
+        var client = new StubClient
+        {
+            ListResult = CoreLocalDanmuListResult.Success([Resource("逐玉|2026|tv|5", "逐玉", episode: 5)]),
+            UpdateResult = CoreLocalDanmuUpdateResult.Success(
+                [Resource("逐玉|2026|tv|9", "逐玉", episode: 9)], LocalDanmuEditScope.Resource),
+        };
+        var dialogs = new RecordingDialogService();
+        await using var viewModel = Create(
+            new StubCacheReader(LocalDanmuCacheReadResult.Unavailable("测试用：走网络列表")),
+            client,
+            dialogs,
+            adminSession: new StubAdminSessionService(adminMode: true, configured: true, sessionToken: "admin-token"));
+        await viewModel.LoadAsync(force: true);
+        var row = viewModel.Groups[0].Episodes[0];
+
+        await viewModel.EditEpisodeCommand.ExecuteAsync(row);
+        var dialog = Assert.Single(dialogs.LocalDanmuEditDialogs);
+        // 弹窗预填的是当前值，用户改成第 9 集与新文件名。
+        Assert.Equal("5", dialog.EpisodeText);
+        Assert.Equal("逐玉.xml", dialog.FileNameInput);
+        dialog.EpisodeText = "9";
+        dialog.FileNameInput = "逐玉_E09.xml";
+        await dialog.SubmitCommand.ExecuteAsync(null);
+
+        var (key, request) = Assert.Single(client.Updates);
+        Assert.Equal("逐玉|2026|tv|5", key);
+        Assert.Equal(LocalDanmuEditScope.Resource, request.Scope);
+        Assert.Equal(9, request.Episode);
+        Assert.Equal("逐玉_E09.xml", request.FileName);
+        Assert.True(dialog.Saved);
+        Assert.Contains(dialogs.Messages, entry => entry.Title == "编辑本地弹幕" && !entry.IsError);
+        // 保存后必须整表刷新：resourceKey 会随集数变化。
+        Assert.Equal(2, client.ListCalls);
+    }
+
+    /// <summary>整组编辑发 group 范围：标题/年份/类型/季，并说明会影响组内几个文件。</summary>
+    [Fact]
+    public async Task EditGroupSendsGroupScopeForEveryFileInTheGroup()
+    {
+        var client = new StubClient
+        {
+            ListResult = CoreLocalDanmuListResult.Success([
+                Resource("逐玉|2026|tv|1", "逐玉", episode: 1),
+                Resource("逐玉|2026|tv|2", "逐玉", episode: 2),
+            ]),
+            UpdateResult = CoreLocalDanmuUpdateResult.Success(
+                [Resource("逐玉 第二季|2026|tv|1", "逐玉 第二季", episode: 1),
+                 Resource("逐玉 第二季|2026|tv|2", "逐玉 第二季", episode: 2)],
+                LocalDanmuEditScope.Group),
+        };
+        var dialogs = new RecordingDialogService();
+        await using var viewModel = Create(
+            new StubCacheReader(LocalDanmuCacheReadResult.Unavailable("测试用：走网络列表")),
+            client,
+            dialogs,
+            adminSession: new StubAdminSessionService(adminMode: true, configured: true, sessionToken: "admin-token"));
+        await viewModel.LoadAsync(force: true);
+        var group = viewModel.Groups[0];
+
+        await viewModel.EditGroupCommand.ExecuteAsync(group);
+        var dialog = Assert.Single(dialogs.LocalDanmuEditDialogs);
+        Assert.True(dialog.IsGroupScope);
+        Assert.True(dialog.HasGroupHint);
+        Assert.Contains("2 个文件", dialog.GroupHintText, StringComparison.Ordinal);
+        dialog.TitleInput = "逐玉 第二季";
+        await dialog.SubmitCommand.ExecuteAsync(null);
+
+        var (key, request) = Assert.Single(client.Updates);
+        Assert.Equal("逐玉|2026|tv|1", key);
+        Assert.Equal(LocalDanmuEditScope.Group, request.Scope);
+        Assert.Equal("逐玉 第二季", request.Title);
+        Assert.Equal(2026, request.Year);
+        Assert.Equal("tv", request.Type);
+        Assert.Equal(1, request.Season);
+    }
+
+    /// <summary>只读模式（没配 ADMIN_TOKEN 也没放开）不允许编辑：一个请求都不发。</summary>
+    [Fact]
+    public async Task EditIsBlockedInReadOnlyMode()
+    {
+        var client = new StubClient();
+        var dialogs = new RecordingDialogService();
+        await using var viewModel = Create(
+            new StubCacheReader(LocalDanmuCacheReadResult.Success([Resource("逐玉|2026|tv|1", "逐玉")])),
+            client,
+            dialogs);
+        await viewModel.LoadAsync(force: true);
+
+        await viewModel.EditEpisodeCommand.ExecuteAsync(viewModel.Groups[0].Episodes[0]);
+
+        Assert.Empty(client.Updates);
+        Assert.Empty(dialogs.LocalDanmuEditDialogs);
+        Assert.Contains(dialogs.Messages, entry => entry.Title == "需要写权限" && entry.IsError);
+    }
+
+    /// <summary>核心拒绝（409 冲突等）时弹窗不关、原因原样显示，也不刷新列表。</summary>
+    [Fact]
+    public async Task EditFailureSurfacesCoreMessageAndKeepsTheDialogOpen()
+    {
+        var client = new StubClient
+        {
+            ListResult = CoreLocalDanmuListResult.Success([Resource("逐玉|2026|tv|1", "逐玉")]),
+            UpdateResult = CoreLocalDanmuUpdateResult.Failure(
+                "目标资源已存在，无法覆盖：目标资源已存在，无法覆盖", LocalDanmuFailureKind.Conflict),
+        };
+        var dialogs = new RecordingDialogService();
+        var diagnostics = new RecordingDiagnostics();
+        await using var viewModel = Create(
+            new StubCacheReader(LocalDanmuCacheReadResult.Unavailable("测试用：走网络列表")),
+            client,
+            dialogs,
+            adminSession: new StubAdminSessionService(adminMode: true, configured: true, sessionToken: "admin-token"),
+            diagnostics: diagnostics);
+        await viewModel.LoadAsync(force: true);
+
+        await viewModel.EditEpisodeCommand.ExecuteAsync(viewModel.Groups[0].Episodes[0]);
+        var dialog = Assert.Single(dialogs.LocalDanmuEditDialogs);
+        await dialog.SubmitCommand.ExecuteAsync(null);
+
+        Assert.False(dialog.Saved);
+        Assert.True(dialog.HasValidationMessage);
+        Assert.Contains("无法覆盖", dialog.ValidationMessage, StringComparison.Ordinal);
+        Assert.Contains("无法覆盖", diagnostics.LastDiagnostic, StringComparison.Ordinal);
+        // 失败不刷新列表，也不弹「已保存」。
+        Assert.DoesNotContain(dialogs.Messages, entry => entry.Title == "编辑本地弹幕" && !entry.IsError);
+        Assert.Equal(1, client.ListCalls);
+    }
+
+    /// <summary>本地校验与核心一致：电视剧集数留空直接拦下，不发请求。</summary>
+    [Fact]
+    public async Task EditValidatesTvEpisodeLocally()
+    {
+        var client = new StubClient
+        {
+            ListResult = CoreLocalDanmuListResult.Success([Resource("逐玉|2026|tv|1", "逐玉")]),
+        };
+        var dialogs = new RecordingDialogService();
+        await using var viewModel = Create(
+            new StubCacheReader(LocalDanmuCacheReadResult.Unavailable("测试用：走网络列表")),
+            client,
+            dialogs,
+            adminSession: new StubAdminSessionService(adminMode: true, configured: true, sessionToken: "admin-token"));
+        await viewModel.LoadAsync(force: true);
+
+        await viewModel.EditEpisodeCommand.ExecuteAsync(viewModel.Groups[0].Episodes[0]);
+        var dialog = Assert.Single(dialogs.LocalDanmuEditDialogs);
+        dialog.EpisodeText = "  ";
+        await dialog.SubmitCommand.ExecuteAsync(null);
+
+        Assert.Empty(client.Updates);
+        Assert.Equal("电视剧集数不能为空", dialog.ValidationMessage);
+    }
+
+    /// <summary>详情弹窗里的「编辑」按 resourceKey 回查当前资源，成功后关闭详情弹窗。</summary>
+    [Fact]
+    public async Task EditFromDetailDialogClosesItAfterSaving()
+    {
+        var client = new StubClient
+        {
+            ListResult = CoreLocalDanmuListResult.Success([Resource("逐玉|2026|tv|1", "逐玉")]),
+            UpdateResult = CoreLocalDanmuUpdateResult.Success(
+                [Resource("逐玉|2026|tv|3", "逐玉", episode: 3)], LocalDanmuEditScope.Resource),
+        };
+        // 模拟「弹窗打开后用户点了保存」：提交必须发生在弹窗 await 期间，
+        // 页面才能在同一次流程里看到 Saved 并关闭详情弹窗。
+        var dialogs = new RecordingDialogService { SubmitLocalDanmuEditImmediately = true };
+        await using var viewModel = Create(
+            new StubCacheReader(LocalDanmuCacheReadResult.Unavailable("测试用：走网络列表")),
+            client,
+            dialogs,
+            adminSession: new StubAdminSessionService(adminMode: true, configured: true, sessionToken: "admin-token"));
+        await viewModel.LoadAsync(force: true);
+        await viewModel.OpenDetailCommand.ExecuteAsync(viewModel.Groups[0].Episodes[0]);
+        var closed = 0;
+        viewModel.DetailDialog.CloseRequested += (_, _) => closed++;
+
+        await viewModel.DetailDialog.EditCommand.ExecuteAsync(null);
+
+        var (key, request) = Assert.Single(client.Updates);
+        Assert.Equal("逐玉|2026|tv|1", key);
+        Assert.Equal(LocalDanmuEditScope.Resource, request.Scope);
+        // 编辑可能改了 resourceKey，详情弹窗必须关掉。
+        Assert.Equal(1, closed);
+    }
+
     // ── 夹具 ────────────────────────────────────────────────────────────
     private LocalDanmuPageViewModel Create(
         ILocalDanmuCacheReader cache,
@@ -771,6 +961,31 @@ public sealed partial class LocalDanmuPageViewModelTests : IDisposable
             DeletedKeys.Add(resourceKey);
             return Task.FromResult(CoreLocalDanmuOperationResult.Success("已删除"));
         }
+
+        public CoreLocalDanmuUpdateResult UpdateResult { get; set; } =
+            CoreLocalDanmuUpdateResult.Failure("未设置", LocalDanmuFailureKind.Protocol);
+
+        public List<(string ResourceKey, CoreLocalDanmuUpdateRequest Request)> Updates { get; } = [];
+
+        public Task<CoreLocalDanmuUpdateResult> UpdateAsync(
+            string host,
+            int port,
+            string? token,
+            string? adminToken,
+            string resourceKey,
+            CoreLocalDanmuUpdateRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            Updates.Add((resourceKey, request));
+            if (UpdateResult.Succeeded)
+            {
+                LastUpdate = request;
+            }
+
+            return Task.FromResult(UpdateResult);
+        }
+
+        public CoreLocalDanmuUpdateRequest? LastUpdate { get; private set; }
     }
 
     private sealed class StubEnvClient : ICoreEnvClient

@@ -519,7 +519,9 @@ public sealed partial class ConfigurationPageViewModel : ViewModelBase, IAsyncDi
             return ConfigurationEditorTemplate.ServerList;
         }
 
-        if (definition.Key is "MERGE_SOURCE_PAIRS" or "CUSTOM_MERGE_RULES" or "BLOCKED_WORDS" or "IP_BLACKLIST")
+        // BLOCKED_WORDS 用普通文本模板：它的值是一整段「正则 + 逗号」文本，
+        // 不做结构化拆条（正则里的 {2,4}、[a,b] 都带逗号，拆条必然误读）。
+        if (definition.Key is "MERGE_SOURCE_PAIRS" or "CUSTOM_MERGE_RULES" or "IP_BLACKLIST")
         {
             return ConfigurationEditorTemplate.Rules;
         }

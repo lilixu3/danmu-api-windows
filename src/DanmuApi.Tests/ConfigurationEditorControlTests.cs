@@ -117,9 +117,6 @@ public sealed class ConfigurationEditorControlTests
 
         var mappings = new MappingTableEditor("原名->新名;第二个->另一个");
         Assert.Equal("原名->新名;第二个->另一个", mappings.Value);
-
-        var lines = new LineListEditor("屏蔽词一,屏蔽词二", ",");
-        Assert.Equal("屏蔽词一,屏蔽词二", lines.Value);
     }
 
     [AvaloniaFact]

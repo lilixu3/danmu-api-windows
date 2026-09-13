@@ -399,4 +399,8 @@ public static class LocalDanmuValidation
 
     public static string? ValidateFileSize(long? bytes) =>
         bytes is > MaximumFileBytes ? "单文件不能超过 10 MB" : null;
+
+    /// <summary>编辑接口里文件名可以不改，但一旦提交就不能为空（核心报「文件名不能为空」）。</summary>
+    public static string? ValidateFileName(string? fileName) =>
+        string.IsNullOrWhiteSpace(fileName) ? "文件名不能为空" : null;
 }

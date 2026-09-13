@@ -320,6 +320,134 @@ public sealed class CoreLocalDanmuClientTests
         Assert.True(result.Succeeded);
     }
 
+    [Fact]
+    public async Task UpdateSendsPatchWithResourceScopeBody()
+    {
+        HttpMethod? method = null;
+        string? path = null;
+        string? body = null;
+        var client = new CoreLocalDanmuClient(new HttpClient(new StubHandler(async (request, token) =>
+        {
+            method = request.Method;
+            path = request.RequestUri!.AbsolutePath;
+            body = await request.Content!.ReadAsStringAsync(token);
+            return Json("""
+                {"success":true,"scope":"resource","resources":[{"resourceKey":"逐玉|2026|tv|9","title":"逐玉",
+                 "year":2026,"type":"tv","season":1,"episode":9,"filename":"逐玉_E09.xml","size":1,"format":"XML",
+                 "status":"ready","count":1,"updatedAt":"2026-09-13T10:00:00.000Z"}],
+                 "resource":{"resourceKey":"逐玉|2026|tv|9","title":"逐玉","year":2026,"type":"tv","season":1,
+                 "episode":9,"filename":"逐玉_E09.xml","size":1,"format":"XML","status":"ready","count":1,
+                 "updatedAt":"2026-09-13T10:00:00.000Z"}}
+                """);
+        })));
+
+        var result = await client.UpdateAsync(
+            "127.0.0.1",
+            9321,
+            Token,
+            AdminToken,
+            "逐玉|2026|tv|5",
+            CoreLocalDanmuUpdateRequest.ForResource(9, "逐玉_E09.xml"));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(HttpMethod.Patch, method);
+        // 写操作走管理员令牌的路径段，resourceKey 必须百分号编码。
+        Assert.Contains($"/{AdminToken}/api/v2/local-danmu/", path, StringComparison.Ordinal);
+        Assert.Contains("%7C2026%7Ctv%7C5", path, StringComparison.Ordinal);
+        Assert.NotNull(body);
+        Assert.Contains("\"scope\":\"resource\"", body, StringComparison.Ordinal);
+        Assert.Contains("\"episode\":9", body, StringComparison.Ordinal);
+        Assert.Contains("逐玉_E09.xml", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"title\"", body, StringComparison.Ordinal);
+        var updated = Assert.Single(result.Resources);
+        Assert.Equal("逐玉|2026|tv|9", updated.ResourceKey);
+        Assert.Equal(LocalDanmuEditScope.Resource, result.Scope);
+    }
+
+    [Fact]
+    public async Task UpdateGroupScopeSendsOnlyGroupFields()
+    {
+        string? body = null;
+        var client = new CoreLocalDanmuClient(new HttpClient(new StubHandler(async (request, token) =>
+        {
+            body = await request.Content!.ReadAsStringAsync(token);
+            return Json("""
+                {"success":true,"scope":"group","resources":[{"resourceKey":"逐玉 第二季|2026|tv|2","title":"逐玉 第二季",
+                 "year":2026,"type":"tv","season":2,"episode":1,"filename":"a.xml","size":1,"format":"XML",
+                 "status":"ready","count":1,"updatedAt":"2026-09-13T10:00:00.000Z"}]}
+                """);
+        })));
+
+        var result = await client.UpdateAsync(
+            "127.0.0.1",
+            9321,
+            Token,
+            AdminToken,
+            "逐玉|2026|tv|2",
+            CoreLocalDanmuUpdateRequest.ForGroup("逐玉 第二季", 2026, "tv", 2));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(LocalDanmuEditScope.Group, result.Scope);
+        Assert.NotNull(body);
+        Assert.Contains("\"scope\":\"group\"", body, StringComparison.Ordinal);
+        Assert.Contains("\"title\":\"逐玉 第二季\"", body, StringComparison.Ordinal);
+        Assert.Contains("\"year\":2026", body, StringComparison.Ordinal);
+        Assert.Contains("\"type\":\"tv\"", body, StringComparison.Ordinal);
+        Assert.Contains("\"season\":2", body, StringComparison.Ordinal);
+        // 整组编辑不该带 episode/filename：核心会忽略，但带上会让人误以为改了单集。
+        Assert.DoesNotContain("episode", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("filename", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task UpdateTreatsConflictAsAnActionableFailure()
+    {
+        var client = new CoreLocalDanmuClient(new HttpClient(new StubHandler((_, _) =>
+            Task.FromResult(Json("{\"success\":false,\"errorMessage\":\"目标资源已存在，无法覆盖\"}", HttpStatusCode.Conflict)))));
+
+        var result = await client.UpdateAsync(
+            "127.0.0.1",
+            9321,
+            Token,
+            AdminToken,
+            "逐玉|2026|tv|5",
+            CoreLocalDanmuUpdateRequest.ForGroup("逐玉", 2026, "tv", 1));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(LocalDanmuFailureKind.Conflict, result.FailureKind);
+        Assert.Contains("无法覆盖", result.Diagnostic, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task UpdateSeparatesMissingResourceFromAnOldCore()
+    {
+        // 核心对「资源不存在」返回 404 + errorMessage；其它 404 只可能是路由不存在（1.21.0 没有编辑接口）。
+        var missing = new CoreLocalDanmuClient(new HttpClient(new StubHandler((_, _) =>
+            Task.FromResult(Json("{\"success\":false,\"errorMessage\":\"资源不存在\"}", HttpStatusCode.NotFound)))));
+        var oldCore = new CoreLocalDanmuClient(new HttpClient(new StubHandler((_, _) =>
+            Task.FromResult(Json("{\"errorMessage\":\"not found\"}", HttpStatusCode.NotFound)))));
+
+        var missingResult = await missing.UpdateAsync(
+            "127.0.0.1", 9321, Token, AdminToken, "k",
+            CoreLocalDanmuUpdateRequest.ForResource(2, "a.xml"));
+        var oldCoreResult = await oldCore.UpdateAsync(
+            "127.0.0.1", 9321, Token, AdminToken, "k",
+            CoreLocalDanmuUpdateRequest.ForResource(2, "a.xml"));
+
+        Assert.Equal(LocalDanmuFailureKind.NotFound, missingResult.FailureKind);
+        Assert.Equal(LocalDanmuFailureKind.CoreUnsupported, oldCoreResult.FailureKind);
+        Assert.Contains("1.21.1", oldCoreResult.Diagnostic, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UpdateBodyAlwaysCarriesEpisodeSoMoviesCanClearIt()
+    {
+        var resource = CoreLocalDanmuClient.BuildUpdateBody(CoreLocalDanmuUpdateRequest.ForResource(null, "movie.xml"));
+
+        Assert.Contains("\"episode\":null", resource, StringComparison.Ordinal);
+        Assert.Contains("\"filename\":\"movie.xml\"", resource, StringComparison.Ordinal);
+    }
+
     private static HttpResponseMessage Json(string body, HttpStatusCode status = HttpStatusCode.OK) =>
         new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
 

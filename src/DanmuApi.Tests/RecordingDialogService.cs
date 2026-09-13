@@ -162,6 +162,26 @@ internal sealed class RecordingDialogService : IUiDialogService
         return Task.CompletedTask;
     }
 
+    /// <summary>编辑弹窗：记录被打开过几次以及最后一次的模型；可选在打开时自动点「保存」。</summary>
+    public List<LocalDanmuEditDialogViewModel> LocalDanmuEditDialogs { get; } = [];
+
+    /// <summary>true 时在弹窗打开后立刻执行保存命令，模拟用户点「保存」（含不填任何字段的原始值）。</summary>
+    public bool SubmitLocalDanmuEditImmediately { get; set; }
+
+    public async Task ShowLocalDanmuEditAsync(LocalDanmuEditDialogViewModel model)
+    {
+        LocalDanmuEditDialogs.Add(model);
+        if (CloseLocalDanmuDetailImmediately)
+        {
+            model.RequestClose();
+        }
+
+        if (SubmitLocalDanmuEditImmediately)
+        {
+            await model.SubmitCommand.ExecuteAsync(null);
+        }
+    }
+
     public Task CopyTextAsync(string text)
     {
         CopiedText = text;

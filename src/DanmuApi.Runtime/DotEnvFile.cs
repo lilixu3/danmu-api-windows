@@ -54,7 +54,6 @@ public sealed record DotEnvTransactionResult(
 public static class DotEnvFile
 {
     private static readonly Regex KeyPattern = new(@"^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex BareValuePattern = new(@"^[A-Za-z0-9_./:@-]+$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
     public static IReadOnlyDictionary<string, string> ReadValues(string path)
@@ -429,64 +428,146 @@ public static class DotEnvFile
         }
     }
 
+    /// <summary>
+    /// 值 → .env 行内文本。规则与移动端 <c>DotEnvCodec.formatValue</c> 一致（同一份 .env 契约）：
+    /// - 只在必要时加双引号（首尾空白，或含空白 / <c>=</c> / <c>#</c> / <c>"</c>）；
+    /// - 反斜杠**只在后面跟着会被读成转义的字符时才写成 <c>\\</c>**，其余原样保留——
+    ///   这样正则（<c>/^\d+/</c>）、Windows 路径写进文件后与用户输入逐字相同，
+    ///   而且反复保存不会每次多加一层反斜杠（移动端为此专门有幂等回归测试）；
+    /// - <c>"</c> → <c>\"</c>，换行/回车/制表符 → <c>\n</c>/<c>\r</c>/<c>\t</c>（唯一能在一行里表达的写法）。
+    /// 宿主 <c>android-server.js</c> 的 unescapeDoubleQuotedEnvValue 只还原 \\ \" \n \r \t，
+    /// 其余反斜杠序列原样保留，所以上面这些写法在核心侧拿到的就是用户输入的值。
+    /// </summary>
     private static string FormatValue(string value)
     {
-        if (value.Length > 0 && BareValuePattern.IsMatch(value))
+        if (!NeedsQuotes(value))
         {
             return value;
         }
 
         var builder = new StringBuilder(value.Length + 2).Append('"');
-        foreach (var character in value)
+        for (var index = 0; index < value.Length; index++)
         {
-            builder.Append(character switch
+            var character = value[index];
+            switch (character)
             {
-                '\\' => "\\\\",
-                '"' => "\\\"",
-                '\n' => "\\n",
-                '\r' => "\\r",
-                '\t' => "\\t",
-                _ => character.ToString(),
-            });
+                case '\\':
+                    var next = index + 1 < value.Length ? value[index + 1] : (char?)null;
+                    builder.Append(next is not null && IsRecognizedEscapedCharacter(next.Value) ? "\\\\" : "\\");
+                    break;
+                case '"':
+                    builder.Append("\\\"");
+                    break;
+                case '\n':
+                    builder.Append("\\n");
+                    break;
+                case '\r':
+                    builder.Append("\\r");
+                    break;
+                case '\t':
+                    builder.Append("\\t");
+                    break;
+                default:
+                    builder.Append(character);
+                    break;
+            }
         }
 
         return builder.Append('"').ToString();
     }
 
+    /// <summary>需要引号的条件与移动端一致：首尾空白，或含空白 / <c>=</c> / <c>#</c> / <c>"</c>。</summary>
+    private static bool NeedsQuotes(string value)
+    {
+        if (value.Length == 0)
+        {
+            return false;
+        }
+
+        if (char.IsWhiteSpace(value[0]) || char.IsWhiteSpace(value[^1]))
+        {
+            return true;
+        }
+
+        foreach (var character in value)
+        {
+            if (char.IsWhiteSpace(character) || character is '=' or '#' or '"')
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>宿主会还原的转义：只有这些字符跟在反斜杠后面时才必须再转义一层。</summary>
+    private static bool IsRecognizedEscapedCharacter(char character) =>
+        character is '\\' or '"' or 'n' or 'r' or 't' or '\n' or '\r' or '\t';
+
     private static string ParseValue(string value)
     {
-        if (value.Length >= 2 && value[0] == '"' && value[^1] == '"')
+        if (value.Length < 2)
         {
-            var inner = value[1..^1];
-            var builder = new StringBuilder(inner.Length);
-            for (var index = 0; index < inner.Length; index++)
-            {
-                if (inner[index] != '\\' || index + 1 >= inner.Length)
-                {
-                    builder.Append(inner[index]);
-                    continue;
-                }
+            return value;
+        }
 
-                builder.Append(inner[++index] switch
-                {
-                    'n' => '\n',
-                    'r' => '\r',
-                    't' => '\t',
-                    '\\' => '\\',
-                    '"' => '"',
-                    _ => throw new FormatException(".env 双引号值包含未知转义序列"),
-                });
+        var quote = value[0];
+        if ((quote != '"' && quote != '\'') || value[^1] != quote)
+        {
+            return value;
+        }
+
+        var inner = value[1..^1];
+        if (quote == '\'')
+        {
+            // 单引号只作包裹符、不还原转义，与宿主 parseDotEnv 的单引号分支一致。
+            // 注意 Docker/独立 Node 部署（server.js 的 parseRawEnvText）只剥双引号，
+            // 所以工作台保存时会规范化为双引号。
+            return inner;
+        }
+
+        var builder = new StringBuilder(inner.Length);
+        for (var index = 0; index < inner.Length; index++)
+        {
+            if (inner[index] != '\\' || index + 1 >= inner.Length)
+            {
+                builder.Append(inner[index]);
+                continue;
             }
 
-            return builder.ToString();
+            // 只还原宿主会还原的五个转义（\\ \" \n \r \t）。其它反斜杠序列（\d、\w、\S、
+            // Windows 路径里的 \U 等）一律原样保留——宿主也是这么做的，而且绝不再因为
+            // "未知转义序列"抛异常让整个应用起不来（0.4.4 试用反馈的故障）。
+            var next = inner[index + 1];
+            switch (next)
+            {
+                case 'n':
+                    builder.Append('\n');
+                    index++;
+                    break;
+                case 'r':
+                    builder.Append('\r');
+                    index++;
+                    break;
+                case 't':
+                    builder.Append('\t');
+                    index++;
+                    break;
+                case '\\':
+                    builder.Append('\\');
+                    index++;
+                    break;
+                case '"':
+                    builder.Append('"');
+                    index++;
+                    break;
+                default:
+                    builder.Append(inner[index]);
+                    break;
+            }
         }
 
-        if (value.Length >= 2 && value[0] == '\'' && value[^1] == '\'')
-        {
-            return value[1..^1];
-        }
-
-        return value;
+        return builder.ToString();
     }
 
     private static void TryDelete(string path)

@@ -34,6 +34,9 @@ public sealed class CompositionRootTests
             Assert.NotNull(provider.GetRequiredService<DanmuApi.App.Services.RuntimePreparationService>());
             Assert.NotNull(provider.GetRequiredService<DanmuApi.App.Services.IRuntimeMaintenanceService>());
             Assert.NotNull(provider.GetRequiredService<DanmuApi.Core.ICoreDependencyService>());
+            // 端口预检与管理员会话的工厂都挂了诊断汇，依赖写错只会在首次启动暴露，这里固定住。
+            Assert.NotNull(provider.GetRequiredService<DanmuApi.Runtime.INodeSupervisor>());
+            Assert.NotNull(provider.GetRequiredService<DanmuApi.App.Services.IAdminSessionService>());
             Assert.NotNull(provider.GetRequiredService<MainWindowViewModel>());
         }
     }
