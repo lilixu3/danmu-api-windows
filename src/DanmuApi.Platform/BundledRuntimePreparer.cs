@@ -39,7 +39,7 @@ public static partial class BundledRuntimePreparer
     /// they differ, which keeps a 92 MB node.exe from dominating startup. Deployment, explicit repair
     /// and the full dependency check always verify content regardless of mode.</summary>
     public sealed record Entry(string Path, string Hash, long Length = 0, long LastWrite = 0, long Created = 0, int Attributes = 0, string? Mode = null);
-    public sealed record State(int Schema, string Version, List<Entry> Files);
+    public sealed record State(int Schema, string Version, List<Entry> Files, string? NodeVersion = null, string? Arch = null);
     public sealed record Operation(string Path, bool Existed, string? BackupHash);
     public sealed record Journal(int Schema, bool Committed, State? Previous, List<Operation> Operations);
 

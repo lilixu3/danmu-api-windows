@@ -59,6 +59,20 @@
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
     </Style>
+
+    <!-- 搜索结果的分组标题：对应核心前端的 .preview-group-heading（分类名 + N 项）。 -->
+    <Style Selector="Border.group-heading">
+      <Setter Property="Background" Value="{DynamicResource SurfaceMutedBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+      <Setter Property="Padding" Value="14,7" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="TextBlock.group-heading-text">
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+    </Style>
   </UserControl.Styles>
 
   <!-- 三栏档位：详情列用 Auto（面板隐藏时收成 0，列表独占宽度）。
@@ -158,6 +172,11 @@
             </ListBox.ItemsPanel>
             <ListBox.ItemTemplate>
               <DataTemplate x:DataType="vm:ConfigurationVariableRow">
+                <!-- 搜索时按分类分组：每组第一行上面挂一条分组标题（对应核心的 preview-group-heading）。 -->
+                <StackPanel>
+                  <Border Classes="group-heading" IsVisible="{Binding HasGroupHeader}">
+                    <TextBlock Text="{Binding GroupHeader}" Classes="group-heading-text" />
+                  </Border>
                   <!-- 行结构：左边「键 + 一个状态胶囊」+ 当前值框 + 说明；右边两个操作按钮。
                        胶囊在键名右侧，方便一眼看出这一行是否已被 .env 覆盖。 -->
                   <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" Margin="14,9">
@@ -220,6 +239,7 @@
                             CommandParameter="{Binding}" />
                   </StackPanel>
                 </Grid>
+                </StackPanel>
               </DataTemplate>
             </ListBox.ItemTemplate>
           </ListBox>

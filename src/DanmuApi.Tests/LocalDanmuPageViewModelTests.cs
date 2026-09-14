@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using Avalonia.Controls;
 using DanmuApi.App.Services;
 using DanmuApi.App.ViewModels;
@@ -1013,6 +1013,7 @@ public sealed partial class LocalDanmuPageViewModelTests : IDisposable
 
     private sealed class LocalStubRuntimeController(RuntimeSnapshot snapshot) : IRuntimeController
     {
+        public Task RefreshCoreSetupRequiredAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public RuntimeSnapshot Snapshot { get; private set; } = snapshot;
         event EventHandler<RuntimeSnapshot>? IRuntimeController.SnapshotChanged
         {

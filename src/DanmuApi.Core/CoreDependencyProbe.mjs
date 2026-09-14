@@ -6,6 +6,19 @@ import {pathToFileURL, fileURLToPath} from 'node:url';
 const input = JSON.parse(fs.readFileSync(0, 'utf8'));
 const core = path.resolve(input.core), shared = path.resolve(input.shared);
 const roots = [core, shared];
+// The host compiles its bundled Node version into the assembly and passes the expected major here.
+// The probe must never run under a runtime the host was not built for, so a mismatch is fatal
+// rather than a warning.
+const expectedNodeMajor = input.expectedNodeMajor;
+if (!Number.isInteger(expectedNodeMajor) || expectedNodeMajor <= 0) throw Error('Probe input lacks expectedNodeMajor');
+// Every visited package that declares engines.node is reported, so the host can compare the real
+// floor against the runtime it shipped instead of discovering it as a start-up failure.
+const engineRequirements = [];
+function noteEngines(name, meta) {
+  const range = meta && meta.engines && typeof meta.engines === 'object' ? meta.engines.node : undefined;
+  if (typeof range !== 'string' || range.trim() === '') return;
+  engineRequirements.push({name: String(name), range: range.trim()});
+}
 // Host-provided names that Windows deliberately does not bundle (the host loads the core through
 // worker.js, so server.js's dotenv/chokidar path never runs; esbuild is a build-time tool; redis
 // ships as an opt-in payload). They are excluded from the closure so a healthy install is not
@@ -133,6 +146,7 @@ function walk(parent, pkg, publicRoot = null, depth = 0) {
       if (inside(shared, dir) && root === null) root = {name, directory: dir};
       const meta = json(path.join(dir, 'package.json'));
       if (meta.name !== name || typeof meta.version !== 'string') throw Error('Invalid package name/version');
+      noteEngines(name, meta);
       if (!satisfies(range, meta.version)) throw Error('Installed version ' + meta.version + ' does not satisfy declaration');
       const ref = pathToFileURL(path.join(parent, '__danmu_dependency_probe__.mjs'));
       const entry = pkg.type === 'module' ? fileURLToPath(import.meta.resolve(name, ref.href)) : createRequire(ref).resolve(name);
@@ -149,11 +163,14 @@ function walk(parent, pkg, publicRoot = null, depth = 0) {
   }
 }
 try {
-  if (Number(process.versions.node.split('.')[0]) !== 24) throw Error('Dependency repair requires Node major 24');
+  const runningMajor = Number(process.versions.node.split('.')[0]);
+  if (runningMajor !== expectedNodeMajor)
+    throw Error('Dependency repair requires Node major ' + expectedNodeMajor + ' (running ' + process.versions.node + ')');
   const pkg = json(path.join(core, 'package.json'));
+  noteEngines(typeof pkg.name === 'string' && pkg.name ? pkg.name : 'core', pkg);
   if (!Object.hasOwn(pkg, 'dependencies')) throw Error('Core package.json lacks dependencies; dependency requirements are unknown');
   walk(core, pkg);
-  process.stdout.write(JSON.stringify({total, issues}));
+  process.stdout.write(JSON.stringify({total, issues, engineRequirements}));
 } catch (e) {
   process.stderr.write(String(e.message));
   process.exitCode = 1;

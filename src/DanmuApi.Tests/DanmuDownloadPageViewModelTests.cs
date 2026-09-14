@@ -710,6 +710,7 @@ public sealed class DanmuDownloadPageViewModelTests : IDisposable
 
     private sealed class StubRuntimeController : IRuntimeController
     {
+        public Task RefreshCoreSetupRequiredAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public RuntimeSnapshot Snapshot { get; } = new(DesktopRuntimeState.Running, 9321, 1, "test");
         event EventHandler<RuntimeSnapshot>? IRuntimeController.SnapshotChanged { add { } remove { } }
         public Task StartAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
@@ -722,6 +723,7 @@ public sealed class DanmuDownloadPageViewModelTests : IDisposable
 
     private sealed class StoppedRuntimeController : IRuntimeController
     {
+        public Task RefreshCoreSetupRequiredAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public RuntimeSnapshot Snapshot { get; } = new(DesktopRuntimeState.Stopped);
         event EventHandler<RuntimeSnapshot>? IRuntimeController.SnapshotChanged { add { } remove { } }
         public Task StartAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;

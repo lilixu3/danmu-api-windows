@@ -202,10 +202,18 @@ public sealed class ColorPaletteEditor : Border
         });
         colorControls.Children.Add(new TextBlock { Text = "亮度" });
         colorControls.Children.Add(_lightness);
-        var addCurrent = new Button { Name = "AddCurrentColorButton", Content = "添加当前颜色" };
+        // 核心把「添加到颜色池」与「随机添加」放在同一行（.color-pool-actions）。
+        var addCurrent = new Button { Name = "AddCurrentColorButton", Content = "添加到颜色池" };
         addCurrent.Classes.Add("secondary-action");
         addCurrent.Click += (_, _) => AddColor(HslToDecimal(_wheel.Hue, _lightness.Value));
-        colorControls.Children.Add(addCurrent);
+        var random = new Button { Name = "AddRandomColorButton", Content = "随机添加" };
+        random.Classes.Add("secondary-action");
+        random.Click += (_, _) => AddColor((uint)Random.Shared.Next(0x1000000));
+        colorControls.Children.Add(new WrapPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Children = { addCurrent, random },
+        });
         colorControls.Children.Add(new TextBlock { Text = "输入颜色" });
         var addInput = new Button { Name = "AddInputColorButton", Content = "添加输入颜色" };
         addInput.Classes.Add("secondary-action");
@@ -224,21 +232,20 @@ public sealed class ColorPaletteEditor : Border
         _customPanel.Children.Add(colorLayout);
 
         _customPanel.Children.Add(new TextBlock { Text = "批量添加", FontWeight = FontWeight.SemiBold });
-        var batchAdd = new Button { Name = "AddBatchColorsButton", Content = "确认批量添加" };
+        var batchAdd = new Button { Name = "AddBatchColorsButton", Content = "批量添加" };
         batchAdd.Classes.Add("secondary-action");
         batchAdd.Click += (_, _) => TryAddBatch(_batchInput.Text ?? string.Empty);
-        var random = new Button { Name = "AddRandomColorButton", Content = "随机添加" };
-        random.Classes.Add("secondary-action");
-        random.Click += (_, _) => AddColor((uint)Random.Shared.Next(0x1000000));
         var reset = new Button { Name = "ResetColorPaletteButton", Content = "恢复默认" };
         reset.Classes.Add("danger-action");
         reset.Click += (_, _) => ResetColors();
         _customPanel.Children.Add(_batchInput);
-        _customPanel.Children.Add(new WrapPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Children = { batchAdd, random, reset },
-        });
+        // 核心的第二行动作：批量添加在左、「恢复默认」被 spacer 推到最右。
+        var batchRow = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*") };
+        batchRow.Children.Add(batchAdd);
+        reset.HorizontalAlignment = HorizontalAlignment.Right;
+        Grid.SetColumn(reset, 1);
+        batchRow.Children.Add(reset);
+        _customPanel.Children.Add(batchRow);
 
         var content = new StackPanel { Spacing = 12 };
         content.Children.Add(_isGradient

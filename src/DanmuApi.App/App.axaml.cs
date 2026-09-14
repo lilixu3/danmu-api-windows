@@ -353,6 +353,7 @@ public partial class App : Application
         services.AddSingleton<ICoreRequestRecordsClient, CoreRequestRecordsClient>();
         services.AddSingleton<ILocalRequestRecordStore, LocalRequestRecordStore>();
         services.AddSingleton<ICoreCacheClient, CoreCacheClient>();
+        services.AddSingleton<ICoreCacheAnimeClient, CoreCacheAnimeClient>();
         services.AddSingleton<ICoreEnvClient, CoreEnvClient>();
         services.AddSingleton(provider => new PosterImageService(
             diagnostics: provider.GetRequiredService<IAppDiagnostics>()));
@@ -371,7 +372,10 @@ public partial class App : Application
             provider.GetRequiredService<ISettingsStore>(),
             provider.GetRequiredService<IAdminSessionService>(),
             provider.GetRequiredService<IRuntimeController>(),
-            provider.GetRequiredService<ICoreCredentialClient>()));
+            provider.GetRequiredService<ICoreCredentialClient>(),
+            provider.GetRequiredService<ICoreCacheAnimeClient>(),
+            provider.GetRequiredService<PosterImageService>(),
+            provider.GetRequiredService<IAppDiagnostics>()));
         services.AddSingleton<INodeSupervisor>(provider => new NodeSupervisor(
             provider.GetRequiredService<IRuntimeHealthClient>(),
             provider.GetRequiredService<IProcessTerminator>(),

@@ -41,6 +41,15 @@ public sealed record ConfigurationVariableRow(
     /// </summary>
     public bool IsValueExpanded { get; init; }
 
+    /// <summary>
+    /// 搜索结果里的分组标题（只在每组第一行有值）。文案形如「API 配置 · 5 项」，
+    /// 对应核心前端搜索时的 <c>.preview-group-heading</c>。
+    /// </summary>
+    public string? GroupHeader { get; init; }
+
+    /// <summary>本行是否要渲染分组标题。</summary>
+    public bool HasGroupHeader => !string.IsNullOrEmpty(GroupHeader);
+
     /// <summary>值框折叠时最多两行；超长值默认折叠，由用户点「展开」看全。</summary>
     public bool IsValueExpandable => CurrentValueText.Length > CollapsedValueLength;
     /// <summary>值行右侧的展开/折叠开关文案。</summary>
@@ -142,9 +151,11 @@ public sealed partial class ConfigurationPageViewModel : ViewModelBase, IAsyncDi
         : SearchSummary;
     public bool HasSearchText => !string.IsNullOrWhiteSpace(SearchText);
 
-    /// <summary>搜索结果提示：明确告诉用户下面是「包含关键词的全部变量」以及命中数量。</summary>
+    /// <summary>搜索结果提示：说明下面按分类分组列出命中变量，并给出分类数与命中数。</summary>
     public string SearchSummary =>
-        $"以下是包含「{SearchText.Trim()}」的全部变量（在所有分类中搜索，共 {FilteredVariables.Count} 个）。";
+        $"以下是包含「{SearchText.Trim()}」的全部变量，按分类分组显示" +
+        $"（共 {FilteredVariables.Count} 个变量、" +
+        $"{FilteredVariables.Count(row => row.HasGroupHeader)} 个分类）；分类名本身也参与匹配。";
     public string CoreSummary => _snapshot is null
         ? "当前核心配置目录不可用"
         : $"{_snapshot.Variant.ToStorageKey()} · {_snapshot.Definitions.Count} 个变量 · 已配置 {_snapshot.ConfiguredCount} 个";
@@ -383,9 +394,11 @@ public sealed partial class ConfigurationPageViewModel : ViewModelBase, IAsyncDi
     {
         var currentKey = SelectedCategory?.Key;
         Categories.Clear();
+        // 分类顺序对齐核心前端的 previewCategoryOrder，让习惯核心客户端的用户不必重新找位置。
         var presentCategories = _snapshot?.Definitions
             .Select(definition => definition.Category)
             .Distinct(StringComparer.Ordinal)
+            .OrderBy(CategoryOrderIndex)
             .ToArray() ?? [];
         foreach (var category in presentCategories)
         {
@@ -415,24 +428,94 @@ public sealed partial class ConfigurationPageViewModel : ViewModelBase, IAsyncDi
         }
 
         var query = SearchText.Trim();
-        var definitions = query.Length > 0 || SelectedCategory is null
-            ? _snapshot.Definitions
-            : _snapshot.Definitions.Where(definition => definition.Category == SelectedCategory.Key);
-        foreach (var state in definitions
-                     .Select(definition => _snapshot.Values[definition.Key])
-                     .Where(value => query.Length == 0 ||
-                                     value.Definition.Key.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-                                     value.Definition.Description.Contains(query, StringComparison.OrdinalIgnoreCase))
-                     .OrderBy(state => state.Definition.Key, StringComparer.Ordinal))
+        if (query.Length > 0)
         {
-            var row = ToRow(state);
-            FilteredVariables.Add(expandedKeys.Contains(row.Key) ? row with { IsValueExpanded = true } : row);
+            // 搜索：按分类分组显示，与核心一致（每组带「分类名 · N 项」标题），
+            // 这样"这条变量属于哪个分类"一眼可见，而不是混在一堆结果里。
+            AppendSearchResults(query, expandedKeys);
+        }
+        else
+        {
+            // 顺序沿用核心 envs.js 的读取顺序（CoreEnvCatalog 已按此排好），
+            // 不再按变量名字母序：习惯核心前端的用户才能按老位置找到变量。
+            var definitions = SelectedCategory is null
+                ? _snapshot.Definitions
+                : _snapshot.Definitions.Where(definition => definition.Category == SelectedCategory.Key);
+            foreach (var state in definitions.Select(definition => _snapshot.Values[definition.Key]))
+            {
+                var row = ToRow(state);
+                FilteredVariables.Add(expandedKeys.Contains(row.Key) ? row with { IsValueExpanded = true } : row);
+            }
         }
 
         NotifyState();
         NotifySearchSummary();
         SyncSelectedVariable();
     }
+
+    /// <summary>
+    /// 跨分类搜索并按分类分组。组内保持核心的变量顺序，组之间用核心前端的分类顺序。
+    /// 只在每组第一行挂 <see cref="ConfigurationVariableRow.GroupHeader"/>，视图据此渲染分组标题——
+    /// 这样仍然是同一个扁平列表，虚拟化与选中行为都不用改。
+    /// </summary>
+    private void AppendSearchResults(string query, HashSet<string> expandedKeys)
+    {
+        var snapshot = _snapshot!;
+        var order = snapshot.Definitions
+            .Select(definition => definition.Category)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(CategoryOrderIndex)
+            .ToArray();
+
+        foreach (var category in order)
+        {
+            var matches = snapshot.Definitions
+                .Where(definition => definition.Category == category)
+                .Select(definition => snapshot.Values[definition.Key])
+                .Where(state => MatchesSearch(state.Definition, category, query))
+                .ToArray();
+            if (matches.Length == 0)
+            {
+                continue;
+            }
+
+            var header = $"{CategoryLabel(category)} · {matches.Length} 项";
+            for (var index = 0; index < matches.Length; index++)
+            {
+                var row = ToRow(matches[index]);
+                if (index == 0)
+                {
+                    row = row with { GroupHeader = header };
+                }
+
+                FilteredVariables.Add(expandedKeys.Contains(row.Key) ? row with { IsValueExpanded = true } : row);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 分类的显示顺序，对齐核心前端 UI 的常量（core <c>ui/js/preview.js:3</c> 的
+    /// <c>previewCategoryOrder</c>）。未在其中的分类排在最后，保持声明顺序。
+    /// </summary>
+    private static readonly string[] CoreCategoryOrder = ["api", "source", "match", "danmu", "cache", "system"];
+
+    private static int CategoryOrderIndex(string category)
+    {
+        var index = Array.IndexOf(CoreCategoryOrder, category);
+        return index < 0 ? int.MaxValue : index;
+    }
+
+    /// <summary>
+    /// 命中判定：变量名、说明，以及**分类名**。
+    /// 核心前端也把分类标签纳入匹配（`envItemMatchesSearch` 里带上 category label），
+    /// 所以输入「API」能列出该分类下的全部变量。
+    /// </summary>
+    private static bool MatchesSearch(CoreEnvDefinition definition, string category, string query) =>
+        definition.Key.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+        definition.Description.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+        definition.Category.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+        CategoryLabel(definition.Category).Contains(query, StringComparison.OrdinalIgnoreCase) ||
+        category.Contains(query, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>行内值框的展开/折叠。列表里没有这一项时直接忽略，不做任何写路径。</summary>
     [RelayCommand]

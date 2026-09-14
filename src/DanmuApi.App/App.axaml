@@ -85,6 +85,9 @@
          保证配置页试点期间其余页面零漂移。详见 Styles/Shell.axaml 顶部说明。 -->
     <StyleInclude Source="avares://DanmuApi.App/Styles/Shell.axaml" />
 
+    <!-- 配置编辑器表单词汇（排版对齐核心自带前端，配色仍用本应用 token）。 -->
+    <StyleInclude Source="avares://DanmuApi.App/Styles/ConfigForm.axaml" />
+
     <Style Selector="Window">
       <Setter Property="Background" Value="{DynamicResource AppBackgroundBrush}" />
       <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />

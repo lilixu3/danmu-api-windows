@@ -171,17 +171,30 @@ public sealed class CoreCacheClient : ICoreCacheClient
         string host,
         int port,
         string token,
-        string? adminToken)
+        string? adminToken) =>
+        BuildCacheUri(host, port, token, adminToken, "clear");
+
+    /// <summary>
+    /// 缓存类接口的地址：token（管理员模式下用 admin token）作为路径前缀，
+    /// 与核心前端 <c>buildApiUrl(path, true)</c> 的拼法一致。
+    /// </summary>
+    public static Uri BuildCacheUri(
+        string host,
+        int port,
+        string token,
+        string? adminToken,
+        string action)
     {
         RuntimeValidation.ValidateHost(host);
         RuntimeValidation.ValidatePort(port);
         ArgumentException.ThrowIfNullOrWhiteSpace(token);
+        ArgumentException.ThrowIfNullOrWhiteSpace(action);
         var pathToken = string.IsNullOrWhiteSpace(adminToken) ? token.Trim() : adminToken.Trim();
         var authority = host.Contains(':', StringComparison.Ordinal) && !host.StartsWith('[')
             ? $"[{host}]"
             : host;
         return new Uri(
-            $"http://{authority}:{port}/{Uri.EscapeDataString(pathToken)}/api/cache/clear",
+            $"http://{authority}:{port}/{Uri.EscapeDataString(pathToken)}/api/cache/{action}",
             UriKind.Absolute);
     }
 

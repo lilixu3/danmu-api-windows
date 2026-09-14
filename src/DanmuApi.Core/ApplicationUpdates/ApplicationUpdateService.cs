@@ -33,8 +33,13 @@ public sealed class ApplicationUpdate
 /// Owns the handler. No credentials, cookies, token, or ambient HttpClient headers are used.</summary>
 public sealed class ApplicationUpdateService : IDisposable
 {
-    public const string ManifestFileName = "update-manifest.json";
-    public const string SignatureFileName = "update-manifest.json.sig";
+    /// <summary>Release asset names of the signed manifest. x64 keeps the original unsuffixed names so
+    /// clients released before multi-architecture support keep finding them; the other architectures
+    /// use a suffixed name so a single release can carry several signed manifests side by side.</summary>
+    public static string ManifestFileName { get; } = ApplicationArchitecture.Current == "win-x64"
+        ? "update-manifest.json"
+        : $"update-manifest-{ApplicationArchitecture.Current}.json";
+    public static string SignatureFileName { get; } = ManifestFileName + ".sig";
     public const int MaximumManifestBytes = 1024 * 1024;
     public const long MaximumPackageBytes = 512L * 1024 * 1024;
     private const string Feed = "https://api.github.com/repos/lilixu3/danmu-api-windows/releases?per_page=100&page=";
@@ -126,7 +131,7 @@ public sealed class ApplicationUpdateService : IDisposable
         using var doc = ParseJson(manifestBytes);
         var root = doc.RootElement;
         ExactProperties(root, "schemaVersion", "product", "version", "channel", "architecture", "assets");
-        if (root.GetProperty("schemaVersion").GetInt32() != 1 || Text(root, "product") != "DanmuApi.Windows" || Text(root, "channel") != "preview" || Text(root, "architecture") != "win-x64") throw new InvalidDataException("Unsupported manifest schema, product, channel, or architecture.");
+        if (root.GetProperty("schemaVersion").GetInt32() != 1 || Text(root, "product") != "DanmuApi.Windows" || Text(root, "channel") != "preview" || Text(root, "architecture") != ApplicationArchitecture.Current) throw new InvalidDataException("Unsupported manifest schema, product, channel, or architecture.");
         var version = SemanticVersion.Parse(Text(root, "version"));
         var assets = new List<ApplicationUpdateAsset>();
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -139,7 +144,7 @@ public sealed class ApplicationUpdateService : IDisposable
             assets.Add(new(name, size, hash.ToLowerInvariant(), kind));
         }
         if (assets.Count == 0) throw new InvalidDataException("Manifest has no assets.");
-        return new(1, "DanmuApi.Windows", version.Value, "preview", "win-x64", assets.AsReadOnly());
+        return new(1, "DanmuApi.Windows", version.Value, "preview", ApplicationArchitecture.Current, assets.AsReadOnly());
     }
 
     public Task<string> DownloadAsync(ApplicationUpdate update, string assetName, string destinationPath, IProgress<ApplicationUpdateProgress>? progress = null, CancellationToken cancellationToken = default) => TimedAsync(async ct =>

@@ -35,6 +35,7 @@ public sealed class UpdatedServiceRestorerTests
     }
     private sealed class Controller(bool fail):IRuntimeController
     {
+        public Task RefreshCoreSetupRequiredAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public int Starts{get;private set;}
         public RuntimeSnapshot Snapshot{get;private set;}=new(DesktopRuntimeState.Stopped);
         public event EventHandler<RuntimeSnapshot>? SnapshotChanged {add{} remove{}}

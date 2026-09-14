@@ -9,7 +9,11 @@ namespace DanmuApi.Core;
 
 public sealed record CoreDependencyIssue(string Name, string Range, string ParentDirectory,
     string? InstalledDirectory, string? PublicRootName, string? PublicRootDirectory, string Diagnostic);
-public sealed record CoreDependencyCheckResult(int Total, IReadOnlyList<CoreDependencyIssue> Issues)
+/// <summary>An "engines.node" floor reported by the probe. The probe only collects the raw strings;
+/// they are matched against the Node version this host ships (see NodeEngineRange).</summary>
+public sealed record CoreDependencyEngineRequirement(string Name, string Range);
+public sealed record CoreDependencyCheckResult(int Total, IReadOnlyList<CoreDependencyIssue> Issues,
+    IReadOnlyList<CoreDependencyEngineRequirement>? EngineRequirements = null)
 {
     public bool IsHealthy => Issues.Count == 0;
 }
@@ -265,6 +269,7 @@ public sealed class CoreDependencyService : ICoreDependencyService, IDisposable
                 core,
                 shared = Path.Combine(_project, "node_modules"),
                 excluded = _notBundled().ToArray(),
+                expectedNodeMajor = BundledNodeRuntime.ExpectedMajor,
             })).ConfigureAwait(false);
             process.StandardInput.Close();
             await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
@@ -273,7 +278,7 @@ public sealed class CoreDependencyService : ICoreDependencyService, IDisposable
             var result = JsonSerializer.Deserialize<CoreDependencyCheckResult>(stdout, SignedCoreDependencyPack.JsonOptions)
                 ?? throw new IOException("Node 依赖检查返回空结果");
             if (result.Issues is null || result.Total < 0) throw new IOException("Node 依赖检查返回无效结果");
-            return result;
+            return ApplyEngineFloors(result);
         }
         finally
         {
@@ -282,6 +287,25 @@ public sealed class CoreDependencyService : ICoreDependencyService, IDisposable
     }
 
     private string CorePath(ManagedCoreVariant variant) => Path.Combine(_project, variant.ToDirectoryName());
+
+    /// <summary>
+    /// Compares every declared engines.node floor against the Node version this host ships. An
+    /// unsatisfied floor means a future core has moved past this runtime, and an unparseable range
+    /// is reported rather than skipped. Both become explicit issues, so "更新核心之后跑不起来"
+    /// surfaces at check time with the reason instead of at start-up.
+    /// </summary>
+    internal static CoreDependencyCheckResult ApplyEngineFloors(CoreDependencyCheckResult result)
+    {
+        if (result.EngineRequirements is null || result.EngineRequirements.Count == 0) return result;
+        var issues = new List<CoreDependencyIssue>(result.Issues);
+        foreach (var requirement in result.EngineRequirements)
+        {
+            if (NodeEngineRange.TrySatisfies(requirement.Range, BundledNodeRuntime.ExpectedVersion, out var problem)) continue;
+            issues.Add(new CoreDependencyIssue(requirement.Name, requirement.Range, string.Empty, null, null, null,
+                problem + $"，本程序内置 Node {BundledNodeRuntime.ExpectedVersion}"));
+        }
+        return new(result.Total, issues, result.EngineRequirements);
+    }
     private static void ValidateCore(string core)
     {
         EnsureNoLinks(core); EnsureNoLinks(Path.Combine(core, "package.json"));

@@ -282,7 +282,7 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         DesktopRuntimeState.Preparing or DesktopRuntimeState.Starting or DesktopRuntimeState.Stopping => new SolidColorBrush(Color.Parse("#2563EB")),
         _ => new SolidColorBrush(Color.Parse("#64748B")),
     };
-    public bool CanStart => _preparation?.StartBlockedReason is null && _config is not null && Runtime.State is (DesktopRuntimeState.Stopped or DesktopRuntimeState.Failed);
+    public bool CanStart => _preparation?.StartBlockedReason is null && _config is not null && Runtime.State is (DesktopRuntimeState.Stopped or DesktopRuntimeState.Failed or DesktopRuntimeState.CoreSetupRequired);
     public bool CanStop => Runtime.State is DesktopRuntimeState.Running or DesktopRuntimeState.Starting or DesktopRuntimeState.Preparing;
     public bool CanRestart => _preparation?.StartBlockedReason is null && Runtime.State is DesktopRuntimeState.Running or DesktopRuntimeState.Failed;
     public bool IsBusy => Runtime.State is DesktopRuntimeState.Preparing or DesktopRuntimeState.Starting or DesktopRuntimeState.Stopping;

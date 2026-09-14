@@ -584,7 +584,7 @@ public sealed partial class CorePageViewModel : ViewModelBase
         var confirmed = await _dialogService.ConfirmAsync(
             "删除核心",
             $"将删除{VariantLabel}文件，但不会删除配置、日志、Node 或下载缓存。此操作会停止运行中的服务。",
-            "删除核心").ConfigureAwait(true);
+            "停止服务并删除核心").ConfigureAwait(true);
         if (!confirmed)
         {
             return;

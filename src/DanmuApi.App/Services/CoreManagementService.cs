@@ -463,6 +463,14 @@ public sealed class CoreManagementService : ICoreManagementService
                         throw new InvalidOperationException(
                             $"服务恢复失败：{_runtimeController.Snapshot.FailureReason ?? _runtimeController.Snapshot.State.ToString()}");
                     }
+
+                    // 删除当前核心会把运行时停在 CoreSetupRequired，而该状态下主窗口与托盘的启动入口都被禁用。
+                    // 本次变更前服务没在运行（restartRequired=false）时上面不会启动服务，这个停驻状态就会一直留着，
+                    // 用户装回核心也点不动"启动服务"——所以影响活动运行时的变更结束后要重新评估一次。
+                    if (!restartRequired && affectsActiveRuntime)
+                    {
+                        await _runtimeController.RefreshCoreSetupRequiredAsync(CancellationToken.None).ConfigureAwait(false);
+                    }
                 }
             }
             catch (Exception error)

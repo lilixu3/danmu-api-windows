@@ -90,6 +90,55 @@ public sealed class RuntimeControllerTests
         Assert.Equal(["adopt"], supervisor.Calls);
     }
 
+    /// <summary>删核心会把运行时停在 CoreSetupRequired，而该状态下主窗口与托盘的启动入口都被禁用。
+    /// 装回核心后必须能清掉这个停驻状态，否则用户不重启应用就永远点不动“启动服务”。</summary>
+    [Fact]
+    public async Task RefreshCoreSetupRequiredClearsTheParkedStateOnlyOnceTheCoreIsBack()
+    {
+        using var directory = new TemporaryDirectory();
+        var config = CreateConfig(directory.Path);
+        var supervisor = new FakeSupervisor
+        {
+            AdoptionResult = AdoptionResult.Failure(
+                AdoptionFailureKind.NotFound,
+                new RuntimeSnapshot(DesktopRuntimeState.Stopped),
+                "没有后台实例"),
+        };
+        await using var controller = new RuntimeController(supervisor, () => config);
+
+        await controller.StartAsync();
+        Assert.Equal(DesktopRuntimeState.CoreSetupRequired, controller.Snapshot.State);
+
+        // 核心还没装回来：停驻状态与原因都必须保留。
+        await controller.RefreshCoreSetupRequiredAsync();
+        Assert.Equal(DesktopRuntimeState.CoreSetupRequired, controller.Snapshot.State);
+        Assert.Contains("核心尚未准备", controller.Snapshot.FailureReason, StringComparison.Ordinal);
+
+        File.WriteAllText(Path.Combine(config.ScriptDir, "danmu_api_stable", "worker.js"), "// core");
+        await controller.RefreshCoreSetupRequiredAsync();
+
+        Assert.Equal(DesktopRuntimeState.Stopped, controller.Snapshot.State);
+        Assert.Null(controller.Snapshot.FailureReason);
+        // 只清状态，不得顺手启动服务。
+        Assert.Equal(["adopt"], supervisor.Calls);
+    }
+
+    [Fact]
+    public async Task RefreshCoreSetupRequiredIsANoOpOutsideTheParkedState()
+    {
+        using var directory = new TemporaryDirectory();
+        var config = CreateConfig(directory.Path);
+        File.WriteAllText(Path.Combine(config.ScriptDir, "danmu_api_stable", "worker.js"), "// core");
+        var supervisor = new FakeSupervisor();
+        await using var controller = new RuntimeController(supervisor, () => config);
+        Assert.Equal(DesktopRuntimeState.Stopped, controller.Snapshot.State);
+
+        await controller.RefreshCoreSetupRequiredAsync();
+
+        Assert.Equal(DesktopRuntimeState.Stopped, controller.Snapshot.State);
+        Assert.Empty(supervisor.Calls);
+    }
+
     [Fact]
     public async Task FirewallFailureStopsBeforeStartingNode()
     {

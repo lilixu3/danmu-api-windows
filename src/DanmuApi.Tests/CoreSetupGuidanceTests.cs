@@ -34,6 +34,32 @@ public sealed class CoreSetupGuidanceTests : IDisposable
         Assert.Contains("服务未启动", viewModel.DiagnosticText, StringComparison.Ordinal);
     }
 
+    /// <summary>回归：删核心后运行时会停在 CoreSetupRequired。此前 CanStart 不含该状态，主窗口
+    /// "启动服务"与托盘同名项都是禁用的，用户装回核心也点不动，只能重启应用才能恢复。
+    /// 这个状态必须允许发起启动：核心在就正常启动，核心真缺就走上一条用例的引导。</summary>
+    [Theory]
+    [InlineData(DesktopRuntimeState.Stopped)]
+    [InlineData(DesktopRuntimeState.Failed)]
+    [InlineData(DesktopRuntimeState.CoreSetupRequired)]
+    public async Task StartActionStaysEnabledForEveryStateThatCanAttemptAStart(DesktopRuntimeState state)
+    {
+        await using var viewModel = CreateViewModel(accept: false, out _, new RuntimeSnapshot(
+            state,
+            9321,
+            FailureReason: state == DesktopRuntimeState.Failed ? "上次启动失败" : null));
+
+        Assert.True(viewModel.StartCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task StartActionIsDisabledWhileTheRuntimeIsRunning()
+    {
+        await using var viewModel = CreateViewModel(accept: false, out _,
+            new RuntimeSnapshot(DesktopRuntimeState.Running, 9321, 42));
+
+        Assert.False(viewModel.StartCommand.CanExecute(null));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))
@@ -42,7 +68,8 @@ public sealed class CoreSetupGuidanceTests : IDisposable
         }
     }
 
-    private MainWindowViewModel CreateViewModel(bool accept, out RecordingDialogService dialogs)
+    private MainWindowViewModel CreateViewModel(bool accept, out RecordingDialogService dialogs,
+        RuntimeSnapshot? initial = null)
     {
         dialogs = new RecordingDialogService { CoreSetupAccepted = accept };
         var paths = CreateRuntime();
@@ -62,7 +89,7 @@ public sealed class CoreSetupGuidanceTests : IDisposable
             new StubNotificationService(),
             paths);
         var controller = new StubRuntimeController(
-            new RuntimeSnapshot(DesktopRuntimeState.Stopped, 9321));
+            initial ?? new RuntimeSnapshot(DesktopRuntimeState.Stopped, 9321));
         return new MainWindowViewModel(
             controller,
             new StubHealthClient(),
@@ -88,11 +115,14 @@ public sealed class CoreSetupGuidanceTests : IDisposable
 
     private sealed class StubRuntimeController(RuntimeSnapshot initial) : IRuntimeController
     {
+        public Task RefreshCoreSetupRequiredAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public RuntimeSnapshot Snapshot { get; private set; } = initial;
+        public List<string> Calls { get; } = [];
         public event EventHandler<RuntimeSnapshot>? SnapshotChanged;
 
         public Task StartAsync(CancellationToken cancellationToken = default)
         {
+            Calls.Add("start");
             Snapshot = new RuntimeSnapshot(
                 DesktopRuntimeState.CoreSetupRequired,
                 FailureReason: "核心尚未安装");

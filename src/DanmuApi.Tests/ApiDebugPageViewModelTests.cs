@@ -295,6 +295,7 @@ public sealed class ApiDebugPageViewModelTests
 
     private sealed class TestRuntimeController : IRuntimeController
     {
+        public Task RefreshCoreSetupRequiredAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public RuntimeSnapshot Snapshot { get; } = new(DesktopRuntimeState.Running, 9321, 1, "test");
         event EventHandler<RuntimeSnapshot>? IRuntimeController.SnapshotChanged { add { } remove { } }
         public Task StartAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;

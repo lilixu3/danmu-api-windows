@@ -70,6 +70,35 @@ public sealed class CoreManagementServiceTests
         Assert.Equal(["stop", "install", "start"], calls);
     }
 
+    /// <summary>回归：删核心会把运行时停在 CoreSetupRequired（见 DeleteRunningActiveCoreStopsAndEndsCoreSetupRequired），
+    /// 而该状态下主窗口与托盘的启动入口都是禁用的。装回核心后必须重新评估这个停驻状态，
+    /// 否则用户装回核心也点不动"启动服务"，只能重启应用才能恢复。</summary>
+    [Fact]
+    public async Task InstallingAfterDeleteClearsTheParkedSetupRequiredState()
+    {
+        var calls = new List<string>();
+        var installer = new RecordingInstaller(Installed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), calls)
+        {
+            InstallResult = Installed("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+        };
+        var runtime = new RecordingRuntimeController(
+            new RuntimeSnapshot(DesktopRuntimeState.CoreSetupRequired, 9321, FailureReason: "核心尚未准备"),
+            calls);
+        var service = CreateService(installer, runtime, ManagedCoreVariant.Stable);
+
+        var result = await service.InstallCommitAsync(
+            ManagedCoreVariant.Stable,
+            GithubRepositoryReference.Official("main"),
+            "main",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "官方核心",
+            GithubProxyCatalog.OriginalId);
+
+        Assert.True(result.Succeeded);
+        Assert.Contains("refresh", calls);
+        Assert.Equal(DesktopRuntimeState.Stopped, runtime.Snapshot.State);
+    }
+
     [Fact]
     public async Task SuccessfulInstallAnnouncesTheChangedInstallation()
     {
@@ -501,6 +530,16 @@ public sealed class CoreManagementServiceTests
 
     private sealed class RecordingRuntimeController(RuntimeSnapshot initial, List<string> calls) : IRuntimeController
     {
+        public Task RefreshCoreSetupRequiredAsync(CancellationToken cancellationToken = default)
+        {
+            calls.Add("refresh");
+            if (Snapshot.State == DesktopRuntimeState.CoreSetupRequired)
+            {
+                Snapshot = new RuntimeSnapshot(DesktopRuntimeState.Stopped);
+                SnapshotChanged?.Invoke(this, Snapshot);
+            }
+            return Task.CompletedTask;
+        }
         public RuntimeSnapshot Snapshot { get; private set; } = initial;
         public bool StartWithoutCore { get; init; }
         public Func<Task>? AsyncStart { get; init; }

@@ -40,6 +40,12 @@ public interface IRuntimeController
     Task<AdoptionResult> AdoptAsync(CancellationToken cancellationToken = default);
     string? ReconcileLiveness();
     Task StopAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Re-evaluates a parked <see cref="DesktopRuntimeState.CoreSetupRequired"/> state against
+    /// the selected variant on disk. Deleting the active core parks the runtime there on purpose, and
+    /// both start entry points stay disabled while it is parked, so the state must not outlive the
+    /// missing core. A no-op in every other state; it never starts the service.</summary>
+    Task RefreshCoreSetupRequiredAsync(CancellationToken cancellationToken = default);
     Task RestartAsync(CancellationToken cancellationToken = default);
     Task ShutdownAsync(CancellationToken cancellationToken = default);
 }

@@ -38,7 +38,22 @@ internal static class ReleaseSelfTest
             var stderr = node.StandardError.ReadToEndAsync();
             if (!node.WaitForExit(15000)) { node.Kill(true); throw new TimeoutException("Node依赖探针超时"); }
             if (node.ExitCode != 0) throw new IOException("Node依赖检查失败：" + stderr.GetAwaiter().GetResult());
-            messages.Add("Node及生产依赖解析通过：" + stdout.GetAwaiter().GetResult().Trim());
+            var nodeVersion = stdout.GetAwaiter().GetResult().Trim();
+            messages.Add("Node及生产依赖解析通过：" + nodeVersion);
+            // The runtime the package carries must be the runtime this build was compiled against,
+            // in the architecture it was packaged for. Both are proven against the deployed binary,
+            // not against the manifest that describes it.
+            var bundle = ReadRuntimeBuildIdentity(Path.Combine(AppContext.BaseDirectory, "runtime-bundle"));
+            var hostArchitecture = BundledRuntimePreparer.HostArchitecture();
+            if (!string.Equals(bundle.Arch, hostArchitecture, StringComparison.Ordinal))
+                throw new IOException($"运行环境记录架构 {bundle.Arch} 与当前进程架构 {hostArchitecture} 不一致");
+            var deployed = Path.Combine(paths.RuntimeDirectory, "node.exe");
+            var machine = ExecutableImage.ArchitectureName(ExecutableImage.Machine(deployed));
+            if (!string.Equals(machine, bundle.Arch, StringComparison.Ordinal))
+                throw new IOException($"部署的 node.exe 实际架构 {machine} 与运行环境记录 {bundle.Arch} 不一致");
+            if (!string.Equals(nodeVersion, "v" + bundle.NodeVersion, StringComparison.Ordinal))
+                throw new IOException($"node.exe 实际版本 {nodeVersion} 与运行环境记录 {bundle.NodeVersion} 不一致");
+            messages.Add($"运行环境记录 Node {bundle.NodeVersion}/{bundle.Arch}，实际 {nodeVersion}/{machine} 一致");
             var config = Path.Combine(paths.NodeProjectDirectory, "config");
             Directory.CreateDirectory(config);
             File.WriteAllText(Path.Combine(config, ".env"), "USER_SENTINEL=preserve");
@@ -98,6 +113,19 @@ internal static class ReleaseSelfTest
             File.WriteAllLines(reportPath, messages);
         }
         return code;
+    }
+
+    private sealed record RuntimeBuildIdentity(string Version, string NodeVersion, string Arch);
+
+    private static RuntimeBuildIdentity ReadRuntimeBuildIdentity(string bundleDirectory)
+    {
+        var path = Path.Combine(bundleDirectory, "runtime-build.json");
+        if (!File.Exists(path)) throw new IOException("随包运行环境缺少 runtime-build.json：" + path);
+        using var stream = File.OpenRead(path);
+        var identity = JsonSerializer.Deserialize<RuntimeBuildIdentity>(stream);
+        if (identity is null || string.IsNullOrWhiteSpace(identity.NodeVersion) || string.IsNullOrWhiteSpace(identity.Arch))
+            throw new IOException("运行环境记录缺少 Node 版本或架构");
+        return identity;
     }
 
     private sealed class ProbeDiagnostics(List<string> messages) : IAppDiagnostics

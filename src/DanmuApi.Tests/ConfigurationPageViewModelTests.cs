@@ -255,6 +255,10 @@ public sealed class ConfigurationPageViewModelTests
         var match = Assert.Single(viewModel.FilteredVariables);
         Assert.Equal("TEST_COUNT", match.Key);
         Assert.Equal("缓存配置", match.Category);
+        // 搜索结果里带分类分组标题（对应核心前端的 preview-group-heading）。
+        Assert.True(match.HasGroupHeader);
+        Assert.Contains("缓存配置", match.GroupHeader!, StringComparison.Ordinal);
+        Assert.Contains("1 项", match.GroupHeader!, StringComparison.Ordinal);
         Assert.Equal("搜索结果", viewModel.PageTitle);
         Assert.True(viewModel.HasSearchText);
         // 搜索态必须明确告诉用户「以下是包含关键词的全部变量」，并给出命中数量。
@@ -270,6 +274,37 @@ public sealed class ConfigurationPageViewModelTests
         Assert.All(viewModel.FilteredVariables, row => Assert.Equal("数据源配置", row.Category));
         Assert.Contains(viewModel.FilteredVariables, row => row.Key == "VOD_SERVERS");
         Assert.DoesNotContain(viewModel.FilteredVariables, row => row.Key == "TEST_COUNT");
+    }
+
+    /// <summary>
+    /// 搜索按分类分组：每组第一行挂分组标题，组内按变量名排序；
+    /// 分类名本身也参与匹配（输入「源」能列出该分类全部变量）。
+    /// </summary>
+    [Fact]
+    public void SearchGroupsResultsByCategoryAndMatchesCategoryName()
+    {
+        using var fixture = new ConfigurationFixture();
+        var viewModel = fixture.CreateViewModel();
+
+        // 用一个跨分类都会命中的关键词：说明里都提到「测试」。
+        viewModel.SearchText = "TEST";
+
+        var headers = viewModel.FilteredVariables.Where(row => row.HasGroupHeader).ToArray();
+        Assert.NotEmpty(headers);
+        // 每个分组标题只出现一次，且形如「分类名 · N 项」
+        Assert.Equal(headers.Length, headers.Select(row => row.GroupHeader!).Distinct(StringComparer.Ordinal).Count());
+        Assert.All(headers, row => Assert.Contains("项", row.GroupHeader!, StringComparison.Ordinal));
+
+        // 组内按 Key 升序，且同一分类的行连续排列
+        foreach (var group in viewModel.FilteredVariables.GroupBy(row => row.Category, StringComparer.Ordinal))
+        {
+            var ordered = group.Select(row => row.Key).ToArray();
+            Assert.Equal(ordered.OrderBy(key => key, StringComparer.Ordinal).ToArray(), ordered);
+        }
+
+        // 分类名命中：只搜「缓存」也能列出该分类的变量
+        viewModel.SearchText = "缓存";
+        Assert.Contains(viewModel.FilteredVariables, row => row.Category == "缓存配置");
     }
 
     [Fact]

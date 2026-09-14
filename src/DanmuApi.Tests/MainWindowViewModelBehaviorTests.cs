@@ -528,6 +528,7 @@ public sealed partial class MainWindowViewModelBehaviorTests
 
     private sealed class RecordingRuntimeController(RuntimeSnapshot snapshot) : IRuntimeController
     {
+        public Task RefreshCoreSetupRequiredAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         event EventHandler<RuntimeSnapshot>? IRuntimeController.SnapshotChanged
         {
             add { }

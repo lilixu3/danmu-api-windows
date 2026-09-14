@@ -239,6 +239,7 @@ public sealed class ServiceManagementPageViewModelTests
     }
     private sealed class Runtime : IRuntimeController
     {
+        public Task RefreshCoreSetupRequiredAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public RuntimeSnapshot Snapshot => new(DesktopRuntimeState.Running, 9321, 123, "test");
         public event EventHandler<RuntimeSnapshot>? SnapshotChanged { add { } remove { } }
         public Task StartAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();

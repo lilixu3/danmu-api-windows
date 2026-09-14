@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.Text;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -105,6 +105,25 @@ public sealed partial class UiDialogService : IUiDialogService
     private readonly IAdminSessionService? _adminSession;
     private readonly IRuntimeController? _runtimeController;
     private readonly ICoreCredentialClient? _credentialClient;
+    private readonly ICoreCacheAnimeClient? _animeClient;
+    private readonly PosterImageService? _posterImages;
+    private readonly IAppDiagnostics? _diagnostics;
+
+    /// <summary>
+    /// 支持"查看最近数据"的变量，与核心自带前端一致：
+    /// 多选分支的 MERGE_SOURCE_PAIRS、映射分支的两个映射表、三个标题过滤、偏移与合并规则。
+    /// </summary>
+    private static readonly HashSet<string> RecentDataKeys = new(StringComparer.Ordinal)
+    {
+        "MERGE_SOURCE_PAIRS",
+        "TITLE_MAPPING_TABLE",
+        "AUTO_MATCH_MAPPING_TABLE",
+        "ANIME_TITLE_FILTER",
+        "EPISODE_TITLE_FILTER",
+        "TITLE_NOISE_FILTER",
+        "DANMU_OFFSET",
+        "CUSTOM_MERGE_RULES",
+    };
 
     public UiDialogService(Func<Window?> ownerProvider)
         : this(ownerProvider, null, null, null, null, null)
@@ -117,7 +136,10 @@ public sealed partial class UiDialogService : IUiDialogService
         ISettingsStore? settingsStore,
         IAdminSessionService? adminSession,
         IRuntimeController? runtimeController,
-        ICoreCredentialClient? credentialClient)
+        ICoreCredentialClient? credentialClient,
+        ICoreCacheAnimeClient? animeClient = null,
+        PosterImageService? posterImages = null,
+        IAppDiagnostics? diagnostics = null)
     {
         _ownerProvider = ownerProvider ?? throw new ArgumentNullException(nameof(ownerProvider));
         _paths = paths;
@@ -125,6 +147,9 @@ public sealed partial class UiDialogService : IUiDialogService
         _adminSession = adminSession;
         _runtimeController = runtimeController;
         _credentialClient = credentialClient;
+        _animeClient = animeClient;
+        _posterImages = posterImages;
+        _diagnostics = diagnostics;
     }
 
     public async Task EditPortAsync(MainWindowViewModel viewModel)
@@ -643,14 +668,10 @@ public sealed partial class UiDialogService : IUiDialogService
             return await PromptVodServersAsync(definition, initial, configured, description).ConfigureAwait(true);
         }
 
-        if (definition.Key == "TITLE_MAPPING_TABLE")
+        // 两个映射表共用核心那套 map 界面（批量框 + 解析并更新列表 + 逐行 原值->映射值）。
+        if (definition.Key is "TITLE_MAPPING_TABLE" or "AUTO_MATCH_MAPPING_TABLE")
         {
             return await PromptMappingTableAsync(definition, initial, configured, description).ConfigureAwait(true);
-        }
-
-        if (definition.Key == "AUTO_MATCH_MAPPING_TABLE")
-        {
-            return await PromptAutoMatchMappingsAsync(definition, initial, configured, description).ConfigureAwait(true);
         }
 
         if (definition.Key == "MERGE_SOURCE_PAIRS")
@@ -756,9 +777,12 @@ public sealed partial class UiDialogService : IUiDialogService
         var editor = new OrderedTagsEditor(
             definition.Options,
             initial.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries),
-            allowComposites: definition.Key == "PLATFORM_ORDER");
+            allowComposites: definition.Key == "PLATFORM_ORDER",
+            // PLATFORM_ORDER 同时支持单平台与合并平台，默认不开合并模式，用户需要时自己开。
+            allowMergeMode: definition.Key == "PLATFORM_ORDER",
+            mergeModeDefault: false);
         var error = CreateErrorText();
-        var dialog = CreateConfigurationEditorDialog($"编辑 {definition.Key}", description, editor, error, out var save);
+        var dialog = CreateConfigurationEditorDialog(definition, description, editor, error, out var save);
         save.Click += (_, _) =>
         {
             try
@@ -786,7 +810,7 @@ public sealed partial class UiDialogService : IUiDialogService
         CoreEnvStructuredValidation.Validate(definition, initial);
         var editor = new VodServersEditor(initial);
         var error = CreateErrorText();
-        var dialog = CreateConfigurationEditorDialog($"编辑 {definition.Key}", description, editor, error, out var save);
+        var dialog = CreateConfigurationEditorDialog(definition, description, editor, error, out var save);
         save.Click += (_, _) =>
         {
             try
@@ -804,6 +828,11 @@ public sealed partial class UiDialogService : IUiDialogService
         return dialog.Result;
     }
 
+    /// <summary>
+    /// 映射表（TITLE_MAPPING_TABLE / AUTO_MATCH_MAPPING_TABLE 共用）。核心前端把两个键都走
+    /// <c>type === 'map'</c> 的同一套界面：批量多行框 + 「解析并更新列表」+ 逐行 原值-&gt;映射值，
+    /// 底部「添加映射项」与「查看最近数据」同行。
+    /// </summary>
     private async Task<CoreEnvEditResult> PromptMappingTableAsync(
         CoreEnvDefinition definition,
         string initial,
@@ -811,15 +840,18 @@ public sealed partial class UiDialogService : IUiDialogService
         string description)
     {
         CoreEnvStructuredValidation.Validate(definition, initial);
-        var editor = new MappingTableEditor(initial);
+        var editor = new MappingTableEditor(definition, initial);
+        AttachRecentData(editor.RecentDataHost, definition.Key, fillTarget: null);
         var error = CreateErrorText();
-        var dialog = CreateConfigurationEditorDialog($"编辑 {definition.Key}", description, editor, error, out var save);
+        var dialog = CreateConfigurationEditorDialog(definition, description, editor, error, out var save);
         save.Click += (_, _) =>
         {
             try
             {
-                CoreEnvStructuredValidation.Validate(definition, editor.Value);
-                dialog.Result = CoreEnvEditResult.Set(editor.Value);
+                var value = editor.Value;
+                GuardAgainstEmptyOverwrite(definition.Key, value, configured);
+                editor.Validate();
+                dialog.Result = CoreEnvEditResult.Set(value);
                 dialog.Close();
             }
             catch (Exception exception) when (exception is ArgumentException or FormatException)
@@ -829,6 +861,23 @@ public sealed partial class UiDialogService : IUiDialogService
         };
         await dialog.ShowDialog(GetOwner());
         return dialog.Result;
+    }
+
+    /// <summary>
+    /// 拒绝把"已经有值"的配置保存成空串。
+    /// 清空有专门的入口（配置列表行上的「清除」按钮，走核心删除接口），
+    /// 编辑器里出现空值基本只有两种可能：编辑器没读懂存量值，或者规则被删光了。
+    /// 两种情况都不该静默把用户已有的配置抹成空——上一版就是这样把值写没的。
+    /// </summary>
+    internal static void GuardAgainstEmptyOverwrite(string key, string? value, bool configured)
+    {
+        if (!configured || !string.IsNullOrEmpty(value))
+        {
+            return;
+        }
+
+        throw new FormatException(
+            $"{key} 当前已有配置，不能保存为空值。要恢复核心默认，请用配置列表行上的「清除」按钮。");
     }
 
     public async Task<string?> PromptCoreEnvValueAsync(CoreEnvDefinition definition, string initial, string description)
@@ -853,57 +902,88 @@ public sealed partial class UiDialogService : IUiDialogService
             CoreEnvRepository.ValidateValue(definition, initial);
         }
 
+        // 每种类型的控件形状、标签文案与核心自带前端 renderValueInput 的分支对齐：
+        // boolean → 「值」+ 48×26 开关（右侧 启用/禁用）；number → 「值 (min-max)」+ 滚轮 + 滑块；
+        // select → 「选择值」+ 胶囊单选；text/map → 「变量值 *」+ 单行框或等宽多行框（按长度切换）。
         Control input;
         if (definition.Type == CoreEnvType.Boolean)
         {
-            input = new ComboBox
-            {
-                ItemsSource = new[] { "true", "false" },
-                SelectedIndex = string.Equals(initial, "false", StringComparison.OrdinalIgnoreCase) ? 1 : 0,
-                Width = 280,
-            };
+            // 核心对 LIKE_SWITCH / REMEMBER_LAST_SELECT 把空值当 true，这里保持一致。
+            var defaultOn = definition.Key is "LIKE_SWITCH" or "REMEMBER_LAST_SELECT";
+            var initialOn = string.IsNullOrEmpty(initial)
+                ? defaultOn
+                : string.Equals(initial, "true", StringComparison.OrdinalIgnoreCase);
+            input = new SwitchEditor(initialOn);
+        }
+        else if (definition.Type == CoreEnvType.Number)
+        {
+            var minimum = definition.Minimum is null ? 1d : (double)definition.Minimum.Value;
+            var maximum = definition.Maximum is null ? 100d : (double)definition.Maximum.Value;
+            input = new NumberWheelEditor(
+                minimum,
+                maximum,
+                decimal.TryParse(initial, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+                    ? (double)parsed
+                    : null);
         }
         else if (definition.Type == CoreEnvType.Select)
         {
-            var selected = definition.Options
-                .Select((option, index) => (option, index))
-                .FirstOrDefault(pair => string.Equals(pair.option, initial, StringComparison.Ordinal)).index;
-            input = new ComboBox
-            {
-                ItemsSource = definition.Options,
-                SelectedIndex = selected >= 0 ? selected : 0,
-                Width = 360,
-            };
+            input = new TagSelectEditor(definition.Options, initial);
         }
         else if (definition.Type == CoreEnvType.MultiSelect)
         {
             input = new TagPicker(
                 definition.Options,
                 initial.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries),
-                compareTokens: true);
+                compareTokens: true,
+                allowUnknownValues: true);
         }
         else
         {
-            input = new TextBox
+            // 核心口径：长度 > 50 用等宽多行框，否则单行框。
+            var multiline = initial.Length > 50 || definition.Type == CoreEnvType.Map;
+            var text = new TextBox
             {
                 Text = initial,
-                Width = 420,
-                AcceptsReturn = true,
-                TextWrapping = TextWrapping.Wrap,
-                MinHeight = definition.Type == CoreEnvType.Text || definition.Type == CoreEnvType.Map ? 90 : 32,
+                AcceptsReturn = multiline,
+                TextWrapping = multiline ? TextWrapping.Wrap : TextWrapping.NoWrap,
+                MinHeight = multiline ? 80 : 0,
             };
+            if (multiline)
+            {
+                text.Classes.Add("mono");
+            }
+
+            input = text;
         }
 
         var error = new TextBlock { TextWrapping = TextWrapping.Wrap };
         error.Classes.Add("danger-text");
-        var dialog = CreateConfigurationEditorDialog($"编辑 {definition.Key}", description, input, error, out var result);
+        error.IsVisible = false;
+
+        var editorStack = new StackPanel { Spacing = 8 };
+        editorStack.Children.Add(BuildValueField(definition, initial, input));
+
+        // 三个标题过滤变量核心也给了「查看最近数据」：面板紧跟输入框，用来对照缓存里的真实剧名写正则。
+        if (RecentDataKeys.Contains(definition.Key))
+        {
+            var host = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch };
+            AttachRecentData(host, definition.Key, fillTarget: null);
+            editorStack.Children.Add(host);
+        }
+
+        editorStack.Children.Add(error);
+
+        var dialog = CreateConfigurationEditorDialog(definition, description, editorStack, error, out var result);
         result.Click += (_, _) =>
         {
             try
             {
                 var value = input switch
                 {
-                    ComboBox combo => combo.SelectedItem?.ToString(),
+                    SwitchEditor toggle => toggle.IsOn ? "true" : "false",
+                    NumberWheelEditor wheel => wheel.ValueText,
+                    TagSelectEditor tags => tags.Value,
                     TagPicker picker => string.Join(',', picker.Values),
                     TextBox text => text.Text ?? string.Empty,
                     _ => null,
@@ -911,9 +991,11 @@ public sealed partial class UiDialogService : IUiDialogService
                 if (value is null)
                 {
                     error.Text = "请选择一个有效值。";
+                    error.IsVisible = true;
                     return;
                 }
 
+                GuardAgainstEmptyOverwrite(definition.Key, value, configured);
                 CoreEnvRepository.ValidateValue(definition, value);
                 dialog.Result = CoreEnvEditResult.Set(value);
                 dialog.Close();
@@ -921,10 +1003,34 @@ public sealed partial class UiDialogService : IUiDialogService
             catch (Exception exception) when (exception is ArgumentException or FormatException)
             {
                 error.Text = exception.Message;
+                error.IsVisible = true;
             }
         };
         await dialog.ShowDialog(GetOwner());
         return dialog.Result;
+    }
+
+    /// <summary>按核心的字段标签口径给动态控件套上外层字段块。</summary>
+    private static Control BuildValueField(CoreEnvDefinition definition, string initial, Control input)
+    {
+        switch (definition.Type)
+        {
+            case CoreEnvType.Boolean:
+                return ConfigForm.FieldShrink("值", input);
+            case CoreEnvType.Number:
+            {
+                var minimum = definition.Minimum is null ? 1m : definition.Minimum.Value;
+                var maximum = definition.Maximum is null ? 100m : definition.Maximum.Value;
+                return ConfigForm.Field($"值 ({minimum:0.##}-{maximum:0.##})", input);
+            }
+
+            case CoreEnvType.Select:
+                return ConfigForm.Field("选择值", input);
+            case CoreEnvType.MultiSelect:
+                return ConfigForm.Field("已选择", input);
+            default:
+                return ConfigForm.Field("变量值 *", input);
+        }
     }
 
 

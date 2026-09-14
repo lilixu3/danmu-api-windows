@@ -605,6 +605,7 @@ public sealed class DanmuApiClientTests
 
     private sealed class RecordingRuntimeController(RuntimeSnapshot snapshot) : IRuntimeController
     {
+        public Task RefreshCoreSetupRequiredAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public RuntimeSnapshot Snapshot { get; } = snapshot;
         event EventHandler<RuntimeSnapshot>? IRuntimeController.SnapshotChanged
         {

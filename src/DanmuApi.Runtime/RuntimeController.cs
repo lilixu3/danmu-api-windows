@@ -87,7 +87,7 @@ public sealed class RuntimeController : IRuntimeController, IAsyncDisposable
                     return;
                 }
 
-                var coreEntry = Path.Combine(config.ScriptDir, $"danmu_api_{config.Variant}", "worker.js");
+                var coreEntry = CoreEntry(config);
                 if (!File.Exists(coreEntry))
                 {
                     Publish(new RuntimeSnapshot(
@@ -245,6 +245,34 @@ public sealed class RuntimeController : IRuntimeController, IAsyncDisposable
         }
     }
 
+    public async Task RefreshCoreSetupRequiredAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (Snapshot.State != DesktopRuntimeState.CoreSetupRequired)
+            {
+                return;
+            }
+
+            // The core is back on disk, so the parked state and its reason no longer describe reality.
+            var config = _startConfigFactory();
+            if (!File.Exists(CoreEntry(config)))
+            {
+                return;
+            }
+
+            Publish(new RuntimeSnapshot(DesktopRuntimeState.Stopped, Port: config.Port));
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private static string CoreEntry(StartConfig config) =>
+        Path.Combine(config.ScriptDir, $"danmu_api_{config.Variant}", "worker.js");
+
     public async Task RestartAsync(CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -281,7 +309,7 @@ public sealed class RuntimeController : IRuntimeController, IAsyncDisposable
                 return;
             }
 
-            var coreEntry = Path.Combine(config.ScriptDir, $"danmu_api_{config.Variant}", "worker.js");
+            var coreEntry = CoreEntry(config);
             if (!File.Exists(coreEntry))
             {
                 Publish(new RuntimeSnapshot(

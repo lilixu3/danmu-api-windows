@@ -7,6 +7,9 @@
 #ifndef OutputRoot
   #define OutputRoot "..\artifacts\release"
 #endif
+#ifndef ArchName
+  #define ArchName "x64"
+#endif
 [Setup]
 AppId={{D6F1E4DB-9C73-4DE2-B985-9DAF96B8E9B4}
 AppName=弹幕API
@@ -15,11 +18,20 @@ AppPublisher=Danmu API
 DefaultDirName={autopf}\DanmuApi
 DefaultGroupName=弹幕API
 DisableProgramGroupPage=yes
+#if ArchName == "x86"
+; 32-bit Windows only: a 64-bit machine should use its own package.
+ArchitecturesAllowed=x86
+#elif ArchName == "arm64"
+ArchitecturesAllowed=arm64
+ArchitecturesInstallIn64BitMode=arm64
+#else
+; x64compatible also matches Arm64 Windows 11, so an existing x64 install keeps updating itself.
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+#endif
 PrivilegesRequired=admin
 OutputDir={#OutputRoot}
-OutputBaseFilename=DanmuApi-{#AppVersion}-win-x64-setup
+OutputBaseFilename=DanmuApi-{#AppVersion}-win-{#ArchName}-setup
 SetupIconFile=..\assets\icons\danmuapi.ico
 UninstallDisplayIcon={app}\DanmuApi.App.exe
 Compression=lzma2
@@ -54,6 +66,12 @@ const
   LegacyCode = '{E56FCF01-A357-33A6-8C20-41C23E8D1B97}';
   LegacyUninstall = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{E56FCF01-A357-33A6-8C20-41C23E8D1B97}';
   CurrentUninstall = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{D6F1E4DB-9C73-4DE2-B985-9DAF96B8E9B4}_is1';
+// A 32-bit build cannot read the 64-bit registry view, so its uninstall and legacy lookups use HKLM32.
+#if ArchName == "x86"
+  RegRoot = HKLM32;
+#else
+  RegRoot = HKLM64;
+#endif
 var
   LegacyPresent: Boolean;
   HadAutostart: Boolean;
@@ -95,15 +113,15 @@ var
   Version, Name: String;
 begin
   Result := False;
-  if RegQueryStringValue(HKLM64, CurrentUninstall, 'DisplayVersion', Version) then
+  if RegQueryStringValue(RegRoot, CurrentUninstall, 'DisplayVersion', Version) then
     if CompareVersion(Version, '{#AppVersion}') > 0 then begin
       MsgBox('已安装更新版本，不能降级。', mbError, MB_OK);
       exit;
     end;
   LegacyPresent := MsiQueryProductState(LegacyCode) = 5;
   if LegacyPresent then begin
-    if not RegQueryStringValue(HKLM64, LegacyUninstall, 'DisplayName', Name) or
-       not RegQueryStringValue(HKLM64, LegacyUninstall, 'DisplayVersion', Version) then begin
+    if not RegQueryStringValue(RegRoot, LegacyUninstall, 'DisplayName', Name) or
+       not RegQueryStringValue(RegRoot, LegacyUninstall, 'DisplayVersion', Version) then begin
       MsgBox('旧版 MSI 身份信息不完整，停止迁移。', mbError, MB_OK);
       exit;
     end;
@@ -111,7 +129,7 @@ begin
       MsgBox('旧版 MSI 元数据与发布记录不一致，停止迁移。', mbError, MB_OK);
       exit;
     end;
-    RegQueryStringValue(HKLM64, LegacyUninstall, 'InstallLocation', LegacyDirectory);
+    RegQueryStringValue(RegRoot, LegacyUninstall, 'InstallLocation', LegacyDirectory);
     if MsgBox('检测到 Kotlin 测试版。安装将移除旧应用并保留核心、配置和日志。请先从旧版托盘退出并停止服务。继续？', mbConfirmation, MB_YESNO) <> IDYES then exit;
   end;
   Result := True;

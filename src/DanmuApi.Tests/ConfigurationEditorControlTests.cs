@@ -60,40 +60,16 @@ public sealed class ConfigurationEditorControlTests
     [AvaloniaFact]
     public void ExtractedStructuredEditorsExposeStrictModels()
     {
-        string[] sources = ["bilibili", "dandan", "animeko"];
-        var custom = new CustomMergeRulesEditor(
-            sources,
-            [new CustomMergeRule(
-                new CustomMergeEntity("副源", null, ["bilibili"]),
-                false,
-                new CustomMergeEntity("主源", 2, ["dandan"]),
-                [new EpisodeRoute(new EpisodeRange(1, 1), new EpisodeRange(1, 1))])]);
-        var customValue = CoreEnvStructuredValues.FormatCustomMergeRules(custom.Rules);
-        Assert.Equal("副源@bilibili -> 主源/S02@dandan | E01>E01", customValue);
-
-        var mappings = new AutoMatchMappingEditor(
-            sources,
-            [new AutoMatchMappingRule("源", 1, 1, 3, "目标 (2024)【番剧】", 1, 1, 3, "bilibili")]);
-        var mappingDefinition = Definition("AUTO_MATCH_MAPPING_TABLE", options: sources);
-        var mappingValue = CoreEnvStructuredValues.FormatAutoMatchMappings(mappingDefinition, mappings.Rules);
-        Assert.Single(CoreEnvStructuredValues.ParseAutoMatchMappings(mappingDefinition, mappingValue));
-
-        var offsets = new DanmuOffsetEditor(
-            sources,
-            [new DanmuOffsetRule("番剧", null, null, [], true, false, 1.5m)]);
-        Assert.Equal("番剧@all:1.5", CoreEnvStructuredValues.FormatDanmuOffsets(offsets.Rules));
+        var mappingDefinition = Definition("AUTO_MATCH_MAPPING_TABLE", category: "match");
+        // 两个映射表现在共用核心那套 map 界面（批量框 + 逐行 原值->映射值），沿用同一份校验。
+        var mappings = new MappingTableEditor(mappingDefinition, "永生 S05E02 -> 永生 S01E58;海贼王 S02E01 -> 航海王(1999)【动漫】 S01E62");
+        mappings.Validate();
+        Assert.Equal(2, mappings.RowCount);
+        Assert.Contains("永生 S05E02->永生 S01E58", mappings.Value, StringComparison.Ordinal);
 
         var blacklist = new IpBlacklistEditor(
             [new IpBlacklistEntry(IpBlacklistEntryType.Cidr, "10.0.0.0/8")]);
         Assert.Equal("10.0.0.0/8", CoreEnvStructuredValues.FormatIpBlacklist(blacklist.Entries));
-    }
-
-    [AvaloniaFact]
-    public void DanmuOffsetEditorRejectsConcreteSourcesTogetherWithAllSources()
-    {
-        Assert.Throws<FormatException>(() => new DanmuOffsetEditor(
-            ["bilibili"],
-            [new DanmuOffsetRule("番剧", null, null, ["bilibili"], true, false, 1m)]));
     }
 
     [AvaloniaFact]
@@ -115,7 +91,7 @@ public sealed class ConfigurationEditorControlTests
         var vod = new VodServersEditor("主站@https://example.com,https://backup.example.com");
         Assert.Equal("主站@https://example.com,https://backup.example.com", vod.Value);
 
-        var mappings = new MappingTableEditor("原名->新名;第二个->另一个");
+        var mappings = new MappingTableEditor(Definition("TITLE_MAPPING_TABLE", category: "match"), "原名->新名;第二个->另一个");
         Assert.Equal("原名->新名;第二个->另一个", mappings.Value);
     }
 
@@ -134,44 +110,177 @@ public sealed class ConfigurationEditorControlTests
         Assert.Equal("16711680,255", editor.GetValue());
     }
 
+    /// <summary>
+    /// 弹窗结构对齐核心自带前端 #env-modal：头部（标题 + 圆形关闭）、
+    /// 三个只读字段（变量类别 / 变量名 / 值类型）、动态控件区、描述、底部两个等宽按钮。
+    /// </summary>
     [AvaloniaFact]
-    public void ConfigurationEditorWindowUsesHeaderScrollAndFooterRows()
+    public void ConfigurationEditorWindowFollowsCoreModalStructure()
     {
+        var definition = Definition("CUSTOM_MERGE_RULES", category: "source");
         var window = new ConfigurationEditorWindow(
-            "测试编辑器",
+            definition,
             "说明",
             new StackPanel { Children = { new TextBlock { Text = "内容" } } });
-        var layout = Assert.IsType<Grid>(window.Content);
 
-        Assert.Equal(3, layout.RowDefinitions.Count);
-        Assert.Equal(GridLength.Auto, layout.RowDefinitions[0].Height);
-        Assert.Equal(GridLength.Star, layout.RowDefinitions[1].Height);
-        Assert.Equal(GridLength.Auto, layout.RowDefinitions[2].Height);
-        Assert.Equal(SizeToContent.WidthAndHeight, window.SizeToContent);
-        Assert.True(double.IsNaN(window.Width));
-        Assert.True(double.IsNaN(window.Height));
-        Assert.Equal(920, window.MaxWidth);
-        Assert.Equal(720, window.MaxHeight);
-        Assert.Contains(layout.Children, child => child is ScrollViewer { MaxHeight: 520 });
-        // 编辑器只保留取消/保存：清空与恢复默认已移到配置列表行的「清除」按钮，
-        // 同一个动作不在两处出现（否则用户要在两套语义之间做选择）。
-        // 按 Grid.Row 取页脚，不能用 OfType<StackPanel>().Single()：内容区也可能是 StackPanel。
-        var footer = Assert.IsType<StackPanel>(layout.Children.Cast<Control>().Single(child => Grid.GetRow(child) == 2));
-        Assert.Equal(new object[] { "取消", "保存" }, footer.Children.OfType<Button>().Select(button => button.Content!).ToArray());
+        Assert.Equal("编辑配置项", window.Title);
+
+        var key = Find<TextBlock>(window, "KeyBlock");
+        Assert.Equal("CUSTOM_MERGE_RULES", key.Text);
+        Assert.Equal("数据源配置", Find<TextBlock>(window, "CategoryBlock").Text);
+        Assert.Equal("文本", Find<TextBlock>(window, "TypeBlock").Text);
+        Assert.Equal("说明", Find<SelectableTextBlock>(window, "DescriptionBlock").Text);
+
+        // 底部两个等宽按钮：保存（左）与 取消（右），头部另有一个圆形关闭按钮
+        Assert.Equal("保存", window.SaveActionButton.Content);
+        Assert.Equal("取消", Find<Button>(window, "CancelButton").Content);
+        Assert.True(Find<Button>(window, "CloseButton").Content is string);
+
+        Assert.Equal(CoreEnvEditAction.Cancel, window.Result.Action);
     }
 
     [AvaloniaFact]
     public void ConfigurationEditorWindowCancelLeavesResultUnchanged()
     {
-        var window = new ConfigurationEditorWindow("编辑", "说明", new TextBox());
+        var window = new ConfigurationEditorWindow("编辑配置项", "说明", new TextBox());
+        Assert.Equal(CoreEnvEditAction.Cancel, window.Result.Action);
+
+        Find<Button>(window, "CancelButton")
+            .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+
+        Assert.Equal(CoreEnvEditAction.Cancel, window.Result.Action);
+    }
+
+    /// <summary>弹窗的错误提示是底部那一条（保存被校验拒绝时显示）。</summary>
+    [AvaloniaFact]
+    public void ConfigurationEditorWindowSurfacesErrorMessage()
+    {
+        var window = new ConfigurationEditorWindow("编辑配置项", "说明", new TextBox());
+
+        Assert.Null(window.ErrorMessage);
+        window.ErrorMessage = "值不合法";
+
+        var error = Find<TextBlock>(window, "ErrorBlock");
+        Assert.True(error.IsVisible);
+        Assert.Equal("值不合法", error.Text);
+    }
+
+    /// <summary>
+    /// 用户手动拉高弹窗时，中间内容区必须跟着长（不能固定高度、只留上下空白）。
+    /// 关键是显示后立刻把 <c>SizeToContent</c> 从 Height 切成 Manual：
+    /// Height 模式下用户拉伸会被弹回，内容区也就没法跟着变。
+    /// </summary>
+    [AvaloniaFact]
+    public void ContentAreaGrowsWhenWindowIsResizedTaller()
+    {
+        var definition = Definition("TEST_KEY", category: "test");
+        var window = new ConfigurationEditorWindow(
+            definition,
+            "说明",
+            new StackPanel { Children = { new TextBox { MinHeight = 120 } } });
+        window.Show();
+        try
+        {
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+
+            var scroll = Find<ScrollViewer>(window, "ContentScroll");
+            Assert.Equal(SizeToContent.Manual, window.SizeToContent);
+
+            var before = scroll.Bounds.Height;
+            var windowBefore = window.Bounds.Height;
+
+            window.Height = windowBefore + 220;
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+
+            Assert.True(
+                scroll.Bounds.Height > before + 100,
+                $"拉高窗口后内容区应变高：window {windowBefore:F0}→{window.Bounds.Height:F0}，" +
+                $"scroll {before:F0}→{scroll.Bounds.Height:F0}");
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    /// <summary>头尾固定、只有中间滚动：内容再长也不用拉到底部才能点保存。
+    /// （用户实机反馈"保存和取消必须拉到底才出现"。）</summary>
+    [AvaloniaFact]
+    public void ConfigurationEditorWindowPinsFooterOutsideTheScrollArea()
+    {
+        var window = new ConfigurationEditorWindow("编辑配置项", "说明", new TextBox());
         var layout = Assert.IsType<Grid>(window.Content);
-        var footer = Assert.IsType<StackPanel>(layout.Children.Cast<Control>().Single(child => Grid.GetRow(child) == 2));
-        var cancel = footer.Children.OfType<Button>().Single(button => Equals(button.Content, "取消"));
-        Assert.Equal(CoreEnvEditAction.Cancel, window.Result.Action);
+        Assert.Equal(3, layout.RowDefinitions.Count);
 
-        cancel.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        var scroll = Descendants<ScrollViewer>(window).First();
+        var scrollContent = Descendants<Control>(scroll).ToArray();
 
-        Assert.Equal(CoreEnvEditAction.Cancel, window.Result.Action);
+        Assert.DoesNotContain(Find<Button>(window, "SaveButton"), scrollContent);
+        Assert.DoesNotContain(Find<Button>(window, "CancelButton"), scrollContent);
+        Assert.DoesNotContain(Find<Button>(window, "CloseButton"), scrollContent);
+        // 描述属于内容，跟着中间区滚动（与核心一致：它在底部按钮之前）。
+        Assert.Contains(Find<SelectableTextBlock>(window, "DescriptionBlock"), scrollContent);
+        Assert.Contains(Find<TextBlock>(window, "KeyBlock"), scrollContent);
+        Assert.Contains(Find<ContentControl>(window, "EditorHost"), scrollContent);
+    }
+
+    /// <summary>弹窗宽度不再是写死的 560：按宿主窗口自适应，并夹在上下限之间。</summary>
+    [AvaloniaFact]
+    public void ConfigurationEditorWindowComputesAdaptiveWidth()
+    {
+        var narrow = ConfigurationEditorWindow.ComputePreferredWidth(ownerWidth: 900, workingWidth: 1920);
+        var wide = ConfigurationEditorWindow.ComputePreferredWidth(ownerWidth: 1920, workingWidth: 1920);
+        var huge = ConfigurationEditorWindow.ComputePreferredWidth(ownerWidth: 3840, workingWidth: 3840);
+        var tiny = ConfigurationEditorWindow.ComputePreferredWidth(ownerWidth: 600, workingWidth: 700);
+
+        Assert.Equal(520, narrow);
+        Assert.Equal(1056, wide);          // 1920 × 0.55
+        Assert.Equal(1080, huge);          // 夹在上限
+        Assert.True(wide > narrow);
+        Assert.True(tiny <= 700 - 48);
+        Assert.True(tiny >= 520);
+        // 拿不到宿主窗口宽度时退回核心弹窗的 560
+        Assert.Equal(560, ConfigurationEditorWindow.ComputePreferredWidth(ownerWidth: null, workingWidth: 1920));
+    }
+
+    private static T Find<T>(Control root, string name) where T : Control
+    {
+        var match = Descendants<T>(root).FirstOrDefault(control => control.Name == name);
+        Assert.NotNull(match);
+        return match!;
+    }
+
+    private static List<T> Descendants<T>(Control root) where T : Control
+    {
+        var found = new List<T>();
+        Walk(root);
+        return found;
+
+        void Walk(Control control)
+        {
+            if (control is T match)
+            {
+                found.Add(match);
+            }
+
+            switch (control)
+            {
+                case Border { Child: Control child }:
+                    Walk(child);
+                    break;
+                case Panel panel:
+                    foreach (var item in panel.Children.OfType<Control>())
+                    {
+                        Walk(item);
+                    }
+                    break;
+                case ContentControl { Content: Control content }:
+                    Walk(content);
+                    break;
+            }
+        }
     }
 
     /// <summary>
@@ -264,10 +373,11 @@ public sealed class ConfigurationEditorControlTests
 
     private static CoreEnvDefinition Definition(
         string key,
-        IReadOnlyList<string>? options = null) =>
+        IReadOnlyList<string>? options = null,
+        string category = "test") =>
         new(
             key,
-            "test",
+            category,
             CoreEnvType.Text,
             key,
             options ?? [],

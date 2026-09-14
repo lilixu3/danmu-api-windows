@@ -45,18 +45,28 @@
 
 | 项 | 要求 |
 |---|---|
-| 系统 | Windows 10 版本 19041（20H1）及以上，或 Windows 11；**仅 64 位** |
+| 系统 | Windows 10 版本 19041（20H1）及以上，或 Windows 11；**64 位、32 位与 ARM64 均可** |
 | 运行环境 | **无需额外安装任何东西**：安装包与免安装包已内置 .NET 运行时、Node.js 和全部生产依赖 |
 | 网络 | 需要能访问 GitHub（应用内置多条加速线路可切换） |
 
-> 不支持 32 位系统：Node.js 官方自 v19 起不再提供 win-x86 二进制。
+> 请按上表选择与自己系统匹配的包；32 位包只能装在 32 位 Windows 上。
 
 ## 下载与安装
 
-到 [Releases](https://github.com/lilixu3/danmu-api-windows/releases) 下载，两种形态功能完全相同：
+到 [Releases](https://github.com/lilixu3/danmu-api-windows/releases) 下载。每个架构都有两种形态，功能完全相同：
 
-- **`DanmuApi-<版本>-win-x64-setup.exe`** —— 安装版，会写入开始菜单与卸载项，推荐日常使用。
-- **`DanmuApi-<版本>-win-x64-portable.zip`** —— 免安装版，解压到任意目录后双击 `DanmuApi.App.exe` 即可。
+| 你的系统 | 该下载 |
+|---|---|
+| 64 位 Windows 10/11 | `DanmuApi-<版本>-win-x64-setup.exe` 或 `-win-x64-portable.zip` |
+| 32 位 Windows | `DanmuApi-<版本>-win-x86-setup.exe` 或 `-win-x86-portable.zip` |
+| ARM64 版 Windows 11 | `DanmuApi-<版本>-win-arm64-setup.exe` 或 `-win-arm64-portable.zip` |
+
+- **`-setup.exe`** —— 安装版，会写入开始菜单与卸载项，推荐日常使用。
+- **`-portable.zip`** —— 免安装版，解压到任意目录后双击 `DanmuApi.App.exe` 即可。
+
+拿不准自己是哪个架构时，看 Windows 的「设置 → 系统 → 关于 → 系统类型」（或在命令行执行 `echo %PROCESSOR_ARCHITECTURE%`）。应用程序内的更新只会下载与当前架构匹配的包，不需要手动挑选。
+
+> 32 位包只能装在 32 位 Windows 上；64 位系统的机器请用 64 位包。ARM64 的 Windows 11 上，用 64 位包也能运行（走系统兼容模式），但用 ARM64 包是原生性能。
 
 ### 关于「Windows 已保护你的电脑」
 
@@ -100,17 +110,17 @@
 每个 Release 的说明里都附带安装包与免安装包的 SHA256；也可以在 PowerShell 里自己算：
 
 ```powershell
-Get-FileHash .\DanmuApi-0.3.3-win-x64-setup.exe -Algorithm SHA256
+Get-FileHash .\DanmuApi-<版本>-win-x64-setup.exe -Algorithm SHA256
 ```
 
 校验安装包签名（可选，需要 Windows SDK 里的 `signtool`）：
 
 ```powershell
-signtool verify /pa /v .\DanmuApi-0.3.3-win-x64-setup.exe
+signtool verify /pa /v .\DanmuApi-<版本>-win-x64-setup.exe
 ```
 
-签名者为项目自签名证书 `CN=Danmu API`，证书链会报不受信任（UntrustedRoot），这属于预期现象，
-只要发布者与指纹和 Release 里写的一致即可。Release 同时提供公开证书 `danmu-api-windows.cer` 供比对。
+签名者为项目自签名证书 `CN=Danmu API`（指纹 `D6224E17E9B87EBB53F2DCF02936451343FF4826`），
+证书链会报不受信任（UntrustedRoot），这属于预期现象；只要 `signtool` 显示的发布者与指纹和上面一致即可。
 
 ## 从源码构建
 

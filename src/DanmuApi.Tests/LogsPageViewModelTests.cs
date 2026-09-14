@@ -312,6 +312,7 @@ public sealed class LogsPageViewModelTests : IDisposable
 
     private sealed class StubRuntimeController(RuntimeSnapshot snapshot) : IRuntimeController
     {
+        public Task RefreshCoreSetupRequiredAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public RuntimeSnapshot Snapshot { get; private set; } = snapshot;
         event EventHandler<RuntimeSnapshot>? IRuntimeController.SnapshotChanged
         {

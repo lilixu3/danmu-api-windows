@@ -71,10 +71,48 @@ public sealed class CoreEnvCatalogTests
 
         var definitions = CoreEnvCatalog.Parse(source);
 
-        Assert.Equal(["MODE", "SOURCES", "EMPTY"], definitions.Select(definition => definition.Key));
+        // 顺序按核心 load() 的读取顺序：先 MODE 后 EMPTY；
+        // SOURCES 在 load() 里没被读到，排在最后（保留声明顺序）。
+        Assert.Equal(["MODE", "EMPTY", "SOURCES"], definitions.Select(definition => definition.Key));
         Assert.Equal(["fast", "safe"], Find(definitions, "MODE").Options);
         Assert.Equal(["douban", "360"], Find(definitions, "SOURCES").Options);
         Assert.Equal(string.Empty, Find(definitions, "EMPTY").DefaultValue);
+    }
+
+    /// <summary>
+    /// 顺序必须来自核心 <c>load()</c> 的读取顺序（= 运行时 originalEnvVars 的键序 = 核心配置页
+    /// 每个分类里的显示顺序），而不是 envVarConfig 的声明顺序——实测两者在多数分类上并不一致。
+    /// 这里用一个声明顺序与读取顺序刻意相反的例子把它锁住，并覆盖 resolveXxx() 的映射。
+    /// </summary>
+    [Fact]
+    public void OrdersDefinitionsByCoreLoadReadOrder()
+    {
+        const string source = """
+            class Envs {
+              static load() {
+                const envVarConfig = {
+                  'A_FIRST_DECLARED': { category: 'danmu', type: 'text', description: '声明在最前' },
+                  'B_SECOND': { category: 'danmu', type: 'text', description: '中间' },
+                  'C_THIRD': { category: 'danmu', type: 'text', description: '声明在最后' },
+                };
+                return {
+                  cThird: this.get('C_THIRD', '', 'string'),
+                  bSecond: this.resolveBSecond(),
+                  aFirst: this.get('A_FIRST_DECLARED', '', 'string'),
+                };
+              }
+              static resolveBSecond() {
+                return this.get('B_SECOND', '', 'string').trim();
+              }
+            }
+            """;
+
+        var definitions = CoreEnvCatalog.Parse(source);
+
+        // 读取顺序是 C_THIRD → B_SECOND(resolve) → A_FIRST_DECLARED，与声明顺序完全相反
+        Assert.Equal(
+            ["C_THIRD", "B_SECOND", "A_FIRST_DECLARED"],
+            definitions.Select(definition => definition.Key));
     }
 
     [Theory]

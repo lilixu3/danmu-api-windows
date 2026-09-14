@@ -998,6 +998,7 @@ public sealed class BundledRuntimePreparerTests
         var critical = entries.Where(e => !e.Path.Contains("/node_modules/", StringComparison.Ordinal))
             .Select(e => e.Path == metadataModePath ? e with { Mode = "metadata" } : e).ToList();
         File.WriteAllText(Path.Combine(bundle, "runtime-build.json"), JsonSerializer.Serialize(
-            new BundledRuntimePreparer.State(1, version, critical)));
+            new BundledRuntimePreparer.State(1, version, critical,
+                DanmuApi.Core.BundledNodeRuntime.ExpectedVersion, BundledRuntimePreparer.HostArchitecture())));
     }
 }

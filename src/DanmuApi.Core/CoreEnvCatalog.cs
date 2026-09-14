@@ -58,6 +58,21 @@ public static class CoreEnvCatalog
         "vod.json",
     ];
 
+    /// <summary>匹配 <c>load()</c> 体里的 <c>this.get(</c> 与 <c>this.resolveXxx(</c> 调用。</summary>
+    private static readonly Regex LoadCallPattern = new(
+        @"this\.(?<name>get|resolve[A-Za-z0-9_]*)\(",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    /// <summary>匹配调用参数里的变量名，例如 <c>this.get('SOURCE_ORDER',</c>。</summary>
+    private static readonly Regex ValueKeyPattern = new(
+        @"this\.get\(\s*'(?<key>[A-Z][A-Z0-9_]*)'",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    /// <summary>匹配 <c>static resolveXxx() { ... }</c> 的定义体。</summary>
+    private static readonly Regex ResolverPattern = new(
+        @"static (?<name>resolve[A-Za-z0-9_]*)\(\)\s*\{(?<body>[\s\S]*?)\n  \}",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     public static IReadOnlyList<CoreEnvDefinition> ParseFile(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
@@ -141,7 +156,103 @@ public static class CoreEnvCatalog
                 CoreEnvApplyMode.HotReload));
         }
 
-        return definitions;
+        return OrderByCoreReadOrder(source, definitions);
+    }
+
+    /// <summary>
+    /// 按核心 <c>Envs.load()</c> 的读取顺序排列变量定义。
+    ///
+    /// <para>
+    /// 核心配置页每个分类里的显示顺序来自 <c>originalEnvVars</c> 的键序，而它正是
+    /// <c>load()</c> 体内依次调用 <c>this.get('KEY')</c> / <c>this.resolveXxx()</c> 的顺序。
+    /// 实测这个顺序与 <c>envVarConfig</c> 的声明顺序**并不一致**（6 个分类里 4 个不同），
+    /// 所以既不能按声明顺序、更不能按变量名字母序，必须按读取顺序——否则习惯核心前端的用户
+    /// 换个客户端就得重新找变量位置。
+    /// </para>
+    ///
+    /// <para>
+    /// 派生失败（核心改了写法、找不到 load 等）时返回声明顺序：这是明确的降级，
+    /// 顺序仍稳定可用，不会报错阻塞配置页。
+    /// </para>
+    /// </summary>
+    private static IReadOnlyList<CoreEnvDefinition> OrderByCoreReadOrder(
+        string source,
+        List<CoreEnvDefinition> definitions)
+    {
+        var readOrder = ReadLoadOrder(source);
+        if (readOrder.Count == 0)
+        {
+            return definitions;
+        }
+
+        var index = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var position = 0; position < readOrder.Count; position++)
+        {
+            index.TryAdd(readOrder[position], position);
+        }
+
+        // 未出现在读取顺序里的键排在最后，并保持它们原有的声明顺序（OrderBy 是稳定排序）。
+        return definitions
+            .OrderBy(definition => index.TryGetValue(definition.Key, out var position) ? position : int.MaxValue)
+            .ToArray();
+    }
+
+    /// <summary>扫描 <c>static load()</c> 体，按文本顺序收集它读取的变量名。</summary>
+    private static List<string> ReadLoadOrder(string source)
+    {
+        var keys = new List<string>();
+        var loadIndex = source.IndexOf("static load(", StringComparison.Ordinal);
+        if (loadIndex < 0)
+        {
+            return keys;
+        }
+
+        var nextMember = source.IndexOf("\n  static ", loadIndex + 1, StringComparison.Ordinal);
+        var body = source[loadIndex..(nextMember > 0 ? nextMember : source.Length)];
+
+        // resolveXxx() 会去读某个具体变量，先把映射建好，遇到调用时换回变量名。
+        var resolverKeys = ReadResolverKeys(source);
+
+        foreach (Match call in LoadCallPattern.Matches(body))
+        {
+            var name = call.Groups["name"].Value;
+            if (name == "get")
+            {
+                // this.get('KEY', ...) —— 键名就在调用参数里
+                var keyMatch = ValueKeyPattern.Match(body, call.Index);
+                if (keyMatch.Success && !keys.Contains(keyMatch.Groups["key"].Value, StringComparer.Ordinal))
+                {
+                    keys.Add(keyMatch.Groups["key"].Value);
+                }
+
+                continue;
+            }
+
+            if (resolverKeys.TryGetValue(name, out var resolved) &&
+                !keys.Contains(resolved, StringComparer.Ordinal))
+            {
+                keys.Add(resolved);
+            }
+        }
+
+        return keys;
+    }
+
+    /// <summary>建立 <c>resolveXxx → 它读取的变量名</c> 映射。</summary>
+    private static Dictionary<string, string> ReadResolverKeys(string source)
+    {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (Match resolver in ResolverPattern.Matches(source))
+        {
+            var body = resolver.Groups["body"].Value;
+            var keyMatch = ValueKeyPattern.Match(body);
+            if (keyMatch.Success)
+            {
+                result[resolver.Groups["name"].Value] = keyMatch.Groups["key"].Value;
+            }
+        }
+
+        return result;
     }
 
     private static Dictionary<string, object?> ReadStaticSymbols(string source)

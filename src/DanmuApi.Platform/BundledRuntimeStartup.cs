@@ -1,5 +1,7 @@
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
+using DanmuApi.Core;
 
 namespace DanmuApi.Platform;
 
@@ -132,7 +134,32 @@ public static partial class BundledRuntimePreparer
         if (build.Files.Count > MaxCriticalEntries) throw new IOException("安装包关键入口数量超过限制。");
         if (build.Files.Any(entry => entry.Mode is not (null or HashMode or MetadataMode)))
             throw new IOException("安装包关键入口校验模式无效。");
+        ValidateRuntimeIdentity(build);
     }
+
+    /// <summary>The bundle states which Node runtime it carries. A missing or mismatched record is a
+    /// packaging error rather than a repairable state, so it fails loudly and is never "fixed" by
+    /// re-preparing the same wrong payload.</summary>
+    private static void ValidateRuntimeIdentity(State build)
+    {
+        if (string.IsNullOrWhiteSpace(build.NodeVersion) || string.IsNullOrWhiteSpace(build.Arch))
+            throw new InvalidOperationException("安装包运行环境记录缺少 Node 版本或架构，无法确认内置运行时。");
+        var host = HostArchitecture();
+        if (!string.Equals(build.Arch, host, StringComparison.Ordinal))
+            throw new InvalidOperationException($"安装包内置的 Node 运行环境为 {build.Arch}，与当前进程架构 {host} 不匹配。");
+        if (BundledNodeRuntime.ParseMajor(build.NodeVersion) != BundledNodeRuntime.ExpectedMajor)
+            throw new InvalidOperationException(
+                $"安装包内置 Node {build.NodeVersion} 与本程序要求的 Node {BundledNodeRuntime.ExpectedVersion} 不匹配。");
+    }
+
+    /// <summary>Runtime-identifier style architecture name of the running process.</summary>
+    public static string HostArchitecture() => RuntimeInformation.ProcessArchitecture switch
+    {
+        Architecture.X64 => "x64",
+        Architecture.X86 => "x86",
+        Architecture.Arm64 => "arm64",
+        var other => throw new InvalidOperationException("不支持的进程架构：" + other),
+    };
 
     private static void WriteReceipt(string bundle, string root, State snapshot)
     {

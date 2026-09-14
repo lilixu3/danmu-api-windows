@@ -10,4 +10,11 @@
     <EmbeddedResource Include="CoreDependencyProbe.mjs" />
   </ItemGroup>
 
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>DanmuBundledNodeVersion</_Parameter1>
+      <_Parameter2>$(DanmuBundledNodeVersion)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
 </Project>

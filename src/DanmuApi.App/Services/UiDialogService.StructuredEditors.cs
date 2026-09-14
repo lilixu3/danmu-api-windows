@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Layout;
+using Avalonia.VisualTree;
 using DanmuApi.App.Controls;
 using DanmuApi.App.Views;
 using Avalonia.Media.Imaging;
@@ -12,6 +13,109 @@ namespace DanmuApi.App.Services;
 
 public sealed partial class UiDialogService
 {
+    /// <summary>
+    /// 给编辑器的"查看最近数据"挂载点装上面板。核心前端在五个位置渲染同一个面板
+    /// （多选 / 映射 / 标题过滤 / 偏移 / 合并规则），这里统一走一个入口，保证语义与文案一致。
+    /// </summary>
+    private void AttachRecentData(ContentControl host, string key, IRecentDataFillTarget? fillTarget)
+    {
+        ArgumentNullException.ThrowIfNull(host);
+        if (!RecentDataKeys.Contains(key))
+        {
+            // 不在核心支持范围内的变量不该出现挂载点；真的出现就报出来，不要静默留空。
+            host.Content = CreateMutedText($"最近数据不适用于 {key}。");
+            return;
+        }
+
+        var split = host.Parent is null ? null : FindSplitHost(host);
+        var panel = new RecentDataPanel(
+            key,
+            CreateAnimeFetch(),
+            fillTarget,
+            _posterImages is null ? null : url => _posterImages.LoadAsync(url),
+            _diagnostics is null ? null : message => _diagnostics.Record(message),
+            splitToggle: split?.RecentDataButtonHost is not null);
+
+        host.Content = panel;
+        if (split?.RecentDataButtonHost is not null)
+        {
+            // 把面板的按钮交给编辑器，放进它自己的动作行里（核心：与「添加规则」同行）。
+            split.RecentDataButtonHost.Content = panel.ToggleButton;
+        }
+    }
+
+    /// <summary>宿主所在的可视树里找 <see cref="IRecentDataSplitHost"/>（编辑器本体）。</summary>
+    private static IRecentDataSplitHost? FindSplitHost(ContentControl host)
+    {
+        Avalonia.Visual? current = host;
+        while (current is not null)
+        {
+            if (current is IRecentDataSplitHost split)
+            {
+                return split;
+            }
+
+            current = current.GetVisualParent();
+        }
+
+        return null;
+    }
+
+    /// <summary>最近数据不可用的原因；null 表示可以发起请求。与凭据验证的判定保持同一套口径。</summary>
+    private string? RecentDataUnavailableReason()
+    {
+        if (_paths is null || _settingsStore is null || _adminSession is null ||
+            _runtimeController is null || _animeClient is null)
+        {
+            return "当前上下文没有配置核心缓存客户端，无法读取最近数据。";
+        }
+
+        return _runtimeController.Snapshot.State == DesktopRuntimeState.Running
+            ? null
+            : "核心服务未运行；最近数据来自核心内存缓存，请先启动服务。";
+    }
+
+    private Func<CancellationToken, Task<CoreCacheAnimeResult>>? CreateAnimeFetch()
+    {
+        if (_animeClient is null)
+        {
+            return null;
+        }
+
+        return async cancellationToken =>
+        {
+            var unavailable = RecentDataUnavailableReason();
+            if (unavailable is not null)
+            {
+                return CoreCacheAnimeResult.Failure(unavailable);
+            }
+
+            try
+            {
+                _adminSession!.Refresh();
+                var adminToken = _adminSession.CurrentAdminTokenOrNull();
+                if (string.IsNullOrWhiteSpace(adminToken))
+                {
+                    return CoreCacheAnimeResult.Failure("管理员模式会话已失效，请重新进入管理员模式。");
+                }
+
+                var config = DesktopConfigReader.Read(_settingsStore!, _paths!.NodeProjectDirectory);
+                var host = config.ListenHost is "0.0.0.0" or "::"
+                    ? "127.0.0.1"
+                    : config.ListenHost;
+                var token = RuntimeTokenResolver.Resolve(
+                    Path.Combine(_paths!.NodeProjectDirectory, "config", ".env"));
+                return await _animeClient
+                    .FetchAsync(host, config.Port, token, adminToken, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception error) when (error is IOException or InvalidOperationException or FormatException)
+            {
+                return CoreCacheAnimeResult.Failure(error.Message);
+            }
+        };
+    }
+
     private async Task<CoreEnvEditResult> PromptMergeSourcePairsAsync(
         CoreEnvDefinition definition,
         string initial,
@@ -20,6 +124,7 @@ public sealed partial class UiDialogService
     {
         var groups = CoreEnvStructuredValues.ParseMergeSourcePairs(definition, initial);
         var editor = new MergeSourcePairsEditor(definition.Options, groups);
+        AttachRecentData(editor.RecentDataHost, definition.Key, fillTarget: null);
         var error = CreateErrorText();
         var dialog = CreateStructuredDialog(definition, description, editor, error, out var save);
         save.Click += (_, _) =>
@@ -46,46 +151,19 @@ public sealed partial class UiDialogService
         bool configured,
         string description)
     {
-        var editor = new CustomMergeRulesEditor(
-            definition.Sources,
-            CoreEnvStructuredValues.ParseCustomMergeRules(definition, initial));
+        var editor = new CustomMergeRulesEditor(definition, initial);
+        AttachRecentData(editor.RecentDataHost, definition.Key, editor);
         var error = CreateErrorText();
         var dialog = CreateStructuredDialog(definition, description, editor, error, out var save);
         save.Click += (_, _) =>
         {
             try
             {
-                var value = CoreEnvStructuredValues.FormatCustomMergeRules(editor.Rules);
-                _ = CoreEnvStructuredValues.ParseCustomMergeRules(definition, value);
-                dialog.Result = CoreEnvEditResult.Set(value);
-                dialog.Close();
-            }
-            catch (Exception exception) when (exception is ArgumentException or FormatException)
-            {
-                error.Text = exception.Message;
-            }
-        };
-        await dialog.ShowDialog(GetOwner());
-        return dialog.Result;
-    }
-
-    private async Task<CoreEnvEditResult> PromptAutoMatchMappingsAsync(
-        CoreEnvDefinition definition,
-        string initial,
-        bool configured,
-        string description)
-    {
-        var editor = new AutoMatchMappingEditor(
-            definition.Sources,
-            CoreEnvStructuredValues.ParseAutoMatchMappings(definition, initial));
-        var error = CreateErrorText();
-        var dialog = CreateStructuredDialog(definition, description, editor, error, out var save);
-        save.Click += (_, _) =>
-        {
-            try
-            {
-                var value = CoreEnvStructuredValues.FormatAutoMatchMappings(definition, editor.Rules);
-                _ = CoreEnvStructuredValues.ParseAutoMatchMappings(definition, value);
+                // 与核心一致：写的就是「变量值」框里的文本（两边空白裁掉）；
+                // 差别在于我们保存前按核心解析器做严格校验，坏规则不会静默落盘。
+                var value = editor.Value.Trim();
+                GuardAgainstEmptyOverwrite(definition.Key, value, configured);
+                editor.Validate();
                 dialog.Result = CoreEnvEditResult.Set(value);
                 dialog.Close();
             }
@@ -104,17 +182,17 @@ public sealed partial class UiDialogService
         bool configured,
         string description)
     {
-        var editor = new DanmuOffsetEditor(
-            definition.Sources,
-            CoreEnvStructuredValues.ParseDanmuOffsets(definition, initial));
+        var editor = new DanmuOffsetEditor(definition, initial);
+        AttachRecentData(editor.RecentDataHost, definition.Key, editor);
         var error = CreateErrorText();
         var dialog = CreateStructuredDialog(definition, description, editor, error, out var save);
         save.Click += (_, _) =>
         {
             try
             {
-                var value = CoreEnvStructuredValues.FormatDanmuOffsets(editor.Rules);
-                _ = CoreEnvStructuredValues.ParseDanmuOffsets(definition, value);
+                var value = editor.Value.Trim();
+                GuardAgainstEmptyOverwrite(definition.Key, value, configured);
+                editor.Validate();
                 dialog.Result = CoreEnvEditResult.Set(value);
                 dialog.Close();
             }
@@ -208,13 +286,24 @@ public sealed partial class UiDialogService
             }
         };
 
+        // 核心 isBilibiliCookie 分支的字段顺序：状态 → 操作按钮 → 「Cookie 值」+ 输入框 → 说明。
+        // 差异点：核心是在打开/输入时自动去核心检测（无按钮），我们保留了显式的「验证 Cookie」，
+        // 放在「扫码登录」同一行，避免打开编辑器就自动发请求。
+        var content = new StackPanel { Spacing = 8 };
+        content.Children.Add(status);
+        var actionRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        actionRow.Children.Add(verify);
+        actionRow.Children.Add(qr);
+        content.Children.Add(actionRow);
+        content.Children.Add(ConfigForm.Field("Cookie 值", AttachSecretToggle(input)));
+        content.Children.Add(ConfigForm.Help("推荐使用扫码登录自动获取，或手动粘贴包含 SESSDATA 和 bili_jct 的完整 Cookie"));
+
         return await PromptSensitiveCredentialAsync(
             definition,
             configured,
             description,
             input,
-            status,
-            [verify, qr]).ConfigureAwait(true);
+            content).ConfigureAwait(true);
     }
 
     private async Task<CoreEnvEditResult> PromptAiApiKeyAsync(
@@ -274,79 +363,56 @@ public sealed partial class UiDialogService
             }
         };
 
+        // 核心 isAiApiKey 分支的字段顺序：「API Key 值」+ 输入框 → 说明 → 状态 → 测试连通性。
+        var content = new StackPanel { Spacing = 8 };
+        content.Children.Add(ConfigForm.Field("API Key 值", AttachSecretToggle(input)));
+        content.Children.Add(ConfigForm.Help("支持 OpenAI 兼容的 API，需配合 AI_BASE_URL 和 AI_MODEL 配置使用"));
+        content.Children.Add(status);
+        var verifyRow = new StackPanel { Orientation = Orientation.Horizontal };
+        verifyRow.Children.Add(verify);
+        content.Children.Add(verifyRow);
+
         return await PromptSensitiveCredentialAsync(
             definition,
             configured,
             description,
             input,
-            status,
-            [verify]).ConfigureAwait(true);
+            content).ConfigureAwait(true);
     }
 
+    /// <summary>
+    /// 凭据类变量的编辑器（BILIBILI_COOKIE / AI_API_KEY）。字段顺序由调用方给的
+    /// <paramref name="content"/> 决定——核心前端这两个变量各自的排布不一样，
+    /// 所以这里只负责外壳（与其它变量共用同一套 <see cref="Views.ConfigurationEditorWindow"/>）。
+    /// </summary>
     private async Task<CoreEnvEditResult> PromptSensitiveCredentialAsync(
         CoreEnvDefinition definition,
         bool configured,
         string description,
         TextBox input,
-        TextBlock status,
-        IReadOnlyList<Button> auxiliaryButtons)
+        Control content)
     {
-        var cancel = new Button { Content = "取消", IsCancel = true, MinWidth = 80 };
-        cancel.Classes.Add("secondary-action");
-        // 只保留取消/保存：「恢复默认」与「设为空值」由配置列表行的「清除」按钮承担。
-        var save = new Button { Content = "替换并保存", IsDefault = true, MinWidth = 110 };
-        save.Classes.Add("primary-action");
-        // 显示/隐藏改为输入框内的眼睛图标，不再单占一个按钮位。
-        var secretEditor = AttachSecretToggle(input);
-        var auxiliary = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 8,
-        };
-        foreach (var button in auxiliaryButtons)
-        {
-            auxiliary.Children.Add(button);
-        }
-
-        var result = CoreEnvEditResult.Cancel();
-        var dialog = new Window
-        {
-            Title = $"编辑 {definition.Key}",
-            Width = 640,
-            SizeToContent = SizeToContent.Height,
-            CanResize = false,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Content = new StackPanel
-            {
-                Spacing = 14,
-                Margin = new Avalonia.Thickness(24),
-                Children =
-                {
-                    new TextBlock { Text = $"编辑 {definition.Key}", FontSize = 20, FontWeight = Avalonia.Media.FontWeight.SemiBold },
-                    CreateMutedText(description),
-                    secretEditor,
-                    auxiliary,
-                    status,
-                    new StackPanel
-                    {
-                        Orientation = Orientation.Horizontal,
-                        HorizontalAlignment = HorizontalAlignment.Right,
-                        Spacing = 8,
-                        Children = { cancel, save },
-                    },
-                },
-            },
-        };
-        cancel.Click += (_, _) => dialog.Close();
+        var error = CreateErrorText();
+        var dialog = CreateConfigurationEditorDialog(definition, description, content, error, out var save);
         save.Click += (_, _) =>
         {
-            result = string.IsNullOrEmpty(input.Text)
-                ? CoreEnvEditResult.Keep()
-                : CoreEnvEditResult.Set(input.Text);
-            dialog.Close();
+            try
+            {
+                // 空输入表示"不改"（保留原值）；真要清空用配置列表行的「清除」。
+                var text = input.Text ?? string.Empty;
+                GuardAgainstEmptyOverwrite(definition.Key, text, configured);
+                dialog.Result = string.IsNullOrEmpty(text)
+                    ? CoreEnvEditResult.Keep()
+                    : CoreEnvEditResult.Set(text);
+                dialog.Close();
+            }
+            catch (Exception exception) when (exception is ArgumentException or FormatException)
+            {
+                error.Text = exception.Message;
+            }
         };
         await dialog.ShowDialog(GetOwner());
-        return result;
+        return dialog.Result;
     }
 
     private async Task<string?> PromptBilibiliQrAsync()
@@ -561,22 +627,32 @@ public sealed partial class UiDialogService
         return dialog.Result;
     }
 
-    private static ConfigurationEditorWindow CreateStructuredDialog(
+    private ConfigurationEditorWindow CreateStructuredDialog(
         CoreEnvDefinition definition,
         string description,
         Control editor,
         TextBlock error,
         out Button save) =>
-        CreateConfigurationEditorDialog($"编辑 {definition.Key}", description, editor, error, out save);
+        CreateConfigurationEditorDialog(definition, description, editor, error, out save);
 
-    private static ConfigurationEditorWindow CreateConfigurationEditorDialog(
-        string title,
+    /// <summary>
+    /// 弹出编辑器。弹窗顶部三个只读字段（变量类别 / 变量名 / 值类型）与底部描述
+    /// 都从核心 envs.js 的元数据来，与核心自带前端的 #env-modal 结构一致。
+    /// </summary>
+    private ConfigurationEditorWindow CreateConfigurationEditorDialog(
+        CoreEnvDefinition definition,
         string description,
         Control editor,
         TextBlock error,
         out Button save)
     {
-        var dialog = new ConfigurationEditorWindow(title, description, editor);
+        ArgumentNullException.ThrowIfNull(definition);
+        // 传宿主窗口宽度：弹窗宽度必须在显示前定下来，否则 CenterOwner 会按旧尺寸定位，
+        // 显示后再改宽度会让窗口偏到左上（用户实测到的现象）。
+        var dialog = new ConfigurationEditorWindow(
+            ConfigEditorMetadataFactory.From(definition, description),
+            editor,
+            GetOwner()?.Width);
         save = dialog.SaveActionButton;
         dialog.ErrorMessage = error.Text;
         error.PropertyChanged += (_, args) =>

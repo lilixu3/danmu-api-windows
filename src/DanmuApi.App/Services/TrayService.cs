@@ -193,7 +193,7 @@ public sealed class TrayService : IDisposable
         var snapshot = _runtimeController.Snapshot;
         var reason = string.IsNullOrWhiteSpace(snapshot.FailureReason) ? string.Empty : $"：{snapshot.FailureReason}";
         _statusItem.Header = $"状态：{FormatState(snapshot.State)}{reason}";
-        _startItem.IsEnabled = snapshot.State is DesktopRuntimeState.Stopped or DesktopRuntimeState.Failed;
+        _startItem.IsEnabled = snapshot.State is DesktopRuntimeState.Stopped or DesktopRuntimeState.Failed or DesktopRuntimeState.CoreSetupRequired;
         _stopItem.IsEnabled = snapshot.State is DesktopRuntimeState.Running or DesktopRuntimeState.Starting or DesktopRuntimeState.Preparing;
         _restartItem.IsEnabled = snapshot.State is DesktopRuntimeState.Running or DesktopRuntimeState.Failed;
         var pending = _pendingCoreUpdate.PendingUpdate;

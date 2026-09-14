@@ -131,8 +131,7 @@ public sealed class WindowsToastNotificationService : IDesktopNotificationServic
             }
 
             var powershellPath = Path.GetFullPath(Path.Combine(
-                systemRoot,
-                "System32",
+                SystemPaths.NativeSystemDirectory(systemRoot),
                 "WindowsPowerShell",
                 "v1.0",
                 "powershell.exe"));

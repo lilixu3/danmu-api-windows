@@ -358,7 +358,7 @@ public sealed class AutostartManager
                 return CommandExecutionResult.Failure("SystemRoot 未设置，无法定位绝对 powershell.exe");
             }
 
-            powershellPath = Path.GetFullPath(Path.Combine(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"));
+            powershellPath = Path.GetFullPath(Path.Combine(SystemPaths.NativeSystemDirectory(systemRoot), "WindowsPowerShell", "v1.0", "powershell.exe"));
         }
         catch (Exception error) when (error is ArgumentException or IOException or NotSupportedException)
         {

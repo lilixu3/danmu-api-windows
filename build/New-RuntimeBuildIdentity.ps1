@@ -1,4 +1,8 @@
-param([Parameter(Mandatory=$true)][string]$RuntimeBundle)
+param(
+  [Parameter(Mandatory=$true)][string]$RuntimeBundle,
+  [Parameter(Mandatory=$true)][string]$NodeVersion,
+  [Parameter(Mandatory=$true)][ValidateSet('x64','x86','arm64')][string]$Arch
+)
 $ErrorActionPreference='Stop'
 $entries=@(Get-Content -LiteralPath (Join-Path $RuntimeBundle 'SHA256SUMS.txt') | ForEach-Object {
   if($_ -notmatch '^([0-9a-fA-F]{64})  (.+)$'){throw 'Invalid runtime manifest'}
@@ -31,8 +35,8 @@ $files=@($criticalPaths | ForEach-Object {
   $mode=if($hashMode -contains $path){'hash'}else{'metadata'}
   [ordered]@{Path=$path;Hash=$map[$path];Mode=$mode}
 })
-$value=@{Schema=1;Version=$version;Files=$files} | ConvertTo-Json -Depth 5 -Compress
+$value=@{Schema=1;Version=$version;NodeVersion=$NodeVersion;Arch=$Arch;Files=$files} | ConvertTo-Json -Depth 5 -Compress
 $bytes=[Text.Encoding]::UTF8.GetBytes($value)
 if($bytes.Length -gt 16384){throw 'Runtime build identity exceeds 16 KiB'}
 [IO.File]::WriteAllBytes((Join-Path ([IO.Path]::GetFullPath($RuntimeBundle)) 'runtime-build.json'),$bytes)
-Write-Output ('Runtime build identity: '+$version+'; bytes='+$bytes.Length+'; critical='+$files.Count+'; sentinels='+$sentinels.Count)
+Write-Output ('Runtime build identity: '+$version+'; Node='+$NodeVersion+'; Arch='+$Arch+'; bytes='+$bytes.Length+'; critical='+$files.Count+'; sentinels='+$sentinels.Count)

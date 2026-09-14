@@ -143,9 +143,7 @@ public sealed class FirewallManager : IRuntimeFirewall
                 return null;
             }
 
-            var path = relativePath.Equals("netsh.exe", StringComparison.OrdinalIgnoreCase)
-                ? Path.Combine(systemRoot, "System32", relativePath)
-                : Path.Combine(systemRoot, "System32", relativePath);
+            var path = Path.Combine(SystemPaths.NativeSystemDirectory(systemRoot), relativePath);
             return Path.GetFullPath(path);
         }
         catch (Exception error) when (error is ArgumentException or IOException or NotSupportedException)

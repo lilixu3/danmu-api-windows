@@ -125,7 +125,7 @@ public sealed partial class CorePageViewModelTests
         await viewModel.DeleteCommand.ExecuteAsync(null);
 
         Assert.Null(management.DeleteVariant);
-        Assert.Equal(["删除核心"], dialogs.Confirmations);
+        Assert.Equal(["停止服务并删除核心"], dialogs.Confirmations);
         Assert.Empty(dialogs.Messages);
 
         dialogs.Confirmation = true;

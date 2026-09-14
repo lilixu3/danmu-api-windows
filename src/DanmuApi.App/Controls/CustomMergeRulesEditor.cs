@@ -6,260 +6,327 @@ using DanmuApi.Runtime;
 
 namespace DanmuApi.App.Controls;
 
-public sealed class CustomMergeRulesEditor : Border
+/// <summary>
+/// CUSTOM_MERGE_RULES 编辑器。结构与核心自带前端一致（<c>systemsettings.js</c> 的
+/// <c>isCustomMergeRules</c> 分支）：
+///
+/// <list type="number">
+/// <item>「变量值」等宽多行框 —— **它是唯一真相**，保存时写的就是这里的内容。</item>
+/// <item>紧接一行：「添加规则」（左）与「查看最近数据」（右），两者同为实心按钮。</item>
+/// <item>最近数据面板（按钮行正下方，可见性由面板自己控制）。</item>
+/// <item>「添加规则」子表单：副源实体 / 关系 / 主源实体三列一行，集数路由一行，
+///       来源快捷标签（点一下追加到当前聚焦的输入框），底部「取消 / 确认添加」。</item>
+/// </list>
+///
+/// 子表单只是往变量值里**追加文本**，不做结构化拆条；保存时由调用方对整段文本做严格校验。
+/// </summary>
+public sealed class CustomMergeRulesEditor : StackPanel, IRecentDataFillTarget, IRecentDataSplitHost
 {
-    private static readonly string[] Relations = ["合并 →", "阻断 ×"];
     private readonly IReadOnlyList<string> _sources;
-    private readonly StackPanel _rowsPanel = new() { Spacing = 14 };
-    private readonly List<Row> _rows = [];
-
-    public CustomMergeRulesEditor(IEnumerable<string> sources, IEnumerable<CustomMergeRule> rules)
+    private readonly CoreEnvDefinition _definition;
+    private readonly TextBox _rawValue;
+    private readonly TextBox _secondaryTitle;
+    private readonly TextBox _primaryTitle;
+    private readonly TextBox _routes;
+    private readonly ComboBox _relation;
+    private readonly Border _rulePanel;
+    private readonly TextBlock _relationHint = new();
+    private readonly Button _ruleToggle;
+    private readonly StackPanel _routeRow;
+    private readonly TextBlock _errorText = new()
     {
-        ArgumentNullException.ThrowIfNull(sources);
-        ArgumentNullException.ThrowIfNull(rules);
-        _sources = sources.ToArray();
-        foreach (var rule in rules)
-        {
-            AddRow(rule);
-        }
+        TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+        IsVisible = false,
+        Margin = new Thickness(0, 0, 0, 8),
+    };
+    private TextBox _focusTarget;
 
-        if (_rows.Count == 0)
-        {
-            AddRow(null);
-        }
-
-        var add = new Button
-        {
-            Name = "AddCustomMergeRuleButton",
-            Content = "添加自定义规则",
-            HorizontalAlignment = HorizontalAlignment.Left,
-        };
-        add.Classes.Add("secondary-action");
-        add.Click += AddRowClick;
-
-        var content = new StackPanel
-        {
-            Spacing = 12,
-            Children =
-            {
-                CreateHint(),
-                _rowsPanel,
-                add,
-            },
-        };
-        Child = content;
-    }
-
-    public IReadOnlyList<CustomMergeRule> Rules => _rows.Select(ToRule).ToArray();
-
-    private static TextBlock CreateHint()
+    public CustomMergeRulesEditor(CoreEnvDefinition definition, string initial)
     {
-        var hint = new TextBlock
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(initial);
+        _definition = definition;
+        _sources = definition.Sources;
+
+        _rawValue = new TextBox
         {
-            Text = "实体由剧名、可选季数和一个或多个来源组成。阻断关系不使用集数路由。",
+            Name = "MergeRulesValueBox",
+            Text = initial,
+            AcceptsReturn = true,
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+            MinHeight = 80,
+            MaxHeight = 220,
+            Watermark = "格式：副源 -> 主源 | 路由规则 或 副源 × 主源",
         };
-        hint.Classes.Add("body-muted");
-        return hint;
+        _rawValue.Classes.Add("mono");
+
+        _secondaryTitle = new TextBox
+        {
+            Name = "MergeSecondaryEntityBox",
+            Watermark = "例: 我推的孩子/S01@bahamut",
+        };
+        _primaryTitle = new TextBox
+        {
+            Name = "MergePrimaryEntityBox",
+            Watermark = "例: 我推的孩子/S03@dandan",
+        };
+        _routes = new TextBox
+        {
+            Name = "MergeRouteBox",
+            Watermark = "留空则交由系统自动计算偏移",
+        };
+        _relation = new ComboBox
+        {
+            Name = "MergeRelationBox",
+            ItemsSource = new[] { "->", "×" },
+            SelectedIndex = 0,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            FontSize = 15,
+            FontWeight = Avalonia.Media.FontWeight.Bold,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+        };
+
+        // 焦点跟踪：来源快捷标签要插进"最后聚焦的那个实体输入框"。
+        _focusTarget = _secondaryTitle;
+        _secondaryTitle.GotFocus += (_, _) => _focusTarget = _secondaryTitle;
+        _primaryTitle.GotFocus += (_, _) => _focusTarget = _primaryTitle;
+
+        // 先建好子表单与它引用的行，再挂事件：lambda 在构造期捕获字段，晚赋值会被判为空引用。
+        _routeRow = new StackPanel { Children = { ConfigForm.Field("集数路由规则 (选填，可多组。例如: E01>E01,E25~E35>E25~E35)", _routes) } };
+        _rulePanel = new Border { Name = "MergeRulePanel", Child = BuildRulePanel(), IsVisible = false };
+
+        _ruleToggle = ConfigForm.SmallButton("添加规则", primary: true);
+        _ruleToggle.Name = "ToggleMergeRulePanelButton";
+        _ruleToggle.Click += (_, _) => SetRulePanelOpen(!_rulePanel.IsVisible);
+
+        _relation.SelectionChanged += (_, _) =>
+        {
+            var blocked = _relation.SelectedIndex == 1;
+            _relationHint.Text = blocked ? "阻断" : "合并";
+            _routeRow.IsVisible = !blocked;
+        };
+
+        Spacing = 8;
+        Children.Add(ConfigForm.Field("变量值", _rawValue));
+        Children.Add(ConfigForm.SplitActionRow(_ruleToggle, RecentDataButtonHost));
+        Children.Add(RecentDataHost);
+        Children.Add(_rulePanel);
     }
 
-    private void AddRowClick(object? sender, Avalonia.Interactivity.RoutedEventArgs args) => AddRow(null);
-
-    private void AddRow(CustomMergeRule? rule)
+    /// <summary>最近数据面板的挂载点，由外层 Dialog 注入。</summary>
+    public ContentControl RecentDataHost { get; } = new()
     {
-        var row = new Row
-        {
-            SecondaryTitle = new TextBox { Text = rule?.Secondary.Title, Watermark = "副源剧名", Width = 230 },
-            SecondarySeason = CreateSeasonInput(rule?.Secondary.Season, "季（可空）"),
-            SecondarySources = new TagPicker(_sources, rule?.Secondary.Sources ?? [], compareTokens: true),
-            Relation = new ComboBox
-            {
-                ItemsSource = Relations,
-                SelectedIndex = rule?.IsBlocked == true ? 1 : 0,
-                Width = 120,
-            },
-            PrimaryTitle = new TextBox { Text = rule?.Primary.Title, Watermark = "主源剧名", Width = 230 },
-            PrimarySeason = CreateSeasonInput(rule?.Primary.Season, "季（可空）"),
-            PrimarySources = new TagPicker(_sources, rule?.Primary.Sources ?? [], compareTokens: true),
-            Routes = new TextBox
-            {
-                Text = rule is null ? string.Empty : FormatRoutes(rule.Routes),
-                Watermark = "E01>E01,E25~E35>E25~E35（可空）",
-                Width = 500,
-            },
-        };
-        row.Container = new StackPanel { Spacing = 8 };
-        row.Heading = new TextBlock { FontWeight = Avalonia.Media.FontWeight.SemiBold };
-        row.Remove = new Button
-        {
-            Name = "RemoveCustomMergeRuleButton",
-            Content = "删除此规则",
-            HorizontalAlignment = HorizontalAlignment.Left,
-            Tag = row,
-        };
-        row.Remove.Classes.Add("secondary-action");
-        row.Remove.Click += RemoveRowClick;
-        row.Relation.Tag = row;
-        row.Relation.SelectionChanged += RelationChanged;
-        row.Container.Children.Add(row.Heading);
-        row.Container.Children.Add(CreateEntityEditor("副源实体", row.SecondaryTitle, row.SecondarySeason, row.SecondarySources));
-        row.Container.Children.Add(CreateLabeledControl("关系", row.Relation));
-        row.Container.Children.Add(CreateEntityEditor("主源实体", row.PrimaryTitle, row.PrimarySeason, row.PrimarySources));
-        row.Container.Children.Add(CreateLabeledControl("集数路由（仅合并关系）", row.Routes));
-        row.Container.Children.Add(row.Remove);
-        row.Routes.IsEnabled = row.Relation.SelectedIndex == 0;
-        _rows.Add(row);
-        _rowsPanel.Children.Add(row.Container);
-        RenumberRows();
+        Name = "MergeRulesRecentDataHost",
+        HorizontalContentAlignment = HorizontalAlignment.Stretch,
+    };
+
+    /// <summary>「查看最近数据」按钮的落点：面板挂载后会把自己的按钮填进来，与「添加规则」同行。</summary>
+    public ContentControl RecentDataButtonHost { get; } = new()
+    {
+        Name = "MergeRulesRecentDataButtonHost",
+        HorizontalAlignment = HorizontalAlignment.Right,
+    };
+
+    /// <summary>「变量值」原文，保存时写这个（核心口径）。</summary>
+    public string Value => _rawValue.Text ?? string.Empty;
+
+    public bool IsRulePanelOpen => _rulePanel.IsVisible;
+
+    public TextBox RouteBox => _routes;
+
+    public ComboBox RelationBox => _relation;
+
+    public void SetRulePanelOpen(bool open)
+    {
+        _rulePanel.IsVisible = open;
+        _ruleToggle.Content = open ? "收起" : "添加规则";
     }
 
-    private void RemoveRowClick(object? sender, Avalonia.Interactivity.RoutedEventArgs args)
+    /// <summary>
+    /// 指定来源快捷标签的落点。对应核心的 <c>setMergeFocus('sec'|'prim')</c>：
+    /// 除了输入框自身的 <c>onfocus</c>，最近数据回填与「设为副 / 设为主」也会调用它。
+    /// </summary>
+    public void SetFocusEntity(bool primary) =>
+        _focusTarget = primary ? _primaryTitle : _secondaryTitle;
+
+    /// <summary>当前落点是否是主源实体（供断言与调试）。</summary>
+    public bool FocusedEntityIsPrimary => ReferenceEquals(_focusTarget, _primaryTitle);
+
+    /// <summary>
+    /// 来源快捷标签：没有 <c>@</c> 就追加 <c>@来源</c>，已经有 <c>@</c> 就追加 <c>&amp;来源</c>。
+    /// 与核心 <c>appendSourceToMerge</c> 完全一致。
+    /// </summary>
+    public bool AppendSourceToFocusedEntity(string source)
     {
-        if (sender is not Button { Tag: Row row })
+        ArgumentException.ThrowIfNullOrWhiteSpace(source);
+        if (!_sources.Contains(source, StringComparer.Ordinal))
         {
-            return;
+            return false;
         }
 
-        _rows.Remove(row);
-        _rowsPanel.Children.Remove(row.Container);
-        if (_rows.Count == 0)
+        var current = _focusTarget.Text ?? string.Empty;
+        var trimmed = current.Trim();
+        _focusTarget.Text = trimmed.Contains('@', StringComparison.Ordinal)
+            ? $"{trimmed}&{source}"
+            : $"{trimmed}@{source}";
+        _focusTarget.Focus();
+        return true;
+    }
+
+    /// <summary>把子表单拼成一条规则追加到变量值（核心 <c>appendMergeRule</c>）。</summary>
+    public string AppendRuleFromForm()
+    {
+        var secondary = (_secondaryTitle.Text ?? string.Empty).Trim();
+        var primary = (_primaryTitle.Text ?? string.Empty).Trim();
+        if (secondary.Length == 0 || primary.Length == 0)
         {
-            AddRow(null);
+            throw new FormatException("副源实体和主源实体不能为空");
+        }
+
+        var arrow = _relation.SelectedIndex == 1 ? "×" : "->";
+        var rule = $"{secondary} {arrow} {primary}";
+        if (arrow == "->")
+        {
+            var route = (_routes.Text ?? string.Empty).Trim();
+            if (route.Length > 0)
+            {
+                rule += $" | {route}";
+            }
+        }
+
+        AppendRawText(rule, ';');
+        _secondaryTitle.Text = string.Empty;
+        _primaryTitle.Text = string.Empty;
+        _routes.Text = string.Empty;
+        _focusTarget = _secondaryTitle;
+        SetRulePanelOpen(false);
+        return rule;
+    }
+
+    /// <summary>
+    /// 最近数据面板的「设为副 / 设为主」：把「剧名@来源」写进对应的实体输入框并展开子表单。
+    /// 与核心 <c>fillMergeEntity</c> 一致——只填表单，落盘仍要用户点保存。
+    /// </summary>
+    public string? FillMergeEntity(bool asPrimary, string title, string source)
+    {
+        if (!_sources.Contains(source, StringComparer.Ordinal))
+        {
+            return $"{source} 不在 CUSTOM_MERGE_RULES 允许的来源里（核心 MERGE_ALLOWED_SOURCES），未填入；" +
+                   "可以先在「变量值」里手动写，或改用核心支持的来源。";
+        }
+
+        var target = asPrimary ? _primaryTitle : _secondaryTitle;
+        target.Text = $"{title}@{source}";
+        _focusTarget = target;
+        SetRulePanelOpen(true);
+        return $"已把「{title}@{source}」填进{(asPrimary ? "主源" : "副源")}实体，确认后点「确认添加」再保存。";
+    }
+
+    /// <summary>CUSTOM_MERGE_RULES 不提供偏移回填。</summary>
+    public string? FillOffsetEntity(string title, string source) => null;
+
+    /// <summary>校验当前变量值（保存前由调用方触发，失败时抛 FormatException 并带上原因）。</summary>
+    public void Validate() =>
+        _ = CoreEnvStructuredValues.ParseCustomMergeRules(_definition, Value.Trim());
+
+    private void AppendRawText(string text, char separator)
+    {
+        var current = (_rawValue.Text ?? string.Empty).Trim();
+        if (current.Length == 0)
+        {
+            _rawValue.Text = text;
+        }
+        else if (current.EndsWith(separator))
+        {
+            _rawValue.Text = current + text;
         }
         else
         {
-            RenumberRows();
+            _rawValue.Text = current + separator + text;
         }
     }
 
-    private static void RelationChanged(object? sender, SelectionChangedEventArgs args)
+    private Control BuildRulePanel()
     {
-        if (sender is ComboBox { Tag: Row row })
+        // 三列一行：副源实体 | 关系 | 主源实体（核心 .offset-form-row）
+        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,80,*"), ColumnSpacing = 10 };
+        row.Children.Add(ConfigForm.Field("副源实体（副源剧名@源）", _secondaryTitle));
+
+        _relationHint.Text = "合并";
+        _relationHint.VerticalAlignment = VerticalAlignment.Center;
+        _relationHint.Classes.Add("form-help");
+        var hintLabel = ConfigForm.Label("关系：");
+        var hintRow = new StackPanel
         {
-            row.Routes.IsEnabled = row.Relation.SelectedIndex == 0;
+            Orientation = Orientation.Horizontal,
+            Spacing = 2,
+            Children = { hintLabel, _relationHint },
+        };
+        var relationBlock = new StackPanel
+        {
+            Spacing = 5,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Children = { hintRow, _relation },
+        };
+        Grid.SetColumn(relationBlock, 1);
+        row.Children.Add(relationBlock);
+
+        var primaryBlock = ConfigForm.Field("主源实体（主源剧名@源）", _primaryTitle);
+        Grid.SetColumn(primaryBlock, 2);
+        row.Children.Add(primaryBlock);
+        row.Margin = new Thickness(0, 0, 0, 10);
+
+        var sourcesRow = ConfigForm.PillRow();
+        foreach (var source in _sources)
+        {
+            var pill = new Button { Content = source, Name = "MergeSourcePill" };
+            pill.Classes.Add("source-pill");
+            var captured = source;
+            pill.Click += (_, _) => AppendSourceToFocusedEntity(captured);
+            sourcesRow.Children.Add(pill);
         }
-    }
 
-    private void RenumberRows()
-    {
-        for (var index = 0; index < _rows.Count; index++)
+        var sourceBlock = new StackPanel
         {
-            _rows[index].Heading.Text = $"自定义规则 {index + 1}";
-        }
-    }
-
-    private static CustomMergeRule ToRule(Row row)
-    {
-        var blocked = row.Relation.SelectedIndex == 1;
-        var routes = blocked ? Array.Empty<EpisodeRoute>() : ParseRoutes(row.Routes.Text ?? string.Empty);
-        return new CustomMergeRule(
-            CreateEntity(row.SecondaryTitle, row.SecondarySeason, row.SecondarySources),
-            blocked,
-            CreateEntity(row.PrimaryTitle, row.PrimarySeason, row.PrimarySources),
-            routes);
-    }
-
-    private static CustomMergeEntity CreateEntity(TextBox title, TextBox season, TagPicker sources) =>
-        new(
-            RequiredText(title, "CUSTOM_MERGE_RULES 剧名"),
-            ParseOptionalPositiveInteger(season.Text, "CUSTOM_MERGE_RULES 季数"),
-            sources.Values);
-
-    private static StackPanel CreateEntityEditor(string label, TextBox title, TextBox season, TagPicker sources) => new()
-    {
-        Spacing = 5,
-        Children =
-        {
-            new TextBlock { Text = label },
-            new StackPanel
+            Margin = new Thickness(0, 0, 0, 10),
+            Children =
             {
-                Orientation = Orientation.Horizontal,
-                Spacing = 10,
-                Children = { title, season },
+                ConfigForm.Label("快速追加来源至当前聚焦的输入框 (没有 @ 则追加 @xxx，已存在 @ 则追加 &xxx 合并写法)"),
+                sourcesRow,
             },
-            CreateLabeledControl("来源（可多选）", sources),
-        },
-    };
+        };
 
-    private static StackPanel CreateLabeledControl(string label, Control control) => new()
-    {
-        Spacing = 4,
-        Children = { new TextBlock { Text = label }, control },
-    };
-
-    private static TextBox CreateSeasonInput(int? value, string watermark) => new()
-    {
-        Text = value?.ToString(System.Globalization.CultureInfo.InvariantCulture),
-        Watermark = watermark,
-        Width = 90,
-    };
-
-    private static string RequiredText(TextBox input, string field)
-    {
-        var value = input.Text?.Trim() ?? string.Empty;
-        return value.Length == 0 ? throw new FormatException($"{field}不能为空") : value;
-    }
-
-    private static int? ParseOptionalPositiveInteger(string? text, string field)
-    {
-        var value = text?.Trim() ?? string.Empty;
-        if (value.Length == 0)
+        var cancel = ConfigForm.SmallButton("取消", primary: false);
+        cancel.Click += (_, _) => SetRulePanelOpen(false);
+        var confirm = ConfigForm.SmallButton("确认添加", primary: true);
+        confirm.Name = "ConfirmMergeRuleButton";
+        confirm.Click += (_, _) =>
         {
-            return null;
-        }
+            try
+            {
+                AppendRuleFromForm();
+            }
+            catch (FormatException error)
+            {
+                _errorText.Text = error.Message;
+                _errorText.IsVisible = true;
+            }
+        };
 
-        if (!int.TryParse(value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var number) || number <= 0)
+        var body = new StackPanel
         {
-            throw new FormatException($"{field}必须是正整数");
-        }
+            Children =
+            {
+                row,
+                _routeRow,
+                sourceBlock,
+                _errorText,
+                ConfigForm.ActionRow(cancel, confirm),
+            },
+        };
 
-        return number;
+        var panel = new Border { Child = body };
+        panel.Classes.Add("rule-panel");
+        return panel;
     }
-
-    private static IReadOnlyList<EpisodeRoute> ParseRoutes(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return [];
-        }
-
-        var definition = new CoreEnvDefinition(
-            "CUSTOM_MERGE_RULES", "source", CoreEnvType.Text, string.Empty, [], ["secondary", "primary"], null, null, null, false, false);
-        var parsed = CoreEnvStructuredValues.ParseCustomMergeRules(
-            definition,
-            $"副源@secondary -> 主源@primary | {value.Trim()}");
-        return parsed[0].Routes;
-    }
-
-    private static string FormatRoutes(IReadOnlyList<EpisodeRoute> routes)
-    {
-        if (routes.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        var sample = new CustomMergeRule(
-            new CustomMergeEntity("副源", null, ["secondary"]),
-            false,
-            new CustomMergeEntity("主源", null, ["primary"]),
-            routes);
-        var formatted = CoreEnvStructuredValues.FormatCustomMergeRules([sample]);
-        return formatted[(formatted.IndexOf('|') + 1)..].Trim();
-    }
-
-    private sealed class Row
-    {
-        public required TextBox SecondaryTitle { get; init; }
-        public required TextBox SecondarySeason { get; init; }
-        public required TagPicker SecondarySources { get; init; }
-        public required ComboBox Relation { get; init; }
-        public required TextBox PrimaryTitle { get; init; }
-        public required TextBox PrimarySeason { get; init; }
-        public required TagPicker PrimarySources { get; init; }
-        public required TextBox Routes { get; init; }
-        public StackPanel Container { get; set; } = null!;
-        public TextBlock Heading { get; set; } = null!;
-        public Button Remove { get; set; } = null!;
-    }
-
 }
