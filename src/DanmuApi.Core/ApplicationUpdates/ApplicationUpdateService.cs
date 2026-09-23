@@ -122,8 +122,19 @@ public sealed class ApplicationUpdateService : IDisposable
         finally { gate.Release(); }
     }, cancellationToken);
 
-    public ApplicationUpdateManifest VerifyManifest(byte[] manifestBytes, byte[] detachedSignature)
+    public ApplicationUpdateManifest VerifyManifest(byte[] manifestBytes, byte[] detachedSignature) =>
+        VerifyManifest(manifestBytes, detachedSignature, ApplicationArchitecture.Current);
+
+    /// <summary>
+    /// 按指定架构校验一份签名清单。发布目录里可以同时放三种架构的清单，而进程自身架构只有一个，
+    /// 所以发行自检必须按「这份清单自己的架构」来比，否则 x86 / arm64 的发布目录永远验不过。
+    /// </summary>
+    public ApplicationUpdateManifest VerifyManifest(
+        byte[] manifestBytes,
+        byte[] detachedSignature,
+        string expectedArchitecture)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(expectedArchitecture);
         if (manifestBytes.Length > MaximumManifestBytes) throw new InvalidDataException("Manifest exceeds 1 MiB.");
         using var rsa = RSA.Create();
         rsa.ImportSubjectPublicKeyInfo(key, out _);
@@ -131,7 +142,7 @@ public sealed class ApplicationUpdateService : IDisposable
         using var doc = ParseJson(manifestBytes);
         var root = doc.RootElement;
         ExactProperties(root, "schemaVersion", "product", "version", "channel", "architecture", "assets");
-        if (root.GetProperty("schemaVersion").GetInt32() != 1 || Text(root, "product") != "DanmuApi.Windows" || Text(root, "channel") != "preview" || Text(root, "architecture") != ApplicationArchitecture.Current) throw new InvalidDataException("Unsupported manifest schema, product, channel, or architecture.");
+        if (root.GetProperty("schemaVersion").GetInt32() != 1 || Text(root, "product") != "DanmuApi.Windows" || Text(root, "channel") != "preview" || Text(root, "architecture") != expectedArchitecture) throw new InvalidDataException("Unsupported manifest schema, product, channel, or architecture.");
         var version = SemanticVersion.Parse(Text(root, "version"));
         var assets = new List<ApplicationUpdateAsset>();
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -144,7 +155,7 @@ public sealed class ApplicationUpdateService : IDisposable
             assets.Add(new(name, size, hash.ToLowerInvariant(), kind));
         }
         if (assets.Count == 0) throw new InvalidDataException("Manifest has no assets.");
-        return new(1, "DanmuApi.Windows", version.Value, "preview", ApplicationArchitecture.Current, assets.AsReadOnly());
+        return new(1, "DanmuApi.Windows", version.Value, "preview", expectedArchitecture, assets.AsReadOnly());
     }
 
     public Task<string> DownloadAsync(ApplicationUpdate update, string assetName, string destinationPath, IProgress<ApplicationUpdateProgress>? progress = null, CancellationToken cancellationToken = default) => TimedAsync(async ct =>

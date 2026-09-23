@@ -39,13 +39,36 @@ public static class CoreManifestStore
                 {
                     writer.WriteNumber("pullRequestNumber", manifest.PullRequestNumber.Value);
                 }
+                if (manifest.IsLocalPullRequestStack)
+                {
+                    writer.WriteString("baseCommitSha", manifest.BaseCommitSha);
+                    writer.WriteString("localMergeSha", manifest.LocalMergeSha);
+                    writer.WriteStartArray("pullRequests");
+                    foreach (var pullRequest in manifest.PullRequests)
+                    {
+                        writer.WriteStartObject();
+                        writer.WriteNumber("number", pullRequest.Number);
+                        writer.WriteString("headRepository", pullRequest.HeadRepository);
+                        writer.WriteString("headBranch", pullRequest.HeadBranch);
+                        writer.WriteString("headSha", pullRequest.HeadSha);
+                        if (pullRequest.BaseSha is not null)
+                        {
+                            writer.WriteString("baseSha", pullRequest.BaseSha);
+                        }
+                        writer.WriteEndObject();
+                    }
+                    writer.WriteEndArray();
+                }
                 writer.WriteString("installedAt", manifest.InstalledAt.ToUniversalTime());
                 writer.WriteEndObject();
             }
 
             File.Move(temporary, path, overwrite: true);
             var roundTrip = Read(directory);
-            if (roundTrip != manifest with { InstalledAt = manifest.InstalledAt.ToUniversalTime() })
+            if (roundTrip is null ||
+                (roundTrip with { PullRequests = Array.Empty<CorePullRequestSource>() }) !=
+                (manifest with { InstalledAt = manifest.InstalledAt.ToUniversalTime(), PullRequests = Array.Empty<CorePullRequestSource>() }) ||
+                !roundTrip.PullRequests.SequenceEqual(manifest.PullRequests))
             {
                 throw new IOException("核心来源 manifest 回读校验失败");
             }
@@ -99,6 +122,10 @@ public static class CoreManifestStore
 
             var root = document.RootElement;
             var schema = RequiredInt(root, "schemaVersion");
+            if (schema is not (1 or CoreInstallationManifest.CurrentSchemaVersion))
+            {
+                throw new JsonException($"不支持的核心来源 manifest 版本：{schema.ToString(CultureInfo.InvariantCulture)}");
+            }
             var manifest = new CoreInstallationManifest(
                 schema,
                 ManagedCoreVariantExtensions.ParseManagedVariant(RequiredString(root, "variant")),
@@ -117,7 +144,12 @@ public static class CoreManifestStore
                     DateTimeStyles.AssumeUniversal,
                     out var installedAt)
                     ? installedAt.ToUniversalTime()
-                    : throw new JsonException("manifest installedAt 无效"));
+                    : throw new JsonException("manifest installedAt 无效"))
+            {
+                BaseCommitSha = schema == 2 ? OptionalString(root, "baseCommitSha") : null,
+                LocalMergeSha = schema == 2 ? OptionalString(root, "localMergeSha") : null,
+                PullRequests = schema == 2 ? ReadPullRequests(root) : Array.Empty<CorePullRequestSource>(),
+            };
             Validate(manifest);
             return manifest;
         }
@@ -129,7 +161,7 @@ public static class CoreManifestStore
 
     private static void Validate(CoreInstallationManifest manifest)
     {
-        if (manifest.SchemaVersion != CoreInstallationManifest.CurrentSchemaVersion)
+        if (manifest.SchemaVersion is not (1 or CoreInstallationManifest.CurrentSchemaVersion))
         {
             throw new IOException($"不支持的核心来源 manifest 版本：{manifest.SchemaVersion.ToString(CultureInfo.InvariantCulture)}");
         }
@@ -155,6 +187,70 @@ public static class CoreManifestStore
         {
             throw new IOException("核心来源 manifest PR 编号无效");
         }
+
+        if (manifest.IsLocalPullRequestStack)
+        {
+            if (manifest.SchemaVersion != CoreInstallationManifest.CurrentSchemaVersion ||
+                manifest.PullRequestNumber is not null ||
+                manifest.PullRequests.Count is 0 or > 100 ||
+                !ValidSha(manifest.BaseCommitSha) || !ValidSha(manifest.LocalMergeSha) ||
+                !string.Equals(manifest.CommitSha, manifest.BaseCommitSha, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new IOException("核心来源 manifest 本地 PR 组合基线或提交信息无效");
+            }
+            var numbers = new HashSet<int>();
+            foreach (var pullRequest in manifest.PullRequests)
+            {
+                var head = GithubRepositoryReference.Parse(pullRequest.HeadRepository);
+                if (pullRequest.Number <= 0 || !numbers.Add(pullRequest.Number) ||
+                    head.Branch is not null || !string.Equals(head.FullName, pullRequest.HeadRepository, StringComparison.Ordinal) ||
+                    !ValidSha(pullRequest.HeadSha) ||
+                    (pullRequest.BaseSha is not null && !ValidSha(pullRequest.BaseSha)))
+                {
+                    throw new IOException("核心来源 manifest PR 来源无效或重复");
+                }
+                GithubRepositoryReference.ValidateBranch(pullRequest.HeadBranch);
+            }
+        }
+        else if (manifest.BaseCommitSha is not null || manifest.LocalMergeSha is not null || manifest.PullRequests.Count > 0)
+        {
+            throw new IOException("非本地 PR 核心不能携带 PR 组合元数据");
+        }
+        if (manifest.SchemaVersion == 2 && manifest.InstallKind == CoreInstallKind.LocalPullRequestStack &&
+            manifest.PullRequests.Count == 0)
+        {
+            throw new IOException("本地 PR 核心必须包含有序 PR 来源");
+        }
+    }
+
+    private static bool ValidSha(string? sha) =>
+        sha is { Length: 40 } && sha.All(Uri.IsHexDigit);
+
+    private static IReadOnlyList<CorePullRequestSource> ReadPullRequests(JsonElement root)
+    {
+        if (!root.TryGetProperty("pullRequests", out var array))
+        {
+            return Array.Empty<CorePullRequestSource>();
+        }
+        if (array.ValueKind != JsonValueKind.Array || array.GetArrayLength() is 0 or > 100)
+        {
+            throw new JsonException("manifest pullRequests 必须是非空且不超过 100 项的数组");
+        }
+        var sources = new List<CorePullRequestSource>();
+        foreach (var element in array.EnumerateArray())
+        {
+            if (element.ValueKind != JsonValueKind.Object)
+            {
+                throw new JsonException("manifest PR 来源必须是对象");
+            }
+            sources.Add(new CorePullRequestSource(
+                RequiredInt(element, "number"),
+                RequiredString(element, "headRepository"),
+                RequiredString(element, "headBranch"),
+                RequiredString(element, "headSha"),
+                OptionalString(element, "baseSha")));
+        }
+        return sources;
     }
 
     private static JsonElement RequiredProperty(JsonElement root, string name) =>

@@ -1,4 +1,4 @@
-﻿param([Parameter(Mandatory=$true)][string]$Dotnet,[Parameter(Mandatory=$true)][string]$InnoCompiler,[Parameter(Mandatory=$true)][string]$SignTool,[Parameter(Mandatory=$true)][string]$SigningIdentity,[string]$OutputDirectory,[Parameter(Mandatory=$true)][string]$RuntimeBundle,[string]$NodeVersion,[ValidateSet('x64','x86','arm64')][string]$NodeArch,[ValidateSet('win-x64','win-x86','win-arm64')][string]$Arch='win-x64')
+﻿param([Parameter(Mandatory=$true)][string]$Dotnet,[Parameter(Mandatory=$true)][string]$InnoCompiler,[Parameter(Mandatory=$true)][string]$SignTool,[Parameter(Mandatory=$true)][string]$SigningIdentity,[string]$OutputDirectory,[Parameter(Mandatory=$true)][string]$RuntimeBundle,[Parameter(Mandatory=$true)][string]$GitBundle,[string]$NodeVersion,[ValidateSet('x64','x86','arm64')][string]$NodeArch,[ValidateSet('win-x64','win-x86','win-arm64')][string]$Arch='win-x64')
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 [xml]$props=Get-Content (Join-Path $root 'Directory.Build.props')
@@ -6,12 +6,46 @@ $version=[string]$props.Project.PropertyGroup.Version
 if(-not $OutputDirectory){$OutputDirectory=Join-Path $root ('artifacts\signed-'+$version)}
 $output=[IO.Path]::GetFullPath($OutputDirectory)
 if(Test-Path $output){throw 'Release output exists; use a fresh directory to preserve earlier artifacts.'}
+# The PR merge service launches <app>\git\cmd\git.exe; a system Git or a lone git.exe is not a release dependency.
+$gitRoot=[IO.Path]::GetFullPath($GitBundle)
+$gitBin=@{'win-x86'='mingw32';'win-x64'='mingw64';'win-arm64'='clangarm64'}[$Arch]
+$gitExe=Join-Path $gitRoot 'cmd\git.exe'
+# Only the executables that actually run as Git itself must match the target architecture.
+# usr\bin\sh.exe is deliberately NOT architecture-checked: Git for Windows ships the x86-64 sh.exe
+# inside the arm64 MinGit as well (verified: identical SHA256 to the x64 bundle), relying on
+# Windows 11 ARM64's x64 emulation. Demanding an arm64 sh.exe here would reject the official bundle.
+# Its presence is still required below.
+$gitArchFiles=@('cmd\git.exe',"$gitBin\bin\git.exe","$gitBin\bin\git-remote-https.exe")
+$gitFiles=@($gitArchFiles + 'usr\bin\sh.exe')
+foreach($relative in @($gitFiles + 'etc\gitconfig')){
+  if(-not (Test-Path -LiteralPath (Join-Path $gitRoot $relative) -PathType Leaf)){throw "Portable Git bundle is incomplete: $relative"}
+}
+$machine=@{'win-x86'=0x014c;'win-x64'=0x8664;'win-arm64'=0xaa64}[$Arch]
+foreach($relative in $gitArchFiles){
+  $path=Join-Path $gitRoot $relative
+  $gitVersion=[Diagnostics.FileVersionInfo]::GetVersionInfo($path).ProductVersion
+  if($gitVersion -ne '2.55.0.windows.5'){throw "Portable Git version mismatch: $relative is $gitVersion (expected 2.55.0.windows.5)"}
+  $stream=[IO.File]::OpenRead($path)
+  try {
+    $reader=New-Object IO.BinaryReader($stream)
+    $stream.Position=0x3c
+    $stream.Position=$reader.ReadInt32()+4
+    $actualMachine=$reader.ReadUInt16()
+  } finally {$stream.Dispose()}
+  if($actualMachine -ne $machine){throw ('Portable Git architecture mismatch: {0} is 0x{1:X4} for {2}' -f $relative,$actualMachine,$Arch)}
+}
 New-Item -ItemType Directory $output | Out-Null
 $publish=Join-Path $output 'publish'
 $env:DANMU_SIGNTOOL=[IO.Path]::GetFullPath($SignTool)
 $env:DANMU_SIGNING_IDENTITY=[IO.Path]::GetFullPath($SigningIdentity)
 $restoreArgs=@(); if($env:DANMU_SKIP_RESTORE -eq '1'){$restoreArgs=@('--no-restore')}
-& $Dotnet publish (Join-Path $root 'src\DanmuApi.App\DanmuApi.App.csproj') -c Release --runtime $Arch --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -p:BuiltInComInteropSupport=true -p:PublishReadyToRun=false "-p:PublishDir=$publish\" @restoreArgs
+# Do NOT add -p:PublishSingleFile=true here. Command-line -p: properties are GLOBAL, so it would
+# apply to DanmuApi.Core/.Runtime/.Platform/.Tests too, and the SDK then injects the implicit
+# Microsoft.NET.ILLink.Tasks package reference into every project's restore graph. That rewrites
+# the per-RID packages.lock.*.json files (RestorePackagesWithLockFile is on) with a dependency the
+# plain `dotnet restore -p:CI=true` gate does not produce, so locked-mode RID restores fail with
+# NU1004 right after a release build. The App project declares PublishSingleFile itself.
+& $Dotnet publish (Join-Path $root 'src\DanmuApi.App\DanmuApi.App.csproj') -c Release --runtime $Arch --self-contained true -p:PublishTrimmed=false -p:BuiltInComInteropSupport=true -p:PublishReadyToRun=false "-p:PublishDir=$publish\" @restoreArgs
 if($LASTEXITCODE -ne 0){throw 'Publish failed'}
 if(-not(Test-Path (Join-Path $RuntimeBundle 'node.exe')) -or -not(Test-Path (Join-Path $RuntimeBundle 'SHA256SUMS.txt'))){throw 'Required runtime bundle is incomplete'}
 # Directory.Build.props declares the Node version this host was built against; the same value is
@@ -22,6 +56,8 @@ if(-not $nodeVersion){throw 'DanmuBundledNodeVersion is not declared in Director
 $archName=$Arch.Replace('win-','')
 $nodeArch=if($NodeArch){$NodeArch}else{$archName}
 Copy-Item -LiteralPath $RuntimeBundle -Destination (Join-Path $publish 'runtime-bundle') -Recurse
+if(Test-Path (Join-Path $publish 'git')){throw 'Published app already contains a git directory; refusing to merge bundles'}
+Copy-Item -LiteralPath $gitRoot -Destination (Join-Path $publish 'git') -Recurse
 # Stamp the published copy from nodejs.org so the runtime's origin is reproducible instead of an
 # archived legacy package. The source bundle is left untouched.
 & (Join-Path $PSScriptRoot 'Get-OfficialNodeRuntime.ps1') -RuntimeBundle (Join-Path $publish 'runtime-bundle') -NodeVersion $nodeVersion -Arch $nodeArch
@@ -33,7 +69,7 @@ $signScript=Join-Path $PSScriptRoot 'Sign-WindowsFile.ps1'
 & (Join-Path $PSScriptRoot 'Compile-WindowsInstaller.ps1') -InnoCompiler $InnoCompiler -SourceDirectory $publish -OutputDirectory $output -Version $version -ArchName $archName
 if(-not (Test-Path (Join-Path $output ('DanmuApi-'+$version+'-'+$Arch+'-setup.exe')))){throw 'Compiler returned without a completed installer'}
 $files=Get-ChildItem $publish -File | Where-Object {$_.Extension -in '.exe','.dll'}
-Compress-Archive -LiteralPath @($files.FullName + (Join-Path $publish 'runtime-bundle')) -DestinationPath (Join-Path $output ('DanmuApi-'+$version+'-'+$Arch+'-portable.zip'))
+Compress-Archive -LiteralPath @($files.FullName + (Join-Path $publish 'runtime-bundle') + (Join-Path $publish 'git')) -DestinationPath (Join-Path $output ('DanmuApi-'+$version+'-'+$Arch+'-portable.zip'))
 & (Join-Path $PSScriptRoot 'New-UpdateManifest.ps1') -ReleaseDirectory $output -SigningIdentity $SigningIdentity -Version $version -Architecture $Arch
 Copy-Item (Join-Path (Split-Path $SigningIdentity -Parent) 'danmu-api-windows.cer') $output
 Get-ChildItem $output -File | Where-Object {$_.Extension -in '.exe','.zip','.cer','.json','.sig'} | Get-FileHash -Algorithm SHA256 | ForEach-Object {$_.Hash+'  '+[IO.Path]::GetFileName($_.Path)} | Set-Content (Join-Path $output 'SHA256SUMS.txt') -Encoding ASCII

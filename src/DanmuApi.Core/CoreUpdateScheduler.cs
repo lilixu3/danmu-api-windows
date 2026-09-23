@@ -20,7 +20,7 @@ public sealed record CoreUpdateScheduleOptions(
     CoreUpdateAction UpdateAction)
 {
     public static CoreUpdateScheduleOptions Default { get; } = new(
-        TimeSpan.FromMinutes(10),
+        TimeSpan.FromMinutes(5),
         TimeSpan.FromHours(1),
         true,
         CoreUpdateAction.Notify);

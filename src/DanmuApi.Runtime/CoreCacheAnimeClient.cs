@@ -605,11 +605,10 @@ public sealed class CoreCacheAnimeClient : ICoreCacheAnimeClient
                      .Where(secret => !string.IsNullOrWhiteSpace(secret))
                      .Distinct(StringComparer.Ordinal))
         {
-            normalized = normalized.Replace(secret!, "***", StringComparison.Ordinal);
-            normalized = normalized.Replace(
-                Uri.EscapeDataString(secret!),
-                "***",
-                StringComparison.OrdinalIgnoreCase);
+            foreach (var form in RuntimeEndpointBuilder.TokenTextForms(secret!))
+            {
+                normalized = normalized.Replace(form, "***", StringComparison.OrdinalIgnoreCase);
+            }
         }
 
         return normalized;

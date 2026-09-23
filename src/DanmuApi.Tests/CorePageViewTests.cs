@@ -221,10 +221,26 @@ public sealed partial class CorePageViewModelTests
             Assert.False(view.FindControl<Border>("CommitsStage")!.IsVisible);
             Assert.True(view.FindControl<Border>("PullRequestsStage")!.IsVisible);
             var requests = view.FindControl<ItemsControl>("PullRequestList")!;
-            var install = Assert.Single(requests.GetVisualDescendants().OfType<Button>(), button => Equals(button.Content, "安装 PR"));
-            Assert.Same(model.InstallSelectedPullRequestCommand, install.Command);
-            Assert.Same(pullRequest, install.CommandParameter);
+            // 唯一的合并入口是构建按钮；行里只有「加入/移出队列」与「查看变更」。
+            var build = Assert.Single(view.FindControl<Border>("PullRequestsStage")!
+                .GetVisualDescendants().OfType<Button>(), button => Equals(button.Content, "构建本地 PR 组合"));
+            Assert.Same(model.BuildPullRequestStackCommand, build.Command);
+            Assert.DoesNotContain(requests.GetVisualDescendants().OfType<Button>(),
+                button => Equals(button.Content, "安装 PR 实验版"));
+            var add = Assert.Single(requests.GetVisualDescendants().OfType<Button>(), button => Equals(button.Content, "加入队列"));
+            Assert.Same(model.TogglePullRequestSelectionCommand, add.Command);
+            Assert.Same(pullRequest, add.CommandParameter);
+            add.Command!.Execute(add.CommandParameter);
+            FlushCoreLayout(window);
+            var remove = Assert.Single(requests.GetVisualDescendants().OfType<Button>(), button => Equals(button.Content, "移出队列"));
+            Assert.Same(model.TogglePullRequestSelectionCommand, remove.Command);
+            Assert.Same(pullRequest, remove.CommandParameter);
+            Assert.Single(view.FindControl<Border>("PullRequestsStage")!
+                .GetVisualDescendants().OfType<Button>(), button => Equals(button.Content, "↑"));
             SaveCorePreview(window, "core-pr-narrow");
+
+            remove.Command!.Execute(remove.CommandParameter);
+            Assert.Empty(model.SelectedPullRequests);
 
             model.BackToOverviewCommand.Execute(null);
             FlushCoreLayout(window);

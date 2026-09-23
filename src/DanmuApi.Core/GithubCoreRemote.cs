@@ -579,7 +579,10 @@ public sealed class GithubCoreRemote : IGithubCoreRemote
             OptionalString(root, "html_url"),
             OptionalInt(root, "additions"),
             OptionalInt(root, "deletions"),
-            OptionalInt(root, "changed_files"));
+            OptionalInt(root, "changed_files"))
+        {
+            BaseSha = OptionalString(@base, "sha"),
+        };
     }
 
     private static async Task<JsonDocument> ReadJsonAsync(HttpResponseMessage response, CancellationToken cancellationToken)

@@ -221,6 +221,71 @@ public sealed class DotEnvValueCodecTests
         Assert.Equal(value, DotEnvFile.ReadValue(path, "SPECIAL"));
     }
 
+    [Theory]
+    [InlineData(@"'$1'")]
+    [InlineData(@"C:\Users\admin\弹幕")]
+    [InlineData("a\tb")]
+    [InlineData("a\nb")]
+    [InlineData("he said \"hi\"")]
+    [InlineData("with # hash")]
+    [InlineData("中文 与 spaces")]
+    [InlineData(@"/^\d+$/")]
+    [InlineData("a\\nb")]
+    public void WrittenValuesSurviveTheCoreReader(string value)
+    {
+        // 回读校验过去只用宿主自己的解析器，所以「宿主写的转义核心认不认」这件事测试根本看不见。
+        // 这里按桌面核心的真实读取链路复核一遍：android-server.js 的 parseDotEnv +
+        // unescapeDoubleQuotedEnvValue（桌面下 14 个 RAW 键也走这条路，见 specs/01 §5）。
+        using var directory = new TemporaryDirectory();
+        var path = Path.Combine(directory.Path, ".env");
+
+        DotEnvFile.UpdateValues(path, new Dictionary<string, string?> { ["SPECIAL"] = value });
+
+        var line = Assert.Single(File.ReadAllLines(path),
+            candidate => candidate.StartsWith("SPECIAL=", StringComparison.Ordinal));
+        Assert.Equal(value, ReadTheWayCoreDoes(line["SPECIAL=".Length..]));
+    }
+
+    /// <summary>android-server.js:1132-1170 的等价实现：trim → 成对引号 → 五个转义，其余反斜杠原样。</summary>
+    private static string ReadTheWayCoreDoes(string raw)
+    {
+        var value = raw.Trim();
+        if (value.Length >= 2 && value[0] == '"' && value[^1] == '"')
+        {
+            var inner = value[1..^1];
+            var builder = new StringBuilder(inner.Length);
+            for (var index = 0; index < inner.Length; index++)
+            {
+                var character = inner[index];
+                if (character != '\\' || index == inner.Length - 1)
+                {
+                    builder.Append(character);
+                    continue;
+                }
+
+                var next = inner[++index];
+                builder.Append(next switch
+                {
+                    '\\' => "\\",
+                    '"' => "\"",
+                    'n' => "\n",
+                    'r' => "\r",
+                    't' => "\t",
+                    _ => "\\" + next,
+                });
+            }
+
+            return builder.ToString();
+        }
+
+        if (value.Length >= 2 && value[0] == '\'' && value[^1] == '\'')
+        {
+            return value[1..^1];
+        }
+
+        return value;
+    }
+
     [Fact]
     public void MultiLineValueStaysOnOnePhysicalLine()
     {

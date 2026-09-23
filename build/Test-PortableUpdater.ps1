@@ -29,7 +29,9 @@ try {
   $stage=Join-Path $WorkDirectory '0.1.4'
   New-Item -ItemType Directory (Join-Path $stage 'runtime-bundle') | Out-Null
   [IO.File]::WriteAllText((Join-Path $stage 'runtime-bundle\SHA256SUMS.txt'),'probe')
-  Compress-Archive -LiteralPath @((Join-Path $stage 'DanmuApi.App.exe'),(Join-Path $stage 'runtime-bundle')) -DestinationPath (Join-Path $job 'probe-portable.zip')
+  New-Item -ItemType Directory (Join-Path $stage 'git\cmd') -Force | Out-Null
+  [IO.File]::WriteAllText((Join-Path $stage 'git\cmd\git.exe'),'probe-git')
+  Compress-Archive -LiteralPath @((Join-Path $stage 'DanmuApi.App.exe'),(Join-Path $stage 'runtime-bundle'),(Join-Path $stage 'git')) -DestinationPath (Join-Path $job 'probe-portable.zip')
   $asset=Get-Item (Join-Path $job 'probe-portable.zip')
   $manifest=[ordered]@{schemaVersion=1;product='DanmuApi.Windows';version='0.1.4';channel='preview';architecture='win-x64';assets=@([ordered]@{name=$asset.Name;size=$asset.Length;sha256=(Get-FileHash $asset.FullName).Hash;kind='portable'})}
   $bytes=[Text.Encoding]::UTF8.GetBytes(($manifest|ConvertTo-Json -Depth 8 -Compress))
@@ -56,6 +58,7 @@ try {
   if(-not $helper.WaitForExit(45000)){throw 'Updater timed out'}
   if($helper.ExitCode -ne 0){throw ('Updater failed: '+(Get-Content (Join-Path $job 'error.txt')))}
   if((Get-Item (Join-Path $target 'DanmuApi.App.exe')).VersionInfo.ProductVersion -ne '0.1.4'){throw 'Version not replaced'}
+  if((Get-Content (Join-Path $target 'git\cmd\git.exe')) -ne 'probe-git'){throw 'Bundled Git not replaced'}
   if((Get-Content (Join-Path $target 'user-note.txt')) -ne 'preserve'){throw 'User file changed'}
   if(-not(Test-Path (Join-Path $job 'startup.ok')) -or (Test-Path (Join-Path $job 'backup'))){throw 'Startup receipt/backup cleanup failed'}
   [IO.File]::WriteAllText((Join-Path $WorkDirectory 'result.txt'),'PASS: final signed helper verified manifest/package, waited for old process, replaced files, restarted and received startup receipt; user file preserved.')

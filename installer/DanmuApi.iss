@@ -46,6 +46,7 @@ SignedUninstaller=yes
 Source: "{#SourceDir}\*.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\*.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\runtime-bundle\*"; DestDir: "{app}\runtime-bundle"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SourceDir}\git\*"; DestDir: "{app}\git"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\弹幕API"; Filename: "{app}\DanmuApi.App.exe"; AppUserModelID: "DanmuApi.Windows"

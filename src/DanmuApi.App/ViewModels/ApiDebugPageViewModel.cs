@@ -494,9 +494,12 @@ public sealed partial class ApiDebugPageViewModel : ViewModelBase, IAsyncDisposa
             return value;
         }
 
-        return value
-            .Replace(token, "***", StringComparison.Ordinal)
-            .Replace(Uri.EscapeDataString(token), "***", StringComparison.Ordinal);
+        foreach (var form in RuntimeEndpointBuilder.TokenTextForms(token))
+        {
+            value = value.Replace(form, "***", StringComparison.OrdinalIgnoreCase);
+        }
+
+        return value;
     }
 
     public ValueTask DisposeAsync()

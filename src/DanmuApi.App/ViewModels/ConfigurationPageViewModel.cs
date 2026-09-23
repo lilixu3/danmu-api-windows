@@ -234,7 +234,34 @@ public sealed partial class ConfigurationPageViewModel : ViewModelBase, IAsyncDi
             _diagnostic = error.Message;
             NotifyState();
             await _dialogService.ShowMessageAsync("配置编辑失败", _diagnostic, isError: true).ConfigureAwait(true);
-            return;
+
+            // 结构化编辑器装载不了当前值（核心改了语法/选项，或值里有我们不认识的写法）时不能就此罢休：
+            // 那等于把这个变量锁死，用户连改回来的入口都没有。给一次按原文编辑的机会。
+            if (!await _dialogService.ConfirmAsync(
+                    "改用原文编辑",
+                    $"{row.Key} 的当前值无法用结构化编辑器装载：\n{error.Message}\n\n要改用原文（文本框）编辑这一项吗？",
+                    "按原文编辑").ConfigureAwait(true))
+            {
+                return;
+            }
+
+            try
+            {
+                edit = await _dialogService.PromptCoreEnvRawEditAsync(
+                    row.Definition,
+                    current,
+                    row.State.IsConfigured,
+                    BuildEditorDescription(row))
+                    .ConfigureAwait(true);
+            }
+            catch (Exception rawError) when (rawError is ArgumentException or FormatException or InvalidOperationException)
+            {
+                _diagnostics.Record($"原文编辑 {row.Key} 仍然失败：{rawError.Message}");
+                _diagnostic = rawError.Message;
+                NotifyState();
+                await _dialogService.ShowMessageAsync("配置编辑失败", _diagnostic, isError: true).ConfigureAwait(true);
+                return;
+            }
         }
 
         if (edit.Action is CoreEnvEditAction.Cancel or CoreEnvEditAction.Keep)

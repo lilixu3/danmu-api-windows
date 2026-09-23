@@ -14,7 +14,6 @@ internal sealed class RecordingDialogService : IUiDialogService
     public bool CancelProgressOperation { get; set; }
     public CancellationTokenSource? ActiveProgressCancellation { get; private set; }
     public bool CommitDetailsResult { get; set; }
-    public bool PullRequestDetailsResult { get; set; }
     public bool UpdateDetailsResult { get; set; }
     public GithubTokenDialogResult GithubTokenResult { get; set; } = GithubTokenDialogResult.Cancel();
     public List<string> RoutePrompts { get; } = [];
@@ -28,6 +27,15 @@ internal sealed class RecordingDialogService : IUiDialogService
     public List<string> PromptRequests { get; } = [];
     public string? CopiedText { get; private set; }
     public List<string> OpenedUrls { get; } = [];
+
+    /// <summary>侧栏「有更新」卡片弹出的快速更新窗口，按顺序记录（用来证明点卡片是弹窗而不是跳页）。</summary>
+    public List<QuickUpdateDialogViewModel> QuickUpdates { get; } = [];
+
+    public Task ShowQuickUpdateAsync(QuickUpdateDialogViewModel model)
+    {
+        QuickUpdates.Add(model);
+        return Task.CompletedTask;
+    }
     public Exception? OpenUrlFailure { get; set; }
     public DanmuFavoriteSchedule? FavoriteScheduleResult { get; set; }
     public bool CancelSaveTextFile { get; set; }
@@ -38,6 +46,7 @@ internal sealed class RecordingDialogService : IUiDialogService
     public Exception? PickFolderFailure { get; set; }
     public GithubCommitDetails? LastCommitDetails { get; private set; }
     public GithubPullRequest? LastPullRequest { get; private set; }
+    public IReadOnlyList<GithubFileChange>? LastPullRequestFiles { get; private set; }
     public GithubCompareResult? LastComparison { get; private set; }
 
     public Task EditPortAsync(MainWindowViewModel viewModel) => Task.CompletedTask;
@@ -250,10 +259,23 @@ internal sealed class RecordingDialogService : IUiDialogService
         return Task.FromResult(CommitDetailsResult);
     }
 
-    public Task<bool> ShowPullRequestDetailsAsync(GithubPullRequest pullRequest, IReadOnlyList<GithubFileChange> files)
+    public Task ShowPullRequestDetailsAsync(GithubPullRequest pullRequest, IReadOnlyList<GithubFileChange> files)
     {
         LastPullRequest = pullRequest;
-        return Task.FromResult(PullRequestDetailsResult);
+        LastPullRequestFiles = files;
+        return Task.CompletedTask;
+    }
+
+    public PullRequestBuildPrompt? LastBuildPrompt { get; private set; }
+    public bool BuildConfirmed { get; set; }
+    public bool BuildActivateAfterInstall { get; set; } = true;
+
+    public Task<PullRequestBuildConfirmation> ConfirmPullRequestBuildAsync(PullRequestBuildPrompt prompt)
+    {
+        LastBuildPrompt = prompt;
+        return Task.FromResult(BuildConfirmed
+            ? new PullRequestBuildConfirmation(true, BuildActivateAfterInstall)
+            : PullRequestBuildConfirmation.Canceled);
     }
 
     public Task<bool> ShowUpdateDetailsAsync(GithubCompareResult comparison, string localDisplay, string remoteDisplay)

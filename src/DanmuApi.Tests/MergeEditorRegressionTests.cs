@@ -98,6 +98,51 @@ public sealed class MergeEditorRegressionTests
     }
 
     [AvaloniaFact]
+    public void SavingCommitsStagedMergeGroupWithoutExplicitConfirm()
+    {
+        // 「已选」必须有出口变成值：用户组合完直接点保存，暂存区要自动落地。
+        // 核心前端同样是保存前 confirmMergeGroup（systemsettings.js）；漏了这一步就是
+        // 用户报的「选了却写不进去」。
+        var editor = new OrderedTagsEditor(Platforms, ["qiyi"], allowComposites: true, allowMergeMode: true);
+        editor.SetMergeMode(true);
+        Assert.True(editor.Picker.AddStagedValue("dandan"));
+        Assert.True(editor.Picker.AddStagedValue("animeko"));
+        Assert.Equal(["qiyi"], editor.Values);
+
+        Assert.True(editor.TryConfirmPendingStaging(out var error));
+        Assert.Null(error);
+        Assert.Equal(["qiyi", "dandan&animeko"], editor.Values);
+    }
+
+    [AvaloniaFact]
+    public void StagedGroupAlreadySelectedIsNotReportedAsFailure()
+    {
+        // 同一个组合已经在「已选」里：确认暂存区只是没有新增，不能判成错误挡住保存。
+        var editor = new OrderedTagsEditor(Platforms, ["dandan&animeko"], allowComposites: true, allowMergeMode: true);
+        editor.SetMergeMode(true);
+        Assert.True(editor.Picker.AddStagedValue("dandan"));
+        Assert.True(editor.Picker.AddStagedValue("animeko"));
+
+        Assert.True(editor.TryConfirmPendingStaging(out var error));
+        Assert.Null(error);
+        Assert.Equal(["dandan&animeko"], editor.Values);
+    }
+
+    [AvaloniaFact]
+    public void MergePairsSaveCommitsStagedGroup()
+    {
+        var editor = new MergeSourcePairsEditor(Sources, []);
+        Assert.True(editor.Picker.AddStagedValue("dandan"));
+        Assert.True(editor.Picker.AddStagedValue("animeko"));
+
+        Assert.True(editor.TryConfirmPendingStaging(out var error));
+        Assert.Null(error);
+        var group = Assert.Single(editor.Groups);
+        Assert.Equal("dandan", group.Primary);
+        Assert.Equal(["animeko"], group.Secondaries);
+    }
+
+    [AvaloniaFact]
     public void SourceOrderHasNoMergeMode()
     {
         var editor = new OrderedTagsEditor(Sources, ["dandan"], allowComposites: false, allowMergeMode: false);

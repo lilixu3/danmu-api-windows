@@ -118,6 +118,27 @@ public sealed class DanmuDownloadPageViewModelTests : IDisposable
     }
 
     [AvaloniaFact]
+    public async Task RateLimitBypassRestoresWithDeleteWhenTheKeyWasNeverConfigured()
+    {
+        // 旁路之前核心里根本没有 RATE_LIMIT_MAX_REQUESTS：恢复必须走「删除」。
+        // 写空串会在 .env 里凭空造出一行用户从未声明的配置。
+        using var fixture = new DownloadFixture();
+        fixture.EnvClient.ReadValue = string.Empty;
+        var viewModel = fixture.CreateViewModel();
+        viewModel.Keyword = "测试番剧";
+        await viewModel.SearchCommand.ExecuteAsync(null);
+        await viewModel.OpenAnimeCommand.ExecuteAsync(viewModel.AnimeRows[0]);
+        viewModel.EpisodeRows[0].IsSelected = true;
+
+        viewModel.StartDownloadCommand.Execute(null);
+        await WaitUntilAsync(() => !viewModel.IsDownloading);
+
+        Assert.Contains(("RATE_LIMIT_MAX_REQUESTS", "0"), fixture.EnvClient.SetCalls);
+        Assert.DoesNotContain(fixture.EnvClient.SetCalls, call => call.Value.Length == 0);
+        Assert.Contains("RATE_LIMIT_MAX_REQUESTS", fixture.EnvClient.DeleteCalls);
+    }
+
+    [AvaloniaFact]
     public async Task StartDownloadEnqueuesRunsQueueAndRecordsSuccess()
     {
         using var fixture = new DownloadFixture();
@@ -743,8 +764,16 @@ public sealed class DanmuDownloadPageViewModelTests : IDisposable
 
     private sealed class StubEnvClient : ICoreEnvClient
     {
-        public Task<CoreEnvDeleteResult> DeleteAsync(string host, int port, string? token, string? adminToken, string key, CancellationToken cancellationToken = default) =>
-            Task.FromResult(CoreEnvDeleteResult.Success());
+        /// <summary>模拟 /api/config 里读到的原值；null 表示读失败，空串表示核心里根本没有这一项。</summary>
+        public string? ReadValue { get; set; } = "5";
+
+        public List<string> DeleteCalls { get; } = [];
+
+        public Task<CoreEnvDeleteResult> DeleteAsync(string host, int port, string? token, string? adminToken, string key, CancellationToken cancellationToken = default)
+        {
+            DeleteCalls.Add(key);
+            return Task.FromResult(CoreEnvDeleteResult.Success());
+        }
 
         public Task<CoreEnvSetResult> SetAsync(string host, int port, string? token, string? adminToken, string key, string value, CancellationToken cancellationToken = default)
         {
@@ -753,7 +782,7 @@ public sealed class DanmuDownloadPageViewModelTests : IDisposable
         }
 
         public Task<CoreEnvValueResult> ReadConfigValueAsync(string host, int port, string? token, string? adminToken, string key, CancellationToken cancellationToken = default) =>
-            Task.FromResult(CoreEnvValueResult.Success("5"));
+            ReadValue is null ? Task.FromResult(CoreEnvValueResult.Failure("测试替身：读不到")) : Task.FromResult(CoreEnvValueResult.Success(ReadValue));
 
         public List<(string Key, string Value)> SetCalls { get; } = [];
     }

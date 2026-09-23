@@ -1,6 +1,7 @@
 using DanmuApi.App.Services;
 using DanmuApi.App.ViewModels;
 using DanmuApi.Core;
+using DanmuApi.Platform;
 
 namespace DanmuApi.Tests;
 
@@ -28,6 +29,65 @@ public sealed partial class CorePageViewModelTests
         Assert.False(success.IsError);
         Assert.Contains("安装稳定核心已完成", success.Message, StringComparison.Ordinal);
         Assert.Contains("1.0.0", success.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task InstallingDevVariantUsesTheDevUpstream()
+    {
+        // specs/02 §1 的三种变体里 dev 曾只在文档与运行层存在（.env 能写 dev），宿主侧装不了也管不了，
+        // 从 Kotlin 版迁移过来的用户会直接卡住。这里锁住「dev 可安装、且只从 lilixu3/danmu_api 装」。
+        var routeStore = new RecordingRoutePreferenceStore(confirmed: true) { ProxyId = "gh_proxy_org" };
+        var management = new RecordingManagementService
+        {
+            InstallResult = new CoreManagementOperationResult(true, true, true, Installed(), "核心操作已完成"),
+        };
+        var dialogs = new RecordingDialogService();
+        var viewModel = CreateViewModel(management, routeStore, dialogs);
+
+        viewModel.SelectedVariant = ManagedCoreVariant.Dev;
+        // 显示名称输入框是跨变体复用的（切变体不会改写用户已填的内容），留空才走各变体默认名。
+        viewModel.DisplayName = string.Empty;
+        Assert.True(viewModel.CanInstallDev);
+        Assert.False(viewModel.CanInstallOfficial);
+        Assert.False(viewModel.CanInstallCustom);
+        Assert.Equal("开发核心", viewModel.VariantLabel);
+        Assert.Equal("lilixu3/danmu_api", viewModel.RepositoryDisplay);
+
+        await viewModel.InstallDevCommand.ExecuteAsync(null);
+
+        Assert.Equal(ManagedCoreVariant.Dev, management.LastInstallVariant);
+        Assert.Equal("lilixu3/danmu_api", management.LastInstallRepository?.FullName);
+        Assert.Equal(CoreRepositorySource.Dev, management.LastInstallRepository?.Source);
+        Assert.Equal("开发核心", management.LastInstallDisplayName);
+        Assert.Equal(["安装开发核心"], dialogs.ProgressTitles);
+    }
+
+    [Fact]
+    public void VariantsMapToOneStorageKeyDirectoryAndUpstream()
+    {
+        Assert.Equal("dev", ManagedCoreVariant.Dev.ToStorageKey());
+        Assert.Equal("danmu_api_dev", ManagedCoreVariant.Dev.ToDirectoryName());
+        Assert.Equal("lilixu3/danmu_api", ManagedCoreVariant.Dev.DefaultRepositoryFullName());
+        Assert.Null(ManagedCoreVariant.Custom.DefaultRepositoryFullName());
+        Assert.Equal(ManagedCoreVariant.Dev, ManagedCoreVariantExtensions.ParseManagedVariant("dev"));
+        // 核心自己的别名（android-server.js 的 _getVariant）也要认，否则迁移过来的 .env 会直接判错。
+        Assert.Equal(ManagedCoreVariant.Dev, ManagedCoreVariantExtensions.ParseManagedVariant("development"));
+        var error = Assert.Throws<FormatException>(() =>
+            ManagedCoreVariantExtensions.ParseManagedVariant("beta"));
+        Assert.Contains("stable", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RepositorySourceMustMatchTheVariantBeingInstalled()
+    {
+        Assert.True(GithubRepositoryReference.Official().Source.Matches(ManagedCoreVariant.Stable));
+        Assert.True(GithubRepositoryReference.Dev().Source.Matches(ManagedCoreVariant.Dev));
+        Assert.False(GithubRepositoryReference.Dev().Source.Matches(ManagedCoreVariant.Stable));
+        Assert.False(GithubRepositoryReference.Official().Source.Matches(ManagedCoreVariant.Dev));
+        // 自选仓库仍然只能装成自定义核心；把 lilixu3/danmu_api 当自定义仓库装也照旧允许。
+        var parsed = GithubRepositoryReference.Parse("lilixu3/danmu_api");
+        Assert.Equal(CoreRepositorySource.Custom, parsed.Source);
+        Assert.True(parsed.Source.Matches(ManagedCoreVariant.Custom));
     }
 
     [Fact]
@@ -225,42 +285,242 @@ public sealed partial class CorePageViewModelTests
     }
 
     [Fact]
-    public async Task PullRequestInstallOnStableVariantExplainsCustomOnly()
+    public void QueueMoveCommandsReorderAndClampAtTheEdges()
     {
         var management = new RecordingManagementService { Installation = Installed() };
-        var dialogs = new RecordingDialogService { Confirmation = true };
-        var viewModel = CreateViewModel(management, new RecordingRoutePreferenceStore(true), dialogs);
-        var pullRequest = PullRequest(7);
+        var model = CreateViewModel(management, new RecordingRoutePreferenceStore(true), new RecordingDialogService(),
+            merge: new RecordingPullRequestMergeService());
+        var first = PullRequest(12);
+        var second = PullRequest(3);
+        var third = PullRequest(7);
+        model.TogglePullRequestSelectionCommand.Execute(first);
+        model.TogglePullRequestSelectionCommand.Execute(second);
+        model.TogglePullRequestSelectionCommand.Execute(third);
+        Assert.Equal([12, 3, 7], model.SelectedPullRequests.Select(item => item.Number));
 
-        await viewModel.InstallSelectedPullRequestCommand.ExecuteAsync(pullRequest);
+        model.MoveSelectedPullRequestUpCommand.Execute(third);
+        Assert.Equal([12, 7, 3], model.SelectedPullRequests.Select(item => item.Number));
+        model.MoveSelectedPullRequestDownCommand.Execute(first);
+        Assert.Equal([7, 12, 3], model.SelectedPullRequests.Select(item => item.Number));
 
-        Assert.Equal(0, management.InstallCalls);
-        var message = Assert.Single(dialogs.Messages);
-        Assert.True(message.IsError);
-        Assert.Contains("自定义核心", message.Message, StringComparison.Ordinal);
+        // 越界不动：队列第一项再上移、最后一项再下移都必须保持原样。
+        model.MoveSelectedPullRequestUpCommand.Execute(model.SelectedPullRequests[0]);
+        model.MoveSelectedPullRequestDownCommand.Execute(model.SelectedPullRequests[2]);
+        Assert.Equal([7, 12, 3], model.SelectedPullRequests.Select(item => item.Number));
+        Assert.Contains("1. #7", model.PullRequestQueueSummary, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task PullRequestInstallSuccessFeedbackNamesThePr()
+    public void PullRequestRowsExposeQueuePositionAndActionLabel()
+    {
+        var management = new RecordingManagementService { Installation = Installed() };
+        var model = CreateViewModel(management, new RecordingRoutePreferenceStore(true), new RecordingDialogService(),
+            merge: new RecordingPullRequestMergeService());
+        var queued = PullRequest(12);
+        model.PullRequests = [queued, PullRequest(3)];
+        model.TogglePullRequestSelectionCommand.Execute(queued);
+
+        var rows = model.PullRequestRows;
+        Assert.Equal(1, rows.Single(row => row.Number == 12).QueuePosition);
+        Assert.Equal("队列第 1 位", rows.Single(row => row.Number == 12).QueueBadgeText);
+        Assert.Equal("移出队列", rows.Single(row => row.Number == 12).QueueActionText);
+        Assert.Equal(0, rows.Single(row => row.Number == 3).QueuePosition);
+        Assert.Equal("加入队列", rows.Single(row => row.Number == 3).QueueActionText);
+    }
+
+    [Fact]
+    public void MergedStackIsVisibleOnTheCorePage()
     {
         var management = new RecordingManagementService
         {
-            Installation = InstalledCustom(),
-            InstallResult = new CoreManagementOperationResult(true, true, true, InstalledCustom(), "核心操作已完成"),
+            Installation = InstalledStack([12, 3]),
         };
-        var dialogs = new RecordingDialogService { Confirmation = true };
-        var routeStore = new RecordingRoutePreferenceStore(confirmed: true) { ProxyId = "gh_proxy_org" };
-        var viewModel = CreateViewModel(management, routeStore, dialogs);
-        viewModel.SelectedVariant = ManagedCoreVariant.Custom;
-        var pullRequest = PullRequest(7);
+        var model = CreateViewModel(management, new RecordingRoutePreferenceStore(true), new RecordingDialogService());
 
-        await viewModel.InstallSelectedPullRequestCommand.ExecuteAsync(pullRequest);
+        Assert.True(model.HasMergedPullRequests);
+        Assert.Equal([12, 3], model.MergedPullRequestNumbers);
+        Assert.Equal("#12 #3", model.MergedPullRequestText);
+        // 身份带第二行必须点明这是本地组合，并按基线上报提交，不能让用户以为装的是分支最新提交。
+        Assert.Contains("本地 PR 组合 #12 #3", model.IdentityMetaText, StringComparison.Ordinal);
+        Assert.Contains(model.Manifest!.ShortSha, model.IdentityMetaText, StringComparison.Ordinal);
+    }
 
-        Assert.Equal(1, management.InstallCalls);
-        Assert.Equal("gh_proxy_org", management.LastInstallProxyId);
-        var success = Assert.Single(dialogs.Messages);
-        Assert.False(success.IsError);
-        Assert.Contains("安装 PR #7", dialogs.ProgressTitles[0], StringComparison.Ordinal);
+    [Fact]
+    public void PullRequestsAlreadyMergedIntoTheCoreCannotBeQueuedAgain()
+    {
+        var management = new RecordingManagementService { Installation = InstalledStack([12]) };
+        var model = CreateViewModel(management, new RecordingRoutePreferenceStore(true), new RecordingDialogService(),
+            merge: new RecordingPullRequestMergeService());
+        var merged = PullRequest(12);
+        var fresh = PullRequest(3);
+        model.PullRequests = [merged, fresh];
+
+        model.TogglePullRequestSelectionCommand.Execute(merged);
+
+        Assert.Empty(model.SelectedPullRequests);
+        var rows = model.PullRequestRows;
+        Assert.True(rows.Single(row => row.Number == 12).IsIncludedInCore);
+        Assert.False(rows.Single(row => row.Number == 12).CanQueue);
+        Assert.Equal("已并入当前核心", rows.Single(row => row.Number == 12).InclusionBadgeText);
+        Assert.True(rows.Single(row => row.Number == 3).CanQueue);
+
+        model.TogglePullRequestSelectionCommand.Execute(fresh);
+        Assert.Equal([3], model.SelectedPullRequests.Select(item => item.Number));
+    }
+
+    [Fact]
+    public void PlainBranchInstallReportsNoMergedStack()
+    {
+        var management = new RecordingManagementService { Installation = Installed() };
+        var model = CreateViewModel(management, new RecordingRoutePreferenceStore(true), new RecordingDialogService());
+
+        Assert.False(model.HasMergedPullRequests);
+        Assert.Empty(model.MergedPullRequestNumbers);
+        Assert.Contains("分支 main", model.IdentityMetaText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ActivateActionIsOfferedOnlyForANonRunningVariant()
+    {
+        var management = new RecordingManagementService { Installation = Installed() };
+        var onOther = CreateViewModel(management, new RecordingRoutePreferenceStore(true), new RecordingDialogService(),
+            activeVariant: new RecordingActiveCoreVariantStore(ManagedCoreVariant.Custom),
+            variantSwitch: (variant, _) => Task.FromResult(new RuntimeVariantSwitchResult(true, variant, true, false, "ok")));
+        Assert.True(onOther.CanActivateSelectedVariant);
+
+        var onSame = CreateViewModel(management, new RecordingRoutePreferenceStore(true), new RecordingDialogService(),
+            activeVariant: new RecordingActiveCoreVariantStore(ManagedCoreVariant.Stable),
+            variantSwitch: (variant, _) => Task.FromResult(new RuntimeVariantSwitchResult(true, variant, true, false, "ok")));
+        Assert.False(onSame.CanActivateSelectedVariant);
+
+        // 没有装配切换服务时不许显示一个点了没反应的按钮。
+        var unwired = CreateViewModel(management, new RecordingRoutePreferenceStore(true), new RecordingDialogService());
+        Assert.False(unwired.CanActivateSelectedVariant);
+    }
+
+    [Fact]
+    public async Task ActivateSelectedVariantConfirmsThenSwitches()
+    {
+        var management = new RecordingManagementService { Installation = Installed() };
+        var dialogs = new MergeDialog { ApplyConfirmed = true };
+        var switches = new List<ManagedCoreVariant>();
+        var model = CreateViewModel(management, new RecordingRoutePreferenceStore(true), dialogs,
+            activeVariant: new RecordingActiveCoreVariantStore(ManagedCoreVariant.Custom),
+            variantSwitch: (variant, _) =>
+            {
+                switches.Add(variant);
+                return Task.FromResult(new RuntimeVariantSwitchResult(true, variant, true, false, "已切换"));
+            });
+
+        await model.ActivateSelectedVariantCommand.ExecuteAsync(null);
+
+        Assert.Equal([ManagedCoreVariant.Stable], switches);
+        var confirmation = Assert.Single(dialogs.Confirmations);
+        Assert.Contains("安全停止", confirmation, StringComparison.Ordinal);
+        Assert.Contains(dialogs.Messages, item => item.Title == "已切换运行核心" && !item.IsError);
+    }
+
+    [Fact]
+    public async Task DecliningTheActivateConfirmationLeavesTheRunningCoreAlone()
+    {
+        var management = new RecordingManagementService { Installation = Installed() };
+        var dialogs = new MergeDialog { AskConfirmed = false };
+        var switches = new List<ManagedCoreVariant>();
+        var model = CreateViewModel(management, new RecordingRoutePreferenceStore(true), dialogs,
+            activeVariant: new RecordingActiveCoreVariantStore(ManagedCoreVariant.Custom),
+            variantSwitch: (variant, _) =>
+            {
+                switches.Add(variant);
+                return Task.FromResult(new RuntimeVariantSwitchResult(true, variant, true, false, "已切换"));
+            });
+
+        await model.ActivateSelectedVariantCommand.ExecuteAsync(null);
+
+        Assert.Empty(switches);
+        Assert.Empty(dialogs.Messages);
+    }
+
+    [Fact]
+    public async Task PullRequestDetailsAreReadOnlyAndNeverInstallAnything()
+    {
+        var management = new RecordingManagementService { Installation = Installed() };
+        var dialogs = new RecordingDialogService();
+        var pullRequest = PullRequest(42);
+        var remote = new StubRemote
+        {
+            PullRequestDetailsOperation = _ => Task.FromResult(pullRequest),
+            PullRequestFilesOperation = () => Task.FromResult<IReadOnlyList<GithubFileChange>>(
+                [new GithubFileChange("worker.js", null, "modified", 3, 1, 4, "@@", null)]),
+        };
+        var model = CreateViewModel(management, new RecordingRoutePreferenceStore(true), dialogs, remote,
+            merge: new RecordingPullRequestMergeService());
+
+        await model.ShowPullRequestDetailsCommand.ExecuteAsync(pullRequest);
+
+        // 详情走只读展示：弹窗拿到的是远端最新元数据 + 文件清单。
+        Assert.Equal(42, dialogs.LastPullRequest!.Number);
+        Assert.Equal("worker.js", Assert.Single(dialogs.LastPullRequestFiles!).Path);
+        // 唯一的 PR 动作是"构建本地 PR 组合"：看详情不能顺手装任何东西。
+        Assert.Equal(0, management.InstallCalls);
+        Assert.Empty(model.SelectedPullRequests);
+        Assert.False(model.IsBusy);
+    }
+
+    [Fact]
+    public async Task DeclinedBuildConfirmationDoesNotPrepareAnything()
+    {
+        var management = new RecordingManagementService { Installation = Installed() };
+        var merge = new RecordingPullRequestMergeService();
+        var dialogs = new RecordingDialogService { BuildConfirmed = false };
+        var model = CreateViewModel(management, new RecordingRoutePreferenceStore(true), dialogs, merge: merge);
+        model.TogglePullRequestSelectionCommand.Execute(PullRequest(7));
+
+        await model.BuildPullRequestStackCommand.ExecuteAsync(null);
+
+        Assert.Empty(merge.PreparedNumbers);
+        Assert.Equal(0, merge.DiscardCalls);
+        Assert.Equal([7], model.SelectedPullRequests.Select(item => item.Number));
+        Assert.Empty(dialogs.Messages);
+        // 确认框里必须带目标变体、基线与有序队列，用户才知道要点什么。
+        var prompt = Assert.IsType<PullRequestBuildPrompt>(dialogs.LastBuildPrompt);
+        Assert.Equal("稳定核心", prompt.VariantLabel);
+        Assert.Equal(Installed().Manifest!.CommitSha, prompt.BaseCommitSha);
+        Assert.Equal([7], prompt.PullRequests.Select(item => item.Number));
+        Assert.Empty(prompt.InheritedPullRequestNumbers);
+    }
+
+    [Fact]
+    public async Task BuildConfirmationListsInheritedNumbersSeparatelyFromNewOnes()
+    {
+        var management = new RecordingManagementService { Installation = InstalledStack([12]) };
+        var merge = new RecordingPullRequestMergeService();
+        var dialogs = new RecordingDialogService { BuildConfirmed = false };
+        var model = CreateViewModel(management, new RecordingRoutePreferenceStore(true), dialogs, merge: merge);
+        model.TogglePullRequestSelectionCommand.Execute(PullRequest(7));
+
+        await model.BuildPullRequestStackCommand.ExecuteAsync(null);
+
+        var prompt = Assert.IsType<PullRequestBuildPrompt>(dialogs.LastBuildPrompt);
+        Assert.Equal([7], prompt.PullRequests.Select(item => item.Number));
+        Assert.Equal([12], prompt.InheritedPullRequestNumbers);
+        Assert.Equal(InstalledStack([12]).Manifest!.BaseCommitSha, prompt.BaseCommitSha);
+    }
+
+    private static CoreInstallationInfo InstalledStack(IReadOnlyList<int> numbers)
+    {
+        var manifest = Installed().Manifest! with
+        {
+            SchemaVersion = 2,
+            InstallKind = CoreInstallKind.LocalPullRequestStack,
+            BaseCommitSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            LocalMergeSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            PullRequests = numbers
+                .Select(number => new CorePullRequestSource(
+                    number, "contributor/danmu_api", "feature",
+                    "cccccccccccccccccccccccccccccccccccccccc", null))
+                .ToArray(),
+        };
+        return Installed() with { Manifest = manifest };
     }
 
     [Fact]
@@ -557,13 +817,221 @@ public sealed partial class CorePageViewModelTests
         Assert.Equal("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", viewModel.CommitDisplay);
     }
 
+    [Theory]
+    [InlineData("denied")]
+    [InlineData("confirmation-exception")]
+    [InlineData("canceled")]
+    [InlineData("precondition-failure")]
+    [InlineData("apply-failure")]
+    [InlineData("success")]
+    public async Task PullRequestStackBuildAlwaysDiscardsStaging(string scenario)
+    {
+        var management = new RecordingManagementService { Installation = Installed() };
+        var merge = new RecordingPullRequestMergeService();
+        var dialogs = new MergeDialog
+        {
+            ApplyConfirmed = scenario != "denied",
+            ThrowOnApplyConfirmation = scenario == "confirmation-exception",
+            ApplyOutcome = scenario == "canceled" ? ProgressOperationOutcome.Canceled :
+                scenario == "precondition-failure" ? ProgressOperationOutcome.Failed : null,
+        };
+        if (scenario == "apply-failure")
+        {
+            merge.ApplyFailure = new InvalidOperationException("应用故障");
+        }
+        var model = CreateViewModel(management, new RecordingRoutePreferenceStore(true), dialogs, merge: merge);
+        model.TogglePullRequestSelectionCommand.Execute(PullRequest(12));
+        model.TogglePullRequestSelectionCommand.Execute(PullRequest(3));
+
+        await model.BuildPullRequestStackCommand.ExecuteAsync(null);
+
+        Assert.False(model.IsBusy);
+        if (scenario is "denied" or "confirmation-exception")
+        {
+            // 新语义：先确认再准备。用户在确认框取消（或确认框自己出错）时，
+            // 根本不应该创建隔离工作区，也就没有暂存目录要清理。
+            Assert.Empty(merge.PreparedNumbers);
+            Assert.Equal(0, merge.ApplyCalls);
+            Assert.Equal(0, merge.DiscardCalls);
+            Assert.Equal(2, model.SelectedPullRequests.Count);
+            if (scenario == "confirmation-exception")
+            {
+                Assert.Contains(dialogs.Messages, item => item.IsError && item.Title == "PR 组合构建失败");
+            }
+            else
+            {
+                Assert.Empty(dialogs.Messages);
+            }
+            return;
+        }
+
+        Assert.Equal([12, 3], merge.PreparedNumbers);
+        Assert.Equal(1, merge.DiscardCalls);
+        // 进度弹窗自己判定取消/前置失败时根本不会进入应用，所以只有真正跑到应用的两个场景计 1 次。
+        Assert.Equal(scenario is "canceled" or "precondition-failure" ? 0 : 1, merge.ApplyCalls);
+        if (scenario == "success")
+        {
+            Assert.Empty(model.SelectedPullRequests);
+            Assert.Contains(dialogs.Messages, item => item.Title == "PR 组合已安装");
+            // 确认框里显式列出基线与有序队列（与移动端构建对话框同义）。
+            Assert.Equal(Installed().Manifest!.CommitSha, dialogs.LastBuildPrompt!.BaseCommitSha);
+            Assert.Equal([12, 3], dialogs.LastBuildPrompt.PullRequests.Select(item => item.Number));
+        }
+        else
+        {
+            Assert.Equal(2, model.SelectedPullRequests.Count);
+            Assert.Contains(dialogs.Messages, item => item.IsError || item.Title == "操作已取消");
+        }
+    }
+
+    [Fact]
+    public async Task BuildingPullRequestStackActivatesTheVariantWhenRequested()
+    {
+        var management = new RecordingManagementService { Installation = Installed() };
+        var merge = new RecordingPullRequestMergeService();
+        var dialogs = new MergeDialog { ActivateAfterInstall = true };
+        var switches = new List<ManagedCoreVariant>();
+        var model = CreateViewModel(management, new RecordingRoutePreferenceStore(true), dialogs, merge: merge,
+            activeVariant: new RecordingActiveCoreVariantStore(ManagedCoreVariant.Custom),
+            variantSwitch: (variant, _) =>
+            {
+                switches.Add(variant);
+                return Task.FromResult(new RuntimeVariantSwitchResult(true, variant, true, false, "已切换"));
+            });
+        model.TogglePullRequestSelectionCommand.Execute(PullRequest(12));
+
+        await model.BuildPullRequestStackCommand.ExecuteAsync(null);
+
+        Assert.Equal([ManagedCoreVariant.Stable], switches);
+        Assert.Contains(dialogs.Messages, item => item.Title == "已切换运行核心");
+    }
+
+    [Fact]
+    public async Task BuildingPullRequestStackDoesNotSwitchWhenTheToggleIsOff()
+    {
+        var management = new RecordingManagementService { Installation = Installed() };
+        var merge = new RecordingPullRequestMergeService();
+        var dialogs = new MergeDialog { ActivateAfterInstall = false };
+        var switches = new List<ManagedCoreVariant>();
+        var model = CreateViewModel(management, new RecordingRoutePreferenceStore(true), dialogs, merge: merge,
+            activeVariant: new RecordingActiveCoreVariantStore(ManagedCoreVariant.Custom),
+            variantSwitch: (variant, _) =>
+            {
+                switches.Add(variant);
+                return Task.FromResult(new RuntimeVariantSwitchResult(true, variant, true, false, "已切换"));
+            });
+        model.TogglePullRequestSelectionCommand.Execute(PullRequest(12));
+
+        await model.BuildPullRequestStackCommand.ExecuteAsync(null);
+
+        Assert.Empty(switches);
+        Assert.False(model.ActivateAfterBuild);
+    }
+
+    [Fact]
+    public async Task FailedRuntimeSwitchIsReportedAsError()
+    {
+        var management = new RecordingManagementService { Installation = Installed() };
+        var merge = new RecordingPullRequestMergeService();
+        var dialogs = new MergeDialog { ActivateAfterInstall = true };
+        var model = CreateViewModel(management, new RecordingRoutePreferenceStore(true), dialogs, merge: merge,
+            activeVariant: new RecordingActiveCoreVariantStore(ManagedCoreVariant.Custom),
+            variantSwitch: (variant, _) => Task.FromResult(new RuntimeVariantSwitchResult(
+                false, variant, false, true, "切换到稳定核心后服务未能运行；已恢复原来的核心选择并重启。")));
+        model.TogglePullRequestSelectionCommand.Execute(PullRequest(12));
+
+        await model.BuildPullRequestStackCommand.ExecuteAsync(null);
+
+        Assert.Contains(dialogs.Messages, item => item.IsError && item.Title == "切换运行核心失败");
+    }
+
+    [Fact]
+    public async Task FailedStagingCleanupReportsDiagnosticAndError()
+    {
+        var management = new RecordingManagementService { Installation = Installed() };
+        var merge = new RecordingPullRequestMergeService { DiscardFailure = new IOException("暂存文件被占用") };
+        var dialogs = new MergeDialog { ApplyConfirmed = true };
+        var diagnostics = new StubDiagnostics();
+        var model = CreateViewModel(management, new RecordingRoutePreferenceStore(true), dialogs, diagnostics: diagnostics, merge: merge);
+        model.TogglePullRequestSelectionCommand.Execute(PullRequest(12));
+
+        await model.BuildPullRequestStackCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, merge.DiscardCalls);
+        Assert.Contains("暂存文件被占用", diagnostics.LastDiagnostic, StringComparison.Ordinal);
+        Assert.Contains(dialogs.Messages, item => item.IsError && item.Title == "暂存目录清理失败");
+    }
+
+    [Fact]
+    public void ChangingInstalledSourceClearsStalePullRequestsAndSelection()
+    {
+        var management = new RecordingManagementService { Installation = Installed() };
+        var merge = new RecordingPullRequestMergeService();
+        var model = CreateViewModel(management, new RecordingRoutePreferenceStore(true), new RecordingDialogService(), merge: merge);
+        var request = PullRequest(42);
+        model.PullRequests = [request];
+        model.TogglePullRequestSelectionCommand.Execute(request);
+        Assert.True(model.CanBuildPullRequestStack);
+
+        management.ReplaceInstallationOutOfBand(Installed() with
+        {
+            Manifest = Installed().Manifest! with { Branch = "next" },
+        }, ManagedCoreVariant.Stable);
+
+        Assert.Empty(model.PullRequests);
+        Assert.Empty(model.SelectedPullRequests);
+        Assert.False(model.CanBuildPullRequestStack);
+        Assert.False(model.BuildPullRequestStackCommand.CanExecute(null));
+        Assert.Equal(1, model.PullRequestPage);
+        Assert.False(model.HasPullRequestNextPage);
+    }
+
+    [Fact]
+    public async Task InFlightPullRequestResponseCannotRestoreOldSourceList()
+    {
+        var management = new RecordingManagementService { Installation = Installed() };
+        var response = new TaskCompletionSource<GithubPullRequestPage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var remote = new StubRemote { PullRequestPageOperation = () => response.Task };
+        var model = CreateViewModel(management, new RecordingRoutePreferenceStore(true), new RecordingDialogService(), remote);
+        var load = model.OpenPullRequestsPageCommand.ExecuteAsync(null);
+        Assert.False(load.IsCompleted);
+
+        management.ReplaceInstallationOutOfBand(Installed() with
+        {
+            Manifest = Installed().Manifest! with { Repository = "example/another", Branch = "develop" },
+        }, ManagedCoreVariant.Stable);
+        response.SetResult(new GithubPullRequestPage([PullRequest(42)], 1, false, false));
+        await load;
+
+        Assert.Empty(model.PullRequests);
+        Assert.Empty(model.SelectedPullRequests);
+    }
+
+    [Fact]
+    public void SelectionRetainsClickOrderAndTogglesOff()
+    {
+        var management = new RecordingManagementService { Installation = Installed() };
+        var model = CreateViewModel(management, new RecordingRoutePreferenceStore(true), new RecordingDialogService(), merge: new RecordingPullRequestMergeService());
+        model.TogglePullRequestSelectionCommand.Execute(PullRequest(12));
+        model.TogglePullRequestSelectionCommand.Execute(PullRequest(3));
+        Assert.Equal([12, 3], model.SelectedPullRequests.Select(item => item.Number));
+        Assert.Contains("#12、#3", model.SelectedPullRequestSummary, StringComparison.Ordinal);
+        model.TogglePullRequestSelectionCommand.Execute(PullRequest(12));
+        Assert.Equal([3], model.SelectedPullRequests.Select(item => item.Number));
+        Assert.Contains("已安装", model.IdentityEyebrow, StringComparison.Ordinal);
+        Assert.DoesNotContain("当前运行", model.IdentityEyebrow, StringComparison.Ordinal);
+    }
+
     private static CorePageViewModel CreateViewModel(
         RecordingManagementService management,
         RecordingRoutePreferenceStore routeStore,
-        RecordingDialogService dialogs,
+        IUiDialogService dialogs,
         IGithubCoreRemote? remote = null,
         ICoreUpdateScheduler? scheduler = null,
-        StubDiagnostics? diagnostics = null) =>
+        StubDiagnostics? diagnostics = null,
+        ICorePullRequestManagementService? merge = null,
+        IActiveCoreVariantStore? activeVariant = null,
+        Func<ManagedCoreVariant, CancellationToken, Task<RuntimeVariantSwitchResult>>? variantSwitch = null) =>
         new(
             management,
             remote ?? new StubRemote(),
@@ -572,7 +1040,19 @@ public sealed partial class CorePageViewModelTests
             scheduler ?? new StubScheduler(null),
             dialogs,
             diagnostics ?? new StubDiagnostics(),
-            new StubGithubTokenStore());
+            new GithubTokenConfigurationService(new StubGithubTokenStore(), remote ?? new StubRemote(), diagnostics ?? new StubDiagnostics()),
+            pullRequestManagement: merge,
+            activeVariant: activeVariant,
+            runtimeVariantSwitch: variantSwitch);
+
+    private sealed class RecordingActiveCoreVariantStore(ManagedCoreVariant? initial) : IActiveCoreVariantStore
+    {
+        public List<ManagedCoreVariant> Writes { get; } = [];
+
+        public ManagedCoreVariant? Read() => Writes.Count > 0 ? Writes[^1] : initial;
+
+        public void Write(ManagedCoreVariant variant) => Writes.Add(variant);
+    }
 
     private static CoreInstallationInfo Installed()
     {
@@ -624,6 +1104,107 @@ public sealed partial class CorePageViewModelTests
         2,
         3);
 
+    private sealed class RecordingPullRequestMergeService : ICorePullRequestManagementService
+    {
+        public int ApplyCalls { get; private set; }
+        public int DiscardCalls { get; private set; }
+        public int[] PreparedNumbers { get; private set; } = [];
+        public CoreManagementOperationResult? ApplyResult { get; set; }
+        public Exception? ApplyFailure { get; set; }
+        public Exception? DiscardFailure { get; set; }
+
+        public Task<CorePreparedInstallRequest> PreparePullRequestMergeAsync(
+            ManagedCoreVariant variant, IReadOnlyList<GithubPullRequest> pullRequests, string proxyId,
+            IProgress<CoreInstallProgress>? progress = null, CancellationToken cancellationToken = default)
+        {
+            PreparedNumbers = pullRequests.Select(pr => pr.Number).ToArray();
+            var installed = Installed();
+            return Task.FromResult(new CorePreparedInstallRequest(variant, "staging", installed.Manifest!,
+                installed.Manifest!.CommitSha, "dddddddddddddddddddddddddddddddddddddddd", []));
+        }
+
+        public Task<CoreManagementOperationResult> ApplyPreparedPullRequestMergeAsync(
+            CorePreparedInstallRequest request, IProgress<CoreInstallProgress>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            ApplyCalls++;
+            return ApplyFailure is not null
+                ? Task.FromException<CoreManagementOperationResult>(ApplyFailure)
+                : Task.FromResult(ApplyResult ?? new CoreManagementOperationResult(true, true, true, Installed(), "已完成"));
+        }
+
+        public void DiscardPreparedPullRequestMerge(CorePreparedInstallRequest request)
+        {
+            DiscardCalls++;
+            if (DiscardFailure is not null) throw DiscardFailure;
+        }
+    }
+
+    private sealed class MergeDialog : IUiDialogService
+    {
+        public List<(string Title, string Message, bool IsError)> Messages { get; } = [];
+        public List<string> Confirmations { get; } = [];
+        public bool ApplyConfirmed { get; set; } = true;
+        public bool ThrowOnApplyConfirmation { get; set; }
+        public ProgressOperationOutcome? ApplyOutcome { get; set; }
+        public bool ActivateAfterInstall { get; set; } = true;
+        public PullRequestBuildPrompt? LastBuildPrompt { get; private set; }
+        public Task EditPortAsync(MainWindowViewModel viewModel) => Task.CompletedTask;
+        public Task EditTokenAsync(MainWindowViewModel viewModel) => Task.CompletedTask;
+        public Task ShowCacheAsync(MainWindowViewModel viewModel) => Task.CompletedTask;
+        public Task<CloseActionDecision?> AskCloseActionAsync() => Task.FromResult<CloseActionDecision?>(null);
+        public Task<string?> ChooseGithubRouteAsync(string reason, string selectedProxyId,
+            IGithubProxySpeedTester speedTester, CancellationToken cancellationToken = default) => Task.FromResult<string?>("original");
+        public Task<string?> ChooseRuntimeRootAsync(CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
+        public Task OpenDirectoryAsync(string path, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task CopyTextAsync(string text) => Task.CompletedTask;
+        public bool AskConfirmed { get; set; } = true;
+
+        public Task<bool> ConfirmAsync(string title, string message, string confirmLabel)
+        {
+            Confirmations.Add(message);
+            if (ThrowOnApplyConfirmation && Confirmations.Count == 2)
+            {
+                return Task.FromException<bool>(new InvalidOperationException("确认窗口故障"));
+            }
+            return Task.FromResult(Confirmations.Count == 1 ? AskConfirmed : ApplyConfirmed);
+        }
+        public Task<PullRequestBuildConfirmation> ConfirmPullRequestBuildAsync(PullRequestBuildPrompt prompt)
+        {
+            LastBuildPrompt = prompt;
+            Confirmations.Add(prompt.BaseCommitSha);
+            if (ThrowOnApplyConfirmation)
+            {
+                return Task.FromException<PullRequestBuildConfirmation>(new InvalidOperationException("确认窗口故障"));
+            }
+            return Task.FromResult(ApplyConfirmed
+                ? new PullRequestBuildConfirmation(true, ActivateAfterInstall)
+                : PullRequestBuildConfirmation.Canceled);
+        }
+        public Task ShowMessageAsync(string title, string message, bool isError = false)
+        {
+            Messages.Add((title, message, isError));
+            return Task.CompletedTask;
+        }
+        public async Task<ProgressOperationResult> RunWithProgressDialogAsync(
+            string title, Func<IProgress<CoreInstallProgress>, CancellationToken, Task> operation)
+        {
+            if (title == "应用 PR 组合" && ApplyOutcome is { } outcome)
+            {
+                return new ProgressOperationResult(outcome, outcome == ProgressOperationOutcome.Failed ? "应用前置条件失败" : null);
+            }
+            try
+            {
+                await operation(new Progress<CoreInstallProgress>(), CancellationToken.None);
+                return new ProgressOperationResult(ProgressOperationOutcome.Completed, null);
+            }
+            catch (Exception error)
+            {
+                return new ProgressOperationResult(ProgressOperationOutcome.Failed, error.Message);
+            }
+        }
+    }
+
     private sealed class RecordingManagementService : ICoreManagementService
     {
         public event EventHandler<CoreInstallationChangedEventArgs>? InstallationChanged;
@@ -649,6 +1230,9 @@ public sealed partial class CorePageViewModelTests
         /// <summary>安装成功后磁盘上的状态；为空表示安装不改变 Inspect 的返回（保持旧行为）。</summary>
         public CoreInstallationInfo? AppliedInstallation { get; init; }
         public int InstallCalls { get; private set; }
+        public ManagedCoreVariant? LastInstallVariant { get; private set; }
+        public GithubRepositoryReference? LastInstallRepository { get; private set; }
+        public string? LastInstallDisplayName { get; private set; }
         public string? LastInstallProxyId { get; private set; }
         public ManagedCoreVariant? DeleteVariant { get; private set; }
         public string? RenamedTo { get; private set; }
@@ -673,6 +1257,9 @@ public sealed partial class CorePageViewModelTests
             CancellationToken cancellationToken = default)
         {
             InstallCalls++;
+            LastInstallVariant = variant;
+            LastInstallRepository = repository;
+            LastInstallDisplayName = displayName;
             LastInstallProxyId = proxyId;
             return Task.FromResult(_installResultIndex < InstallResults.Count
                 ? InstallResults[_installResultIndex++]
@@ -689,15 +1276,6 @@ public sealed partial class CorePageViewModelTests
             IProgress<CoreInstallProgress>? progress = null,
             CancellationToken cancellationToken = default) =>
             InstallBranchAsync(variant, repository, displayName, proxyId, progress, cancellationToken);
-
-        public Task<CoreManagementOperationResult> InstallPullRequestAsync(
-            GithubRepositoryReference baseRepository,
-            int pullRequestNumber,
-            string displayName,
-            string proxyId,
-            IProgress<CoreInstallProgress>? progress = null,
-            CancellationToken cancellationToken = default) =>
-            InstallBranchAsync(ManagedCoreVariant.Custom, baseRepository, displayName, proxyId, progress, cancellationToken);
 
         public Task<CoreManagementOperationResult> ApplyUpdateAsync(
             CoreUpdateCheckResult update,
@@ -759,6 +1337,9 @@ public sealed partial class CorePageViewModelTests
         public IReadOnlyList<GithubBranch> Branches { get; set; } = [new GithubBranch("main", "aaaaaaa", false)];
         public Exception? BranchesFailure { get; set; }
         public int BranchCalls { get; private set; }
+        public Func<Task<GithubPullRequestPage>>? PullRequestPageOperation { get; set; }
+        public Func<int, Task<GithubPullRequest>>? PullRequestDetailsOperation { get; set; }
+        public Func<Task<IReadOnlyList<GithubFileChange>>>? PullRequestFilesOperation { get; set; }
         public Task<GithubRepositoryMetadata> GetRepositoryAsync(GithubRepositoryReference repository, CancellationToken cancellationToken = default) =>
             Task.FromResult(new GithubRepositoryMetadata(repository.FullName, "main", null, false));
         public Task<IReadOnlyList<GithubBranch>> GetAllBranchesAsync(GithubRepositoryReference repository, CancellationToken cancellationToken = default)
@@ -775,11 +1356,15 @@ public sealed partial class CorePageViewModelTests
         public Task<GithubCommitDetails> GetCommitDetailsAsync(GithubRepositoryReference repository, string sha, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
         public Task<GithubPullRequestPage> GetPullRequestsAsync(GithubRepositoryReference repository, string baseBranch, string state = "open", int page = 1, int pageSize = 30, CancellationToken cancellationToken = default) =>
-            Task.FromResult(new GithubPullRequestPage([], 1, false, false));
+            PullRequestPageOperation?.Invoke() ?? Task.FromResult(new GithubPullRequestPage([], 1, false, false));
         public Task<GithubPullRequest> GetPullRequestAsync(GithubRepositoryReference repository, int number, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+            PullRequestDetailsOperation is null
+                ? throw new NotSupportedException()
+                : PullRequestDetailsOperation(number);
         public Task<IReadOnlyList<GithubFileChange>> GetAllPullRequestFilesAsync(GithubRepositoryReference repository, int number, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+            PullRequestFilesOperation is null
+                ? throw new NotSupportedException()
+                : PullRequestFilesOperation();
         public Task<GithubCompareResult> GetCompareAsync(GithubRepositoryReference repository, string baseSha, string headSha, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
         public Task<GithubRateLimit> GetRateLimitAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();

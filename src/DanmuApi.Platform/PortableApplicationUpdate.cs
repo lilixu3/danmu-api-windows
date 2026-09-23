@@ -35,8 +35,9 @@ public static class PortableApplicationUpdate
             files.Add(relative);
         }
         if (!files.Contains("DanmuApi.App.exe", StringComparer.OrdinalIgnoreCase) ||
-            !files.Contains(Path.Combine("runtime-bundle", "SHA256SUMS.txt"), StringComparer.OrdinalIgnoreCase))
-            throw new IOException("更新包缺少主程序或运行环境清单");
+            !files.Contains(Path.Combine("runtime-bundle", "SHA256SUMS.txt"), StringComparer.OrdinalIgnoreCase) ||
+            !files.Contains(Path.Combine("git", "cmd", "git.exe"), StringComparer.OrdinalIgnoreCase))
+            throw new IOException("更新包缺少主程序、运行环境清单或随包 Git");
         return files;
     }
 
@@ -45,7 +46,8 @@ public static class PortableApplicationUpdate
         relative.Equals("av_libglesv2.dll", StringComparison.OrdinalIgnoreCase) ||
         relative.Equals("libHarfBuzzSharp.dll", StringComparison.OrdinalIgnoreCase) ||
         relative.Equals("libSkiaSharp.dll", StringComparison.OrdinalIgnoreCase) ||
-        relative.StartsWith("runtime-bundle" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        relative.StartsWith("runtime-bundle" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
+        relative.StartsWith("git" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
 
     public static string ValidateRelativePath(string name)
     {

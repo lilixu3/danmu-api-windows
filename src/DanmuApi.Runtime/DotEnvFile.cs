@@ -163,6 +163,9 @@ public static class DotEnvFile
 
         var normalized = NormalizeMutations(mutations);
         var fullPath = Path.GetFullPath(path);
+        // 同一份 .env 的读-改-写在本进程内必须串行：启动路径要写三键与 ADMIN_TOKEN，
+        // 配置工作台也在写同一个文件，交错进行时会互相覆盖掉对方的写入。
+        using var writeGate = EnterWriteGate(fullPath);
         var directory = Path.GetDirectoryName(fullPath)
             ?? throw new IOException($".env 路径没有父目录: {path}");
         Directory.CreateDirectory(directory);
@@ -229,6 +232,7 @@ public static class DotEnvFile
 
         var content = string.Join('\n', output) + '\n';
         var temporary = Path.Combine(directory, $"{Path.GetFileName(fullPath)}.tmp-{Guid.NewGuid():N}");
+        Exception? bodyFailure = null;
         try
         {
             File.WriteAllText(temporary, content, StrictUtf8);
@@ -239,6 +243,7 @@ public static class DotEnvFile
         }
         catch (Exception writeError) when (writeError is IOException or UnauthorizedAccessException or FormatException)
         {
+            bodyFailure = writeError;
             try
             {
                 RestoreOriginal(fullPath, directory, originalExists, originalBytes);
@@ -254,7 +259,15 @@ public static class DotEnvFile
         }
         finally
         {
-            TryDelete(temporary);
+            // 同 UpdateValues：写入本身已经失败时，清理临时文件的异常不许盖掉根因。
+            if (bodyFailure is null)
+            {
+                TryDelete(temporary);
+            }
+            else
+            {
+                TryDeleteQuietly(temporary);
+            }
         }
     }
 
@@ -265,12 +278,14 @@ public static class DotEnvFile
             ValidateKey(key);
         }
 
-        var directory = Path.GetDirectoryName(Path.GetFullPath(path))
+        var fullPath = Path.GetFullPath(path);
+        using var writeGate = EnterWriteGate(fullPath);
+        var directory = Path.GetDirectoryName(fullPath)
             ?? throw new IOException($".env 路径没有父目录: {path}");
         Directory.CreateDirectory(directory);
 
-        var existing = File.Exists(path)
-            ? File.ReadAllText(path, StrictUtf8)
+        var existing = File.Exists(fullPath)
+            ? File.ReadAllText(fullPath, StrictUtf8)
             : string.Empty;
         var sourceLines = existing.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n').ToList();
         if (sourceLines.Count > 0 && sourceLines[^1].Length == 0)
@@ -309,13 +324,16 @@ public static class DotEnvFile
             }
         }
 
-        var temp = Path.Combine(directory, $"{Path.GetFileName(path)}.tmp-{Guid.NewGuid():N}");
+        var temp = Path.Combine(directory, $"{Path.GetFileName(fullPath)}.tmp-{Guid.NewGuid():N}");
         var content = string.Join('\n', output) + '\n';
+        var originalBytes = File.Exists(fullPath) ? File.ReadAllBytes(fullPath) : Array.Empty<byte>();
+        var originalExists = File.Exists(fullPath);
+        Exception? bodyFailure = null;
         try
         {
             File.WriteAllText(temp, content, StrictUtf8);
-            ReplaceAtomically(temp, path);
-            var values = ReadValues(path);
+            ReplaceAtomically(temp, fullPath);
+            var values = ReadValues(fullPath);
             foreach (var (key, expected) in updates)
             {
                 var actual = values.GetValueOrDefault(key.ToUpperInvariant());
@@ -326,9 +344,35 @@ public static class DotEnvFile
                 }
             }
         }
+        catch (Exception writeError) when (writeError is IOException or UnauthorizedAccessException or FormatException)
+        {
+            bodyFailure = writeError;
+            // 校验失败时新内容已经在盘上了，必须回滚：否则启动路径会把一份「宿主自己都不认」的
+            // .env 留给核心去读。
+            try
+            {
+                RestoreOriginal(fullPath, directory, originalExists, originalBytes);
+            }
+            catch (Exception rollbackError) when (rollbackError is IOException or UnauthorizedAccessException)
+            {
+                throw new DotEnvTransactionException(
+                    $".env 写入失败，且恢复原文件也失败：{fullPath}",
+                    new AggregateException(writeError, rollbackError));
+            }
+
+            throw new DotEnvTransactionException($".env 写入失败，已恢复原文件：{fullPath}", writeError);
+        }
         finally
         {
-            TryDelete(temp);
+            // 清理临时文件不能顶掉真正的写入故障——原来 finally 里抛的 IOException 会把根因整个盖掉。
+            if (bodyFailure is null)
+            {
+                TryDelete(temp);
+            }
+            else
+            {
+                TryDeleteQuietly(temp);
+            }
         }
     }
 
@@ -489,6 +533,13 @@ public static class DotEnvFile
             return true;
         }
 
+        // 首尾是同一种引号字符时必须加引号包裹：核心（android-server.js parseDotEnv）与宿主
+        // ParseValue 都会把成对的 '…' 当包裹符剥掉，值里本来就带的 '$1' 不包就会少两个字符。
+        if (value.Length >= 2 && value[0] == value[^1] && (value[0] == '\'' || value[0] == '"'))
+        {
+            return true;
+        }
+
         foreach (var character in value)
         {
             if (char.IsWhiteSpace(character) || character is '=' or '#' or '"')
@@ -582,6 +633,52 @@ public static class DotEnvFile
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
             throw new IOException($"清理临时 .env 文件失败: {path}", error);
+        }
+    }
+
+    /// <summary>已经另有根因时的清理：留下临时文件只是难看，不许它盖掉真正的失败原因。</summary>
+    private static void TryDeleteQuietly(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            // 有意忽略：调用方正带着真正的写入故障往外抛。
+        }
+    }
+
+    /// <summary>按 .env 绝对路径分的进程内写锁（同名文件的大小写不敏感，与 Windows 文件系统一致）。</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, object> WriteGates =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private static IDisposable EnterWriteGate(string fullPath)
+    {
+        var gate = WriteGates.GetOrAdd(fullPath, _ => new object());
+        Monitor.Enter(gate);
+        return new WriteGateScope(gate);
+    }
+
+    private sealed class WriteGateScope : IDisposable
+    {
+        private readonly object _gate;
+        private bool _released;
+
+        internal WriteGateScope(object gate) => _gate = gate;
+
+        public void Dispose()
+        {
+            if (_released)
+            {
+                return;
+            }
+
+            _released = true;
+            Monitor.Exit(_gate);
         }
     }
 }

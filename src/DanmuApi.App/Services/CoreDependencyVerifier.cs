@@ -59,10 +59,5 @@ public sealed class CoreDependencyVerifier(
         return health;
     }
 
-    private static string VariantLabel(ManagedCoreVariant variant) => variant switch
-    {
-        ManagedCoreVariant.Stable => "稳定核心",
-        ManagedCoreVariant.Custom => "自定义核心",
-        _ => variant.ToString(),
-    };
+    private static string VariantLabel(ManagedCoreVariant variant) => variant.ToLabel();
 }

@@ -1,0 +1,73 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:DanmuApi.App.ViewModels"
+        xmlns:controls="using:DanmuApi.App.Controls"
+        x:Class="DanmuApi.App.Views.QuickUpdateWindow"
+        x:DataType="vm:QuickUpdateDialogViewModel"
+        Width="560"
+        SizeToContent="Height"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Title="有可用更新">
+  <StackPanel Spacing="16" Margin="26">
+    <Grid ColumnDefinitions="44,*" ColumnSpacing="14">
+      <Border Width="40" Height="40" CornerRadius="10" Background="{DynamicResource WarningSoftBrush}">
+        <PathIcon Data="{Binding Icon}" Width="22" Height="22" Foreground="{DynamicResource WarningBrush}" />
+      </Border>
+      <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+        <TextBlock Text="{Binding Title}" FontSize="21" FontWeight="SemiBold" />
+        <TextBlock Text="{Binding Summary}" Classes="overline" />
+      </StackPanel>
+    </Grid>
+
+    <TextBlock Text="{Binding Detail}" TextWrapping="Wrap" Classes="body-muted" />
+
+    <ScrollViewer IsVisible="{Binding HasReleaseNotes}" MaxHeight="150">
+      <Border Classes="inset" Padding="12">
+        <!-- 发行说明是 GitHub 的 Markdown 正文。 -->
+        <controls:MarkdownView Markdown="{Binding ReleaseNotes}" BaseFontSize="12" />
+      </Border>
+    </ScrollViewer>
+
+    <StackPanel Spacing="6" IsVisible="{Binding ShowProgress}">
+      <ProgressBar Value="{Binding ProgressPercent}" Minimum="0" Maximum="100" />
+      <TextBlock Text="{Binding Status}" Classes="body-muted" FontSize="11" TextWrapping="Wrap" />
+    </StackPanel>
+
+    <Border Classes="inset" Padding="12" IsVisible="{Binding IsCoreFlow}">
+      <TextBlock Text="更新会下载并替换当前核心目录，配置与日志不受影响；运行中的服务会先停止再恢复。"
+                 Classes="body-muted"
+                 FontSize="11"
+                 TextWrapping="Wrap" />
+    </Border>
+
+    <TextBlock Text="{Binding Status}"
+               Classes="body-muted"
+               FontSize="11"
+               TextWrapping="Wrap"
+               IsVisible="{Binding !ShowProgress}" />
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Classes="danger-action"
+              Content="取消下载"
+              Command="{Binding CancelCommand}"
+              IsVisible="{Binding CanCancel}" />
+      <Button Classes="secondary-action"
+              Content="{Binding TertiaryText}"
+              Command="{Binding TertiaryCommand}"
+              MinWidth="92"
+              IsCancel="True" />
+      <Button Classes="secondary-action"
+              Content="{Binding SecondaryText}"
+              Command="{Binding SecondaryCommand}"
+              MinWidth="120"
+              IsEnabled="{Binding CanSkip}" />
+      <Button Classes="primary-action"
+              Content="{Binding PrimaryText}"
+              Command="{Binding PrimaryCommand}"
+              MinWidth="126"
+              IsDefault="True"
+              IsEnabled="{Binding CanPrimary}" />
+    </StackPanel>
+  </StackPanel>
+</Window>

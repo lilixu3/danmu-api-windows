@@ -71,7 +71,7 @@ public sealed class NotificationPreferenceTests
         var settings = new MemorySettings { Level = "off" };
         var transport = new RecordingTransport();
         var diagnostics = new RecordingDiagnostics();
-        var handler = new CoreUpdateResultHandler(DispatchProxy.Create<ICoreManagementService, UnusedManagement>(), new Routes(), new PreferenceDesktopNotificationService(transport, settings), diagnostics);
+        var handler = new CoreUpdateResultHandler(DispatchProxy.Create<ICoreManagementService, UnusedManagement>(), new FixedCoordinator(FixedUpdate()), new Routes(), new PreferenceDesktopNotificationService(transport, settings), diagnostics);
         var update = new CoreUpdateCheckResult(ManagedCoreVariant.Stable, CoreUpdateCheckStatus.Checked, true, null,
             new GithubCommit("123456789", "title", "message", null, null, []), null, DateTimeOffset.UtcNow, "available");
         await handler.HandleAsync(CoreUpdateTrigger.Background, update, CoreUpdateAction.Notify);
@@ -89,7 +89,7 @@ public sealed class NotificationPreferenceTests
     {
         var transport = new RecordingTransport { Result = DesktopNotificationResult.Failure("transport broken") };
         var diagnostics = new RecordingDiagnostics();
-        var handler = new CoreUpdateResultHandler(DispatchProxy.Create<ICoreManagementService, UnusedManagement>(), new Routes(), transport, diagnostics);
+        var handler = new CoreUpdateResultHandler(DispatchProxy.Create<ICoreManagementService, UnusedManagement>(), new FixedCoordinator(FixedUpdate()), new Routes(), transport, diagnostics);
         var update = new CoreUpdateCheckResult(ManagedCoreVariant.Stable, CoreUpdateCheckStatus.Checked, true, null,
             new GithubCommit("abcdefghi", "title", "message", null, null, []), null, DateTimeOffset.UtcNow, "available");
         await Assert.ThrowsAsync<IOException>(() => handler.HandleAsync(CoreUpdateTrigger.Background, update, CoreUpdateAction.Notify));
@@ -112,7 +112,7 @@ public sealed class NotificationPreferenceTests
         ((UnusedManagement)(object)management).ApplyResult = new(succeeded, succeeded, succeeded, null, succeeded ? "done" : "apply failed");
         var transport = new RecordingTransport();
         var diagnostics = new RecordingDiagnostics();
-        var handler = new CoreUpdateResultHandler(management, new Routes(), new PreferenceDesktopNotificationService(transport, new MemorySettings { Level = level }), diagnostics);
+        var handler = new CoreUpdateResultHandler(management, new FixedCoordinator(FixedUpdate()), new Routes(), new PreferenceDesktopNotificationService(transport, new MemorySettings { Level = level }), diagnostics);
         var update = new CoreUpdateCheckResult(ManagedCoreVariant.Stable, CoreUpdateCheckStatus.Checked, true, null,
             new GithubCommit("123456789", "title", "message", null, null, []), null, DateTimeOffset.UtcNow, "available");
         await handler.HandleAsync(CoreUpdateTrigger.Background, update, CoreUpdateAction.Automatic);
@@ -130,7 +130,7 @@ public sealed class NotificationPreferenceTests
         var settings = new MemorySettings { Level = "off" };
         var transport = new RecordingTransport();
         var diagnostics = new RecordingDiagnostics();
-        var handler = new CoreUpdateResultHandler(DispatchProxy.Create<ICoreManagementService, UnusedManagement>(), new Routes(), new PreferenceDesktopNotificationService(transport, settings), diagnostics);
+        var handler = new CoreUpdateResultHandler(DispatchProxy.Create<ICoreManagementService, UnusedManagement>(), new FixedCoordinator(FixedUpdate()), new Routes(), new PreferenceDesktopNotificationService(transport, settings), diagnostics);
         var update = new CoreUpdateCheckResult(ManagedCoreVariant.Stable, CoreUpdateCheckStatus.Checked, true, null,
             new GithubCommit("123456789", "title", "message", null, null, []), null, DateTimeOffset.UtcNow, "available");
         await using var scheduler = new CoreUpdateScheduler(new FixedCoordinator(update), new FixedPolicy(), handler, () => ManagedCoreVariant.Stable);
@@ -158,7 +158,7 @@ public sealed class NotificationPreferenceTests
         var recorder = (UnusedManagement)(object)management;
         recorder.ApplyResult = new(true, true, true, null, "done");
         var transport = new RecordingTransport();
-        var handler = new CoreUpdateResultHandler(management, new Routes(), new PreferenceDesktopNotificationService(transport, new MemorySettings { Level = "off" }), new RecordingDiagnostics());
+        var handler = new CoreUpdateResultHandler(management, new FixedCoordinator(FixedUpdate()), new Routes(), new PreferenceDesktopNotificationService(transport, new MemorySettings { Level = "off" }), new RecordingDiagnostics());
         var update = new CoreUpdateCheckResult(ManagedCoreVariant.Stable, CoreUpdateCheckStatus.Checked, true, null,
             new GithubCommit("123456789", "title", "message", null, null, []), null, DateTimeOffset.UtcNow, "available");
         await using var scheduler = new CoreUpdateScheduler(new FixedCoordinator(update), new FixedPolicy(CoreUpdateAction.Automatic), handler, () => ManagedCoreVariant.Stable);
@@ -174,13 +174,102 @@ public sealed class NotificationPreferenceTests
         public CoreUpdateScheduleOptions Read() => CoreUpdateScheduleOptions.Default with { UpdateAction = action };
         public void Write(CoreUpdateScheduleOptions options) => throw new NotSupportedException();
     }
+
+    /// <summary>处理器现在要订阅协调器的结论变化（托盘待更新项跟着结论走），
+    /// 这些用例只关心通知策略，给一个永不广播的空协调器即可。</summary>
+    private static CoreUpdateCheckResult FixedUpdate() => new(
+        ManagedCoreVariant.Stable,
+        CoreUpdateCheckStatus.Checked,
+        false,
+        null,
+        null,
+        null,
+        DateTimeOffset.UnixEpoch,
+        "test");
+
     private sealed class FixedCoordinator(CoreUpdateCheckResult result) : ICoreUpdateCoordinator
     {
         public TimeSpan AutomaticInterval => TimeSpan.FromMinutes(10);
         public CoreUpdateCheckResult? LastResult => result;
-        public event EventHandler<CoreUpdateCheckResult>? ResultChanged { add { } remove { } }
+        public event EventHandler<CoreUpdateCheckResult?>? ResultChanged { add { } remove { } }
+        public void ReconcileDiscovery(ManagedCoreVariant variant) { }
         public Task<CoreUpdateCheckResult> CheckAsync(ManagedCoreVariant variant, bool force, CancellationToken cancellationToken = default) => Task.FromResult(result);
         public Task<CoreUpdateCheckResult> CheckAsync(ManagedCoreVariant variant, bool force, TimeSpan automaticInterval, CancellationToken cancellationToken = default) => Task.FromResult(result);
+    }
+
+    /// <summary>
+    /// 遗留问题回归（托盘）：托盘菜单「立即更新核心」读的是这份 PendingUpdate，
+    /// 它必须跟着协调器的结论走。结论被作废（装完了 / 回退 / 删核心）时这里要同步撤掉，
+    /// 否则托盘会一直挂着一个"立即更新核心"——点下去只是把已经装上的版本再装一遍。
+    /// </summary>
+    [Fact]
+    public async Task VoidingTheConclusionClearsThePendingUpdateAndNotifies()
+    {
+        var coordinator = new BroadcastCoordinator();
+        var handler = new CoreUpdateResultHandler(
+            DispatchProxy.Create<ICoreManagementService, UnusedManagement>(),
+            coordinator,
+            new Routes(),
+            new RecordingTransport(),
+            new RecordingDiagnostics());
+        var update = new CoreUpdateCheckResult(ManagedCoreVariant.Stable, CoreUpdateCheckStatus.Checked, true, null,
+            new GithubCommit("123456789", "title", "message", null, null, []), null, DateTimeOffset.UtcNow, "available");
+        await handler.HandleAsync(CoreUpdateTrigger.Background, update, CoreUpdateAction.Notify);
+        Assert.Same(update, handler.PendingUpdate);
+        var notifications = 0;
+        handler.StateChanged += (_, _) => notifications++;
+
+        coordinator.Void();
+
+        Assert.Null(handler.PendingUpdate);
+        Assert.Equal(1, notifications);
+    }
+
+    /// <summary>结论仍成立（协调器推来同一条更新）时不能误清待更新项。</summary>
+    [Fact]
+    public async Task AStillValidConclusionKeepsThePendingUpdate()
+    {
+        var coordinator = new BroadcastCoordinator();
+        var handler = new CoreUpdateResultHandler(
+            DispatchProxy.Create<ICoreManagementService, UnusedManagement>(),
+            coordinator,
+            new Routes(),
+            new RecordingTransport(),
+            new RecordingDiagnostics());
+        var update = new CoreUpdateCheckResult(ManagedCoreVariant.Stable, CoreUpdateCheckStatus.Checked, true, null,
+            new GithubCommit("123456789", "title", "message", null, null, []), null, DateTimeOffset.UtcNow, "available");
+        await handler.HandleAsync(CoreUpdateTrigger.Background, update, CoreUpdateAction.Notify);
+        var notifications = 0;
+        handler.StateChanged += (_, _) => notifications++;
+
+        coordinator.Push(update);
+
+        Assert.Same(update, handler.PendingUpdate);
+        Assert.Equal(0, notifications);
+    }
+
+    /// <summary>能主动广播结论变化的协调器替身（含 null = 作废）。</summary>
+    private sealed class BroadcastCoordinator : ICoreUpdateCoordinator
+    {
+        public TimeSpan AutomaticInterval => TimeSpan.FromMinutes(10);
+        public CoreUpdateCheckResult? LastResult { get; private set; }
+        public event EventHandler<CoreUpdateCheckResult?>? ResultChanged;
+
+        public void Push(CoreUpdateCheckResult result)
+        {
+            LastResult = result;
+            ResultChanged?.Invoke(this, result);
+        }
+
+        public void Void()
+        {
+            LastResult = null;
+            ResultChanged?.Invoke(this, null);
+        }
+
+        public void ReconcileDiscovery(ManagedCoreVariant variant) { }
+        public Task<CoreUpdateCheckResult> CheckAsync(ManagedCoreVariant variant, bool force, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<CoreUpdateCheckResult> CheckAsync(ManagedCoreVariant variant, bool force, TimeSpan automaticInterval, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     public class UnusedManagement : DispatchProxy

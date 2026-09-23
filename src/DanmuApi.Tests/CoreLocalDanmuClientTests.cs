@@ -54,6 +54,8 @@ public sealed class CoreLocalDanmuClientTests
     {
         Assert.Equal("逐玉_E05.xml", CoreLocalDanmuClient.SanitizeFileName(" 逐玉_E05.xml\r\n"));
         Assert.Equal("a\0b.xml".Replace("\0", string.Empty), CoreLocalDanmuClient.SanitizeFileName("a\0b.xml"));
+        // 双引号会提前闭合 multipart 的 filename="…"，必须一起去掉。
+        Assert.Equal("ab.xml", CoreLocalDanmuClient.SanitizeFileName("a\"b.xml"));
         Assert.Equal("danmu.txt", CoreLocalDanmuClient.SanitizeFileName(null));
         Assert.Equal("danmu.txt", CoreLocalDanmuClient.SanitizeFileName("   "));
         Assert.Equal(200, CoreLocalDanmuClient.SanitizeFileName(new string('x', 500)).Length);
@@ -211,20 +213,75 @@ public sealed class CoreLocalDanmuClientTests
         // 写操作走管理员令牌的路径段。
         Assert.Contains($"/{AdminToken}/api/v2/local-danmu/upload", path, StringComparison.Ordinal);
         Assert.NotNull(body);
-        Assert.Contains("name=file", body, StringComparison.Ordinal);
-        Assert.Contains("name=title", body, StringComparison.Ordinal);
+        // 字段名与文件名都必须是 quoted-string：核心（Node 22 内置 undici）的 req.formData()
+        // 只认 name="file"，不带引号的 name=file 会被判为
+        // 「Failed to parse body as FormData.」并回 400（2026-09-20 对核心 1.21.1 实测）。
+        // 这条断言曾经写成不带引号的 name=file，正是它掩盖了这个线上故障。
+        Assert.Contains("name=\"file\"", body, StringComparison.Ordinal);
+        Assert.Contains("name=\"title\"", body, StringComparison.Ordinal);
         Assert.Contains("逐玉", body, StringComparison.Ordinal);
-        Assert.Contains("name=year", body, StringComparison.Ordinal);
+        Assert.Contains("name=\"year\"", body, StringComparison.Ordinal);
         Assert.Contains("2026", body, StringComparison.Ordinal);
-        Assert.Contains("name=type", body, StringComparison.Ordinal);
-        Assert.Contains("name=season", body, StringComparison.Ordinal);
-        Assert.Contains("name=episode", body, StringComparison.Ordinal);
+        Assert.Contains("name=\"type\"", body, StringComparison.Ordinal);
+        Assert.Contains("name=\"season\"", body, StringComparison.Ordinal);
+        Assert.Contains("name=\"episode\"", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("name=file", body, StringComparison.Ordinal);
         // 文件名必须是真实的——核心按文件名后缀/内容嗅探判定弹幕格式。
-        // .NET 对非 ASCII 文件名会写成 RFC 5987 的 filename*（UTF-8 百分号编码），
-        // Node 的 undici（Fetch 标准解析）会按 filename* 还原，两种形式都算合格。
-        var ascii = body.Contains("逐玉_E05_第5集_腾讯.xml", StringComparison.Ordinal);
-        var encoded = body.Contains(Uri.EscapeDataString("逐玉_E05_第5集_腾讯.xml"), StringComparison.Ordinal);
-        Assert.True(ascii || encoded, $"multipart 里既没有原始文件名也没有 filename* 编码形式：{body[..Math.Min(400, body.Length)]}");
+        // 而且只能按 UTF-8 原样写进 quoted-string：undici 不认 RFC 5987 的 filename*=utf-8''…
+        // （实测同样回 400），MIME encoded-word 则不会被解码、落盘就是那串 =?utf-8?B?…?=。
+        Assert.Contains("filename=\"逐玉_E05_第5集_腾讯.xml\"", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("filename*", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("=?utf-8?B?", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task UploadQuotesAsciiFileNameAndClosesBoundary()
+    {
+        // 纯 ASCII 文件名同样会踩到「filename 不带引号 → 400」，单独钉住。
+        string? body = null;
+        var client = new CoreLocalDanmuClient(new HttpClient(new StubHandler(async (request, token) =>
+        {
+            body = await request.Content!.ReadAsStringAsync(token);
+            return Json("""
+                {"success":true,"resource":{"resourceKey":"movie|2024|movie|all","title":"movie","year":2024,
+                 "type":"movie","season":1,"episode":null,"filename":"danmu.xml","size":1,"format":"XML",
+                 "status":"ready","count":1,"updatedAt":"2026-09-12T10:00:00.000Z"}}
+                """);
+        })));
+        using var payload = new MemoryStream(Encoding.UTF8.GetBytes("<i></i>"));
+        var request = new CoreLocalDanmuUploadRequest("movie", 2024, "movie", 1, null, "danmu.xml", payload, payload.Length);
+
+        await client.UploadAsync("127.0.0.1", 9321, Token, AdminToken, request);
+
+        Assert.NotNull(body);
+        Assert.Contains("filename=\"danmu.xml\"", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("filename=danmu.xml", body, StringComparison.Ordinal);
+        // 正文的收尾边界必须完整，否则核心解析同样失败。
+        Assert.Contains("--\r\n", body, StringComparison.Ordinal);
+        Assert.EndsWith("--\r\n", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task UploadStripsQuotesInFileNameSoTheMultipartHeaderStaysWellFormed()
+    {
+        string? body = null;
+        var client = new CoreLocalDanmuClient(new HttpClient(new StubHandler(async (request, token) =>
+        {
+            body = await request.Content!.ReadAsStringAsync(token);
+            return Json("""
+                {"success":true,"resource":{"resourceKey":"k|2026|tv|1","title":"k","year":2026,"type":"tv",
+                 "season":1,"episode":1,"filename":"k.xml","size":1,"format":"XML","status":"ready","count":1,
+                 "updatedAt":"2026-09-12T10:00:00.000Z"}}
+                """);
+        })));
+        using var payload = new MemoryStream(Encoding.UTF8.GetBytes("<i></i>"));
+        var request = new CoreLocalDanmuUploadRequest("k", 2026, "tv", 1, 1, "a\"b.xml", payload, payload.Length);
+
+        await client.UploadAsync("127.0.0.1", 9321, Token, AdminToken, request);
+
+        Assert.NotNull(body);
+        Assert.Contains("filename=\"ab.xml\"", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("filename=\"a\"b.xml\"", body, StringComparison.Ordinal);
     }
 
     [Fact]

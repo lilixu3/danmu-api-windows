@@ -57,6 +57,19 @@ public sealed class ApplicationUpdateServiceTests
     }
 
     [Fact]
+    public void ManifestVerificationCanTargetAnotherArchitecture()
+    {
+        // 发行自检要能验三种架构：进程自身只能是一个架构，而一个发布目录里可能同时放
+        // x64 / x86 / arm64 三份签名清单（原来按进程架构硬比，x86/arm64 的目录永远验不过）。
+        using var fixture = new Fixture();
+        var service = fixture.Service();
+        var (manifest, signature) = fixture.BuildManifestFor("win-x86");
+
+        Assert.Equal("win-x86", service.VerifyManifest(manifest, signature, "win-x86").Architecture);
+        Assert.Throws<InvalidDataException>(() => service.VerifyManifest(manifest, signature, "win-arm64"));
+    }
+
+    [Fact]
     public async Task NoNewVersionDoesNotFetchManifest()
     {
         using var fixture = new Fixture();
@@ -279,6 +292,11 @@ public sealed class ApplicationUpdateServiceTests
             Signature = Sign(Manifest);
         }
         public byte[] Sign(byte[] bytes) => rsa.SignData(bytes, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        public (byte[] Manifest, byte[] Signature) BuildManifestFor(string architecture)
+        {
+            var manifest = JsonSerializer.SerializeToUtf8Bytes(new { schemaVersion = 1, product = "DanmuApi.Windows", version = "2.0.0-preview.2", channel = "preview", architecture, assets = new[] { new { name = "package.zip", size = 7, sha256 = Convert.ToHexString(SHA256.HashData(Package)), kind = "portable" } } });
+            return (manifest, Sign(manifest));
+        }
         public object Release(string tag, bool draft = false, bool prerelease = false) => new { tag_name = tag, draft, prerelease, body = "Release notes", published_at = "2026-09-08T00:00:00Z", assets = new[] { ApplicationUpdateService.ManifestFileName, ApplicationUpdateService.SignatureFileName, "package.zip" }.Select(name => new { name, browser_download_url = "https://github.com/lilixu3/danmu-api-windows/releases/download/" + tag + "/" + name }) };
         public HttpResponseMessage AssetResponse(HttpRequestMessage request)
         {

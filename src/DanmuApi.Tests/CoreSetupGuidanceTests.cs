@@ -209,8 +209,6 @@ public sealed class CoreSetupGuidanceTests : IDisposable
             throw new NotSupportedException();
         public Task<CoreManagementOperationResult> InstallCommitAsync(ManagedCoreVariant variant, GithubRepositoryReference repository, string branch, string commitSha, string displayName, string proxyId, IProgress<CoreInstallProgress>? progress = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
-        public Task<CoreManagementOperationResult> InstallPullRequestAsync(GithubRepositoryReference baseRepository, int pullRequestNumber, string displayName, string proxyId, IProgress<CoreInstallProgress>? progress = null, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
         public Task<CoreManagementOperationResult> ApplyUpdateAsync(CoreUpdateCheckResult update, string proxyId, IProgress<CoreInstallProgress>? progress = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
         public Task<CoreManagementOperationResult> ReinstallAsync(ManagedCoreVariant variant, string proxyId, IProgress<CoreInstallProgress>? progress = null, CancellationToken cancellationToken = default) =>

@@ -155,7 +155,14 @@
             <Grid Name="RuntimeSummary" ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="12" RowSpacing="12">
               <StackPanel Spacing="6"><StackPanel Orientation="Horizontal" Spacing="8"><Path Classes="icon" Data="M6 6h12v12H6Z M9 3v3 M15 3v3 M9 18v3 M15 18v3 M3 9h3 M3 15h3 M18 9h3 M18 15h3 M10 10h4v4h-4Z" /><TextBlock Text="当前核心" Classes="section" /></StackPanel><TextBlock Text="{Binding Shell.CoreVariantText}" Classes="caption" /></StackPanel>
               <StackPanel Name="CoreActions" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"><Button Name="ManageCoreButton" Classes="console" Content="管理核心 →" Command="{Binding Shell.NavigateCoreCommand}" /><Button Name="OpenRuntimeDirectoryButton" Classes="console" Content="打开运行目录" Command="{Binding Shell.OpenCoreRuntimeDirectoryCommand}" /></StackPanel>
-              <StackPanel Name="CoreSummaryValue" Grid.Row="1" Grid.ColumnSpan="2" Spacing="6"><TextBlock Text="{Binding Shell.CoreVersionText}" FontSize="18" TextWrapping="Wrap" /><TextBlock Text="{Binding Shell.PidText, StringFormat='进程 / PID  {0}'}" Classes="caption" /></StackPanel>
+              <StackPanel Name="CoreSummaryValue" Grid.Row="1" Grid.ColumnSpan="2" Spacing="6">
+                <TextBlock Text="{Binding Shell.CoreVersionText}" FontSize="18" TextWrapping="Wrap" />
+                <!-- 已合并 PR：本地 PR 组合同样是"装了哪个核心"的一部分，概览必须显示。 -->
+                <Border Name="MergedPullRequestSummary" Classes="chip" Classes.ok="True" IsVisible="{Binding Shell.HasMergedPullRequests}">
+                  <TextBlock Text="{Binding Shell.MergedPullRequestSummaryText}" />
+                </Border>
+                <TextBlock Text="{Binding Shell.PidText, StringFormat='进程 / PID  {0}'}" Classes="caption" />
+              </StackPanel>
             </Grid>
           </Border>
         </StackPanel>

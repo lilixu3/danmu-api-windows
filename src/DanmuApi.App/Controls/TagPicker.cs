@@ -349,6 +349,78 @@ public sealed class TagPicker : Border
         return SelectedItems.Count > before;
     }
 
+    /// <summary>
+    /// 保存前的出口：把还没落地的暂存项并进「已选」。核心前端同样是保存前先
+    /// <c>confirmMergeGroup()</c>（systemsettings.js），否则「已选」就成了一条写不进值的死路
+    /// ——那正是用户报「选了却写不进去」的直接来源。
+    /// 与 <see cref="ConfirmStagedValues"/> 的区别是失败时**保留**暂存内容并给出原因，
+    /// 不像原路径那样无条件清空暂存区。
+    /// </summary>
+    public bool TryConfirmPendingStaging(out string? error)
+    {
+        error = null;
+        if (StagingItems.Count == 0)
+        {
+            return true;
+        }
+
+        if (!_candidatesEnabled)
+        {
+            error = "暂存区还有内容，但当前变量不允许直接写入（合并模式未开启）。请开启合并模式或清空暂存区。";
+            return false;
+        }
+
+        if (_combineStaging)
+        {
+            var composite = string.Join('&', StagingItems.Select(Clean));
+            if (IsSelected(composite))
+            {
+                // 同一组合已在已选里：暂存区没有新东西要落地，清空即可，不算失败。
+                StagingItems.Clear();
+                Refresh();
+                return true;
+            }
+
+            if (!AddValue(composite))
+            {
+                error = $"暂存区组合「{composite}」无法写入：组合里的每一项都必须来自当前核心 envs.js，且不能与已选项重复。";
+                return false;
+            }
+
+            StagingItems.Clear();
+            Refresh();
+            return true;
+        }
+
+        var rejected = new List<string>();
+        foreach (var staged in StagingItems.ToArray())
+        {
+            var clean = Clean(staged);
+            if (clean.Length == 0 || IsSelected(clean))
+            {
+                StagingItems.Remove(staged);
+                continue;
+            }
+
+            if (AddValue(clean))
+            {
+                StagingItems.Remove(staged);
+                continue;
+            }
+
+            rejected.Add(clean);
+        }
+
+        Refresh();
+        if (rejected.Count > 0)
+        {
+            error = $"暂存区有 {rejected.Count} 项无法写入：{string.Join("、", rejected)}。";
+            return false;
+        }
+
+        return true;
+    }
+
     private Control BuildContent()
     {
         // 核心多选分支的层级：标签「已选择」→ 虚线框（已选胶囊 + 合并模式暂存区）

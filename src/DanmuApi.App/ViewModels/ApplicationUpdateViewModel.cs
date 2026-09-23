@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -11,13 +12,24 @@ using DanmuApi.Platform;
 
 namespace DanmuApi.App.ViewModels;
 
-public sealed partial class ApplicationUpdateViewModel : ViewModelBase, IDisposable
+public sealed partial class ApplicationUpdateViewModel : ViewModelBase, IDisposable, IForegroundUpdateCheck
 {
-    private readonly ApplicationUpdateService _remote = new(AppUpdateTrust.PublicKey());
+    /// <summary>自动检查（进前台、启动后定时器）的冷却：命中就只改状态文案，绝不发网络请求。</summary>
+    public static readonly TimeSpan AutomaticCheckCooldown = TimeSpan.FromMinutes(30);
+
+    /// <summary>「已发现新版本」这条结果跨重启复用的有效期；过期后交给下一次自动检查刷新。</summary>
+    public static readonly TimeSpan DiscoveryTtl = TimeSpan.FromDays(1);
+
+    private const string LastCheckKey = "app_update_last_check_ms";
+    private const string FoundVersionKey = "app_update_found_version";
+    private const string FoundAtKey = "app_update_found_at_ms";
+
+    private readonly ApplicationUpdateService _remote;
     private readonly ISettingsStore _settings;
     private readonly IUiDialogService _dialogs;
     private readonly IDesktopNotificationService _notifications;
     private readonly IAppDiagnostics _diagnostics;
+    private readonly TimeProvider _clock;
     private readonly CancellationTokenSource _lifetime = new();
     private CancellationTokenSource? _operation;
     private ApplicationUpdate? _update;
@@ -45,12 +57,109 @@ public sealed partial class ApplicationUpdateViewModel : ViewModelBase, IDisposa
     public string UpdateBadge => HasUpdate ? "发现软件更新" : "";
     public string DistributionText => ApplicationUpdateHelper.IsInstalled(Environment.ProcessPath!) ? "安装版 · 安装器更新" : "免安装版 · 原目录更新";
 
-    public ApplicationUpdateViewModel(ISettingsStore settings, IUiDialogService dialogs, IDesktopNotificationService notifications, IAppDiagnostics diagnostics)
+    public ApplicationUpdateViewModel(
+        ISettingsStore settings,
+        IUiDialogService dialogs,
+        IDesktopNotificationService notifications,
+        IAppDiagnostics diagnostics,
+        ApplicationUpdateService? remote = null,
+        TimeProvider? clock = null)
     {
         _settings = settings; _dialogs = dialogs; _notifications = notifications; _diagnostics = diagnostics;
+        _remote = remote ?? new ApplicationUpdateService(AppUpdateTrust.PublicKey());
+        _clock = clock ?? TimeProvider.System;
         _loading = true;
-        AutomaticChecks = !settings.Read().TryGetValue("app_update_auto", out var enabled) || bool.Parse(enabled);
+        var values = settings.Read();
+        AutomaticChecks = !values.TryGetValue("app_update_auto", out var enabled) || bool.Parse(enabled);
+        RestoreDiscovery(values);
         _loading = false;
+    }
+
+    /// <summary>
+    /// 重启后把「上次发现的版本」接回来：侧栏卡片与关于页因此不必重新联网，
+    /// 也不会出现「一重启就又正在检查」。存量值读不动时按「没有发现」降级并记一条诊断：
+    /// 丢的只是一个可选缓存（代价是下一次自动检查照常进行），不该让应用启动失败。
+    /// </summary>
+    private void RestoreDiscovery(IReadOnlyDictionary<string, string> values)
+    {
+        if (!values.TryGetValue(FoundVersionKey, out var stored) || string.IsNullOrWhiteSpace(stored))
+        {
+            return;
+        }
+
+        if (!long.TryParse(values.TryGetValue(FoundAtKey, out var storedAt) ? storedAt : null,
+                NumberStyles.None, CultureInfo.InvariantCulture, out var milliseconds) || milliseconds <= 0)
+        {
+            // 缓存被写坏时不能默默当成"没有发现"：记一条诊断，代价只是下一次自动检查照常进行。
+            _diagnostics.Record($"软件更新缓存时间无效，按未发现更新处理：{storedAt}");
+            return;
+        }
+
+        var version = stored.Trim();
+        TimeSpan age;
+        try
+        {
+            age = _clock.GetUtcNow() - DateTimeOffset.FromUnixTimeMilliseconds(milliseconds);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            _diagnostics.Record($"软件更新缓存时间无效，按未发现更新处理：{storedAt}");
+            return;
+        }
+
+        if (age < TimeSpan.Zero || age > DiscoveryTtl) return;
+        if (string.Equals(version, CurrentVersion, StringComparison.OrdinalIgnoreCase)) return;
+        if (values.TryGetValue("app_update_skipped", out var skipped) && skipped == version) return;
+
+        AvailableVersion = version;
+        HasUpdate = true;
+        Status = $"发现新测试版 {version}（{(int)age.TotalMinutes} 分钟前检查过）。点「下载更新」会先联网确认一次再下载。";
+    }
+
+    private DateTimeOffset? ReadLastCheck()
+    {
+        if (!_settings.Read().TryGetValue(LastCheckKey, out var raw) || string.IsNullOrWhiteSpace(raw)) return null;
+        if (!long.TryParse(raw, NumberStyles.None, CultureInfo.InvariantCulture, out var milliseconds) || milliseconds <= 0)
+        {
+            _diagnostics.Record($"软件更新检查时间无效，按未检查过处理：{raw}");
+            return null;
+        }
+
+        return DateTimeOffset.FromUnixTimeMilliseconds(milliseconds);
+    }
+
+    private void WriteLastCheck()
+    {
+        try
+        {
+            _settings.Write(new Dictionary<string, string?>
+            {
+                [LastCheckKey] = _clock.GetUtcNow().ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture),
+            });
+        }
+        catch (Exception error)
+        {
+            _diagnostics.Record("记录软件更新检查时间失败（不影响本次结果）", error);
+        }
+    }
+
+    /// <summary>把「发现了哪个版本」落盘；写不动只记诊断，不改变本次检查结论。</summary>
+    private void PersistDiscovery(string? version)
+    {
+        try
+        {
+            _settings.Write(new Dictionary<string, string?>
+            {
+                [FoundVersionKey] = version,
+                [FoundAtKey] = version is null
+                    ? null
+                    : _clock.GetUtcNow().ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture),
+            });
+        }
+        catch (Exception error)
+        {
+            _diagnostics.Record("记录软件更新发现结果失败（不影响本次结果）", error);
+        }
     }
 
     partial void OnAutomaticChecksChanged(bool value)
@@ -69,7 +178,7 @@ public sealed partial class ApplicationUpdateViewModel : ViewModelBase, IDisposa
             await Task.Delay(TimeSpan.FromSeconds(30), _lifetime.Token);
             while (!_lifetime.IsCancellationRequested)
             {
-                await Dispatcher.UIThread.InvokeAsync(() => AutomaticChecks && !IsBusy ? CheckAsync(manual: false) : Task.CompletedTask);
+                await Dispatcher.UIThread.InvokeAsync(CheckOnForegroundAsync);
                 await Task.Delay(TimeSpan.FromHours(6), _lifetime.Token);
             }
         }
@@ -78,18 +187,43 @@ public sealed partial class ApplicationUpdateViewModel : ViewModelBase, IDisposa
     }
 
     [RelayCommand] private Task CheckForUpdatesAsync() => CheckAsync(manual: true);
+
+    /// <summary>
+    /// 进前台时的静默检查入口：受冷却约束、且尊重「自动检查」开关，正在忙时直接让路。
+    /// 与启动后的定时器共用同一条冷却，所以两套触发不会互相重复检查。
+    /// </summary>
+    public Task CheckOnForegroundAsync()
+    {
+        if (!AutomaticChecks || IsBusy || !UpdateCheckCadence.IsDue(_clock, ReadLastCheck(), AutomaticCheckCooldown))
+        {
+            return Task.CompletedTask;
+        }
+
+        return CheckAsync(manual: false);
+    }
+
     private async Task CheckAsync(bool manual)
     {
         if (IsBusy) return;
+        if (!manual && !UpdateCheckCadence.IsDue(_clock, ReadLastCheck(), AutomaticCheckCooldown))
+        {
+            // 冷却命中：不发请求，也不覆盖已有发现结果的文案。
+            if (!HasUpdate) Status = $"{(int)AutomaticCheckCooldown.TotalMinutes} 分钟内已检查过，未重复检查；点「检查更新」可立即重查。";
+            return;
+        }
+
         IsBusy = true; Status = "正在检查 GitHub 测试发行版…";
         _operation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         _operation.CancelAfter(TimeSpan.FromSeconds(45));
+        var attempted = false;
         try
         {
+            attempted = true;
             var update = await _remote.CheckAsync(CurrentVersion, _operation.Token);
             if (update is null)
             {
                 HasUpdate = false; Status = "当前已是最新版本。";
+                PersistDiscovery(null);
                 if (manual) await _dialogs.ShowMessageAsync("软件更新", Status);
                 return;
             }
@@ -102,6 +236,8 @@ public sealed partial class ApplicationUpdateViewModel : ViewModelBase, IDisposa
             var values = _settings.Read();
             var skipped = values.TryGetValue("app_update_skipped", out var skip) && skip == AvailableVersion;
             HasUpdate = manual || !skipped;
+            // 「发现结果」按最终是否要展示给用户来落盘；已跳过的版本不重启后又冒出来。
+            PersistDiscovery(HasUpdate ? AvailableVersion : null);
             Status = skipped && !manual ? $"已跳过 {AvailableVersion}，手动检查可重新查看。" : $"发现新测试版 {AvailableVersion}。下载后仍需确认安装。";
             if (manual) await _dialogs.ShowMessageAsync("发现软件更新", $"{CurrentVersion} → {AvailableVersion}\n{PackageText}\n在关于页查看发行说明并下载。");
             else if (!skipped && (!values.TryGetValue("app_update_notified", out var notified) || notified != AvailableVersion))
@@ -122,12 +258,19 @@ public sealed partial class ApplicationUpdateViewModel : ViewModelBase, IDisposa
                 if (notification.Status == DesktopNotificationStatus.Failed) _diagnostics.Record($"软件更新失败通知未提交：{notification.Diagnostic}");
             }
         }
-        finally { _operation.Dispose(); _operation = null; IsBusy = false; }
+        finally
+        {
+            // 只有真发起过一次检查才记时间：冷却命中时不写，否则窗口会被一次次往后推。
+            if (attempted) WriteLastCheck();
+            _operation.Dispose(); _operation = null; IsBusy = false;
+        }
     }
 
     [RelayCommand] private void SkipVersion()
     {
-        if (_update is null || IsBusy) return;
+        // 重启后从设置里恢复的发现结果没有内存清单（_update 为 null），但版本号是真实的：
+        // 跳过只看 AvailableVersion，否则侧栏卡片的「跳过这个版本」会点了没反应、下次又回来。
+        if (IsBusy || string.IsNullOrWhiteSpace(AvailableVersion)) return;
         try { _settings.Write(new Dictionary<string,string?> { ["app_update_skipped"] = AvailableVersion }); HasUpdate = false; Status = $"已跳过 {AvailableVersion}。"; }
         catch (Exception error) { Status = "保存跳过版本失败：" + error.Message; }
     }
@@ -143,7 +286,20 @@ public sealed partial class ApplicationUpdateViewModel : ViewModelBase, IDisposa
 
     [RelayCommand] private async Task DownloadUpdateAsync()
     {
-        if (_update is null || _assetName is null || IsBusy) return;
+        if (IsBusy) return;
+        if (_update is null || _assetName is null)
+        {
+            // 重启后的卡片是从缓存恢复的，手里没有签名清单和下载地址。
+            // 用户点「下载更新」就是明确要动网络，所以这里做一次**手动**检查（不受冷却约束）。
+            await CheckAsync(manual: true).ConfigureAwait(true);
+            if (_update is null || _assetName is null)
+            {
+                Status = "没能取到可用的更新清单，请稍后再试或再点一次「检查更新」。";
+                _diagnostics.Record(Status);
+                return;
+            }
+        }
+
         IsBusy = true; IsDownloading = true; CanInstall = false; ProgressPercent = 0;
         _operation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         var directory = Path.Combine(ApplicationUpdateHelper.JobRoot, Guid.NewGuid().ToString("N"));

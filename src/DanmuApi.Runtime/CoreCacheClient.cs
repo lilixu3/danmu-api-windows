@@ -194,7 +194,7 @@ public sealed class CoreCacheClient : ICoreCacheClient
             ? $"[{host}]"
             : host;
         return new Uri(
-            $"http://{authority}:{port}/{Uri.EscapeDataString(pathToken)}/api/cache/{action}",
+            $"http://{authority}:{port}/{RuntimeEndpointBuilder.EncodeTokenSegment(pathToken)}/api/cache/{action}",
             UriKind.Absolute);
     }
 
@@ -367,11 +367,10 @@ public sealed class CoreCacheClient : ICoreCacheClient
                      .Where(secret => !string.IsNullOrWhiteSpace(secret))
                      .Distinct(StringComparer.Ordinal))
         {
-            normalized = normalized.Replace(secret!, "***", StringComparison.Ordinal);
-            normalized = normalized.Replace(
-                Uri.EscapeDataString(secret!),
-                "***",
-                StringComparison.OrdinalIgnoreCase);
+            foreach (var form in RuntimeEndpointBuilder.TokenTextForms(secret!))
+            {
+                normalized = normalized.Replace(form, "***", StringComparison.OrdinalIgnoreCase);
+            }
         }
 
         return normalized;

@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
@@ -377,23 +378,9 @@ public sealed class CoreLocalDanmuClient : ICoreLocalDanmuClient
         var writeToken = EffectiveWriteToken(effectiveToken, adminToken);
         var endpoint = BuildUploadUri(host, port, writeToken);
 
-        // multipart：file 字段必须带真实文件名，核心按文件名后缀判定弹幕格式。
-        using var content = new MultipartFormDataContent();
-        var fileContent = new StreamContent(new UploadProgressStream(request.Content, uploadProgress));
-        fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-        content.Add(fileContent, "file", SanitizeFileName(request.FileName));
-        content.Add(new StringContent(request.Title.Trim(), Encoding.UTF8), "title");
-        content.Add(new StringContent(request.Year.ToString(CultureInfo.InvariantCulture), Encoding.UTF8), "year");
-        content.Add(new StringContent(request.Type.Trim(), Encoding.UTF8), "type");
-        if (request.Season > 0)
-        {
-            content.Add(new StringContent(request.Season.ToString(CultureInfo.InvariantCulture), Encoding.UTF8), "season");
-        }
-
-        if (request.Episode is int episode)
-        {
-            content.Add(new StringContent(episode.ToString(CultureInfo.InvariantCulture), Encoding.UTF8), "episode");
-        }
+        // multipart 正文必须自己拼：file 字段要带真实文件名（核心按文件名后缀判定弹幕格式），
+        // 且字段名必须带双引号——用 MultipartFormDataContent 会被核心判为解析失败，见 LocalDanmuMultipartContent。
+        using var content = new LocalDanmuMultipartContent(request, uploadProgress);
 
         var (status, body, failure) = await SendAsync(
             HttpMethod.Post,
@@ -709,6 +696,8 @@ public sealed class CoreLocalDanmuClient : ICoreLocalDanmuClient
             .Replace("\r", string.Empty, StringComparison.Ordinal)
             .Replace("\n", string.Empty, StringComparison.Ordinal)
             .Replace("\0", string.Empty, StringComparison.Ordinal)
+            // 双引号会提前闭合 multipart 的 filename="…"，必须去掉。
+            .Replace("\"", string.Empty, StringComparison.Ordinal)
             .Trim();
         if (value.Length == 0)
         {
@@ -731,7 +720,7 @@ public sealed class CoreLocalDanmuClient : ICoreLocalDanmuClient
             ? $"[{host}]"
             : host;
         return new Uri(
-            $"http://{authority}:{port}/{Uri.EscapeDataString(token.Trim())}/{RoutePrefix}/{suffix}",
+            $"http://{authority}:{port}/{RuntimeEndpointBuilder.EncodeTokenSegment(token.Trim())}/{RoutePrefix}/{suffix}",
             UriKind.Absolute);
     }
 
@@ -965,67 +954,130 @@ public sealed class CoreLocalDanmuClient : ICoreLocalDanmuClient
         return RuntimeManagementClient.Redact(normalized, token, adminToken);
     }
 
-    /// <summary>上传进度按「已读字节」上报（StreamContent 会边读边发）。</summary>
-    private sealed class UploadProgressStream : Stream
+    /// <summary>
+    /// 本地弹幕上传的 multipart/form-data 正文（手写，不用 MultipartFormDataContent）。
+    ///
+    /// **为什么不能用 <c>MultipartFormDataContent</c>**：.NET 的
+    /// <c>ContentDispositionHeaderValue</c> 只在参数值不是合法 HTTP token 时才补引号
+    /// （dotnet/runtime 的 <c>EncodeAndQuoteMime</c>），所以 <c>name=file</c>、
+    /// <c>name=title</c> 这类字段名会**不带引号**发出；而核心（Node 22 内置 undici）的
+    /// <c>Request.formData()</c> 只认 RFC 7578 的 quoted-string <c>name="file"</c>，
+    /// 遇到不带引号的参数直接判定失败，抛出
+    /// <c>Failed to parse body as FormData.</c> 并回 400 —— 界面表现为
+    /// 「请求参数或弹幕文件无效：Failed to parse body as FormData.」，且**每个文件都失败**。
+    ///
+    /// 2026-09-20 对核心 1.21.1 实机逐项实测（单变量对比）：
+    /// <list type="bullet">
+    ///   <item>name 带引号 + filename 带引号 → 200；</item>
+    ///   <item>name 不带引号 → 400（这就是 .NET 现状）；</item>
+    ///   <item>filename 不带引号 → 400（ASCII 文件名也会踩到）；</item>
+    ///   <item>RFC 5987 的 <c>filename*=utf-8''…</c> → 400，undici 不支持该形式；</item>
+    ///   <item>filename 里直接写 UTF-8 中文（quoted-string）→ 200，且核心落盘的文件名正确。</item>
+    /// </list>
+    /// 所以这里显式拼字节：字段名/文件名一律 quoted-string，文件名按 UTF-8 原样写入。
+    /// 上传进度沿用「已读字节」上报。
+    /// </summary>
+    private sealed class LocalDanmuMultipartContent : HttpContent
     {
-        private readonly Stream _inner;
+        private const string CrLf = "\r\n";
+
+        private readonly string _boundary;
+        private readonly CoreLocalDanmuUploadRequest _request;
         private readonly IProgress<long>? _progress;
-        private long _sent;
 
-        public UploadProgressStream(Stream inner, IProgress<long>? progress)
+        public LocalDanmuMultipartContent(CoreLocalDanmuUploadRequest request, IProgress<long>? progress)
         {
-            _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+            _request = request ?? throw new ArgumentNullException(nameof(request));
             _progress = progress;
+            // 边界用 GUID：不与文件正文撞车；本身是合法 token，不需要加引号。
+            _boundary = "----DanmuApiBoundary" + Guid.NewGuid().ToString("N");
+            Headers.ContentType = MediaTypeHeaderValue.Parse($"multipart/form-data; boundary={_boundary}");
         }
 
-        public override bool CanRead => true;
-        public override bool CanSeek => false;
-        public override bool CanWrite => false;
-        public override long Length => _inner.CanSeek ? _inner.Length : throw new NotSupportedException();
-        public override long Position
+        protected override bool TryComputeLength(out long length)
         {
-            get => _inner.CanSeek ? _inner.Position : _sent;
-            set => throw new NotSupportedException();
+            // 文件流不可 seek 时总长度不可知；统一走 chunked，避免算错长度把正文截断。
+            length = 0;
+            return false;
         }
 
-        public override int Read(byte[] buffer, int offset, int count)
-        {
-            var read = _inner.Read(buffer, offset, count);
-            Report(read);
-            return read;
-        }
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
+            WriteBodyAsync(stream, CancellationToken.None);
 
-        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
-        {
-            var read = await _inner.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
-            Report(read);
-            return read;
-        }
-
-        public override void Flush() => throw new NotSupportedException();
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(long value) => throw new NotSupportedException();
-        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context, CancellationToken cancellationToken) =>
+            WriteBodyAsync(stream, cancellationToken);
 
         protected override void Dispose(bool disposing)
         {
             if (disposing)
             {
-                _inner.Dispose();
+                // HttpContent 的标准行为：内容释放时把传入的流一起释放。
+                _request.Content.Dispose();
             }
 
             base.Dispose(disposing);
         }
 
-        private void Report(int read)
+        private static async Task WriteTextAsync(Stream stream, string text, CancellationToken cancellationToken)
         {
-            if (read <= 0 || _progress is null)
+            // 头部统一按 UTF-8 编码：文件名要原样写中文，不能退化成 ASCII / Latin-1。
+            await stream.WriteAsync(Encoding.UTF8.GetBytes(text), cancellationToken).ConfigureAwait(false);
+        }
+
+        private async Task WriteBodyAsync(Stream stream, CancellationToken cancellationToken)
+        {
+            await WriteTextAsync(
+                stream,
+                $"--{_boundary}{CrLf}" +
+                $"Content-Disposition: form-data; name=\"file\"; filename=\"{SanitizeFileName(_request.FileName)}\"{CrLf}" +
+                $"Content-Type: application/octet-stream{CrLf}{CrLf}",
+                cancellationToken).ConfigureAwait(false);
+
+            var buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
+            try
             {
-                return;
+                long sent = 0;
+                int read;
+                while ((read = await _request.Content
+                    .ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken)
+                    .ConfigureAwait(false)) > 0)
+                {
+                    await stream.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                    sent += read;
+                    _progress?.Report(sent);
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
             }
 
-            _sent += read;
-            _progress.Report(_sent);
+            foreach (var (name, value) in Fields())
+            {
+                await WriteTextAsync(
+                    stream,
+                    $"{CrLf}--{_boundary}{CrLf}" +
+                    $"Content-Disposition: form-data; name=\"{name}\"{CrLf}{CrLf}{value}",
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            await WriteTextAsync(stream, $"{CrLf}--{_boundary}--{CrLf}", cancellationToken).ConfigureAwait(false);
+        }
+
+        private IEnumerable<(string Name, string Value)> Fields()
+        {
+            yield return ("title", _request.Title.Trim());
+            yield return ("year", _request.Year.ToString(CultureInfo.InvariantCulture));
+            yield return ("type", _request.Type.Trim());
+            if (_request.Season > 0)
+            {
+                yield return ("season", _request.Season.ToString(CultureInfo.InvariantCulture));
+            }
+
+            if (_request.Episode is int episode)
+            {
+                yield return ("episode", episode.ToString(CultureInfo.InvariantCulture));
+            }
         }
     }
 }

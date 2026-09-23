@@ -8,17 +8,29 @@ namespace DanmuApi.Tests;
 public sealed class DanmuApiClientTests
 {
     [Fact]
-    public void BuildApiUriEscapesTokenAndFormatsIpv6Authority()
+    public void BuildApiUriKeepsTokenCharactersTheCoreComparesLiterally()
     {
+        // 令路段要按浏览器写路径的方式进 URL（核心不解码路径，直接与 TOKEN 全等比较），
+        // 同时 IPv6 主机要补方括号。
         var uri = DanmuApiClient.BuildApiUri(
             "2001:4860:4860::8888",
             9321,
-            "token/with space",
+            "tok!en(1)&x=2",
             "/api/v2/search/anime?keyword=test");
 
         Assert.Equal(
-            "http://[2001:4860:4860::8888]:9321/token%2Fwith%20space/api/v2/search/anime?keyword=test",
+            "http://[2001:4860:4860::8888]:9321/tok!en(1)&x=2/api/v2/search/anime?keyword=test",
             uri.AbsoluteUri);
+    }
+
+    [Fact]
+    public void BuildApiUriEncodesOnlyWhatAPathSegmentCannotCarry()
+    {
+        var uri = DanmuApiClient.BuildApiUri("127.0.0.1", 9321, "中文 令牌", "/api/config");
+
+        Assert.Equal("http://127.0.0.1:9321/%E4%B8%AD%E6%96%87%20%E4%BB%A4%E7%89%8C/api/config", uri.AbsoluteUri);
+        Assert.Throws<ArgumentException>(() =>
+            DanmuApiClient.BuildApiUri("127.0.0.1", 9321, "bad/token", "/api/config"));
     }
 
     [Fact]

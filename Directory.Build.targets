@@ -1,7 +1,13 @@
 <Project>
   <PropertyGroup>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
-    <NuGetLockFilePath>$(MSBuildThisFileDirectory)packages.lock.json</NuGetLockFilePath>
+    <!-- 锁文件按「工程 + 目标架构」分开命名。两个原因：
+         1) 五个工程的 TFM 各不相同（net8.0 / net8.0-windows / net8.0-windows10.0.19041.0），
+            原来全仓库共用根目录一份，任何一次 restore 都会用「最后还原的那个工程」的依赖图覆盖它；
+         2) NuGet 的锁文件只认生成它时的那个 RuntimeIdentifier，而发布要出 win-x64 / win-x86 /
+            win-arm64 三种，共用一份时另外两种架构在 RestoreLockedMode 下必然 NU1004。 -->
+    <_DanmuLockSuffix Condition="'$(RuntimeIdentifier)' != ''">.$(RuntimeIdentifier)</_DanmuLockSuffix>
+    <NuGetLockFilePath Condition="'$(_DanmuLockSuffix)' != ''">$(MSBuildProjectDirectory)\packages.lock$(_DanmuLockSuffix).json</NuGetLockFilePath>
     <RestoreLockedMode Condition="'$(CI)' == 'true'">true</RestoreLockedMode>
   </PropertyGroup>
 </Project>

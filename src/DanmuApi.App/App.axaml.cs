@@ -101,6 +101,8 @@ public partial class App : Application
                 _diagnostics.Record($"启动时刷新开机自启失败: {refreshResult.Diagnostic}");
             }
 
+            RestorePersistedCoreDiscovery(_services, paths);
+
             var viewModel = _services.GetRequiredService<MainWindowViewModel>();
             mainWindow = new MainWindow { DataContext = viewModel, Diagnostics = _diagnostics };
             mainWindow.Opened += (_, _) => StartupTiming.Record(paths, "主窗口显示", System.Diagnostics.Stopwatch.GetElapsedTime(Program.StartTimestamp));
@@ -128,6 +130,8 @@ public partial class App : Application
                 ? "请先完成或暂停弹幕下载及核心安装/更新，再进行软件更新。" : null;
             applicationUpdates.IsServiceRunningBeforeUpdate = () => viewModel.IsServiceRunning;
             applicationUpdates.ExitForUpdate = () => _lifecycleCoordinator.TryExitForUpdateAsync();
+            // 进前台（窗口激活、从托盘恢复）时与核心更新一起静默检查软件更新，各自带冷却。
+            _lifecycleCoordinator.ApplicationUpdates = applicationUpdates;
             applicationUpdates.Start();
             mainWindow.AttachLifecycle(_lifecycleCoordinator);
             if (!isAutostart)
@@ -321,13 +325,23 @@ public partial class App : Application
         services.AddSingleton<ICoreInstaller>(provider => new CoreInstaller(
             provider.GetRequiredService<AppPaths>().NodeProjectDirectory,
             provider.GetRequiredService<AppPaths>().CoreCacheDirectory,
-            provider.GetRequiredService<IGithubFileDownloader>()));
+            provider.GetRequiredService<IGithubFileDownloader>(),
+            null,
+            // 核心已装好但善后（历史归档/临时文件清理）失败时，不算安装失败，但必须留痕。
+            message => provider.GetRequiredService<IAppDiagnostics>().Record(message)));
         services.AddSingleton<ICoreUpdateTimestampStore, SettingsCoreUpdateTimestampStore>();
+        services.AddSingleton<ICoreUpdateDiscoveryStore>(provider => new SettingsCoreUpdateDiscoveryStore(
+            provider.GetRequiredService<ISettingsStore>(),
+            message => provider.GetRequiredService<IAppDiagnostics>().Record(message)));
         services.AddSingleton<ICoreUpdatePolicyStore, SettingsCoreUpdatePolicyStore>();
         services.AddSingleton<IGithubRoutePreferenceStore, SettingsGithubRoutePreferenceStore>();
         services.AddSingleton<IGithubProxySpeedTester>(provider => new GithubProxySpeedTester(
             provider.GetRequiredService<GithubHttpClientResources>().Download));
         services.AddSingleton<IPlatformCommandExecutor, ProcessCommandExecutor>();
+        services.AddSingleton<ICorePullRequestMergeService>(provider => new CorePullRequestMergeService(
+            provider.GetRequiredService<AppPaths>().CoreCacheDirectory,
+            provider.GetRequiredService<IPlatformCommandExecutor>(),
+            message => provider.GetRequiredService<IAppDiagnostics>().Record(message)));
         services.AddSingleton<IRuntimeFirewall, FirewallManager>();
         services.AddSingleton<AutostartManager>();
         services.AddSingleton<IAutostartService, PlatformAutostartService>();
@@ -402,17 +416,29 @@ public partial class App : Application
                 provider.GetRequiredService<IRuntimeFirewall>(),
                 () => provider.GetRequiredService<RuntimePreparationService>().StartBlockedReason);
         });
-        services.AddSingleton<ICoreManagementService>(provider => new CoreManagementService(
+        services.AddSingleton<CoreManagementService>(provider => new CoreManagementService(
             provider.GetRequiredService<ICoreInstaller>(),
             provider.GetRequiredService<IGithubCoreRemote>(),
             provider.GetRequiredService<IRuntimeController>(),
             () => ReadManagedVariant(
                 provider.GetRequiredService<ISettingsStore>(),
                 provider.GetRequiredService<AppPaths>()),
-            provider.GetRequiredService<RuntimePreparationService>().AcquireReadyLeaseAsync));
-        services.AddSingleton<ICoreUpdateCoordinator, CoreUpdateCoordinator>();
+            provider.GetRequiredService<RuntimePreparationService>().AcquireReadyLeaseAsync,
+            // 安装变更后由结论持有人重新对账：延迟解析，因为处理器本身依赖本服务。
+            conclusionReconciler: () => provider.GetRequiredService<CoreUpdateResultHandler>(),
+            diagnosticSink: message => provider.GetRequiredService<IAppDiagnostics>().Record(message),
+            pullRequestMerge: provider.GetRequiredService<ICorePullRequestMergeService>()));
+        services.AddSingleton<ICoreManagementService>(provider => provider.GetRequiredService<CoreManagementService>());
+        services.AddSingleton<ICorePullRequestManagementService>(provider => provider.GetRequiredService<CoreManagementService>());
+        services.AddSingleton<ICoreUpdateCoordinator>(provider => new CoreUpdateCoordinator(
+            provider.GetRequiredService<ICoreInstaller>(),
+            provider.GetRequiredService<IGithubCoreRemote>(),
+            provider.GetRequiredService<ICoreUpdateTimestampStore>(),
+            provider.GetRequiredService<ICoreUpdateDiscoveryStore>(),
+            diagnosticSink: message => provider.GetRequiredService<IAppDiagnostics>().Record(message)));
         services.AddSingleton<CoreUpdateResultHandler>(provider => new CoreUpdateResultHandler(
             provider.GetRequiredService<ICoreManagementService>(),
+            provider.GetRequiredService<ICoreUpdateCoordinator>(),
             provider.GetRequiredService<IGithubRoutePreferenceStore>(),
             provider.GetRequiredService<IDesktopNotificationService>(),
             provider.GetRequiredService<IAppDiagnostics>()));
@@ -473,6 +499,12 @@ public partial class App : Application
             provider.GetRequiredService<IUiDialogService>(),
             provider.GetRequiredService<IDesktopNotificationService>(),
             provider.GetRequiredService<IAppDiagnostics>()));
+        services.AddSingleton<IActiveCoreVariantStore>(provider => new SettingsActiveCoreVariantStore(
+            provider.GetRequiredService<ISettingsStore>()));
+        services.AddSingleton<IRuntimeVariantSwitchService>(provider => new RuntimeVariantSwitchService(
+            provider.GetRequiredService<IActiveCoreVariantStore>(),
+            provider.GetRequiredService<IRuntimeController>(),
+            diagnosticSink: message => provider.GetRequiredService<IAppDiagnostics>().Record(message)));
         services.AddSingleton<CorePageViewModel>(provider => new CorePageViewModel(
             provider.GetRequiredService<ICoreManagementService>(),
             provider.GetRequiredService<IGithubCoreRemote>(),
@@ -483,7 +515,10 @@ public partial class App : Application
             provider.GetRequiredService<IAppDiagnostics>(),
             provider.GetRequiredService<IGithubTokenConfigurationService>(),
             provider.GetRequiredService<CoreDependencyVerifier>().VerifyAsync,
-            provider.GetRequiredService<RuntimePreparationService>()));
+            provider.GetRequiredService<RuntimePreparationService>(),
+            provider.GetRequiredService<ICorePullRequestManagementService>(),
+            provider.GetRequiredService<IActiveCoreVariantStore>(),
+            provider.GetRequiredService<IRuntimeVariantSwitchService>().SwitchAsync));
         services.AddSingleton<ConfigurationPageViewModel>(provider => new ConfigurationPageViewModel(
             provider.GetRequiredService<AppPaths>(),
             provider.GetRequiredService<ISettingsStore>(),
@@ -567,7 +602,9 @@ public partial class App : Application
             provider.GetRequiredService<IAdminWriteGate>(),
             provider.GetRequiredService<ICoreRequestRecordsClient>(),
             provider.GetRequiredService<RuntimePreparationService>(),
-            provider.GetRequiredService<ICoreManagementService>()));
+            provider.GetRequiredService<ICoreManagementService>(),
+            // 侧栏「有更新」卡片的权威来源：前台/后台/托盘/手动的核心检查结果都汇到协调器。
+            coreUpdateCoordinator: provider.GetRequiredService<ICoreUpdateCoordinator>()));
         services.AddSingleton<AppLifecycleCoordinator>(provider => new AppLifecycleCoordinator(
             provider.GetRequiredService<IRuntimeController>(),
             provider.GetRequiredService<ISettingsStore>(),
@@ -669,6 +706,27 @@ public partial class App : Application
     {
         var variant = DesktopConfigReader.Read(settingsStore, paths.NodeProjectDirectory).Variant;
         return ManagedCoreVariantExtensions.ParseManagedVariant(variant);
+    }
+
+    /// <summary>
+    /// 启动时把上个进程落盘的「核心有更新」结论接回协调器，主窗口构造时读 <c>LastResult</c>
+    /// 就能直接显示侧栏卡片，无需等一次联网检查。读不动只记诊断并跳过：
+    /// 丢的是一条可选缓存，下一次自动检查会照常重建它。
+    /// </summary>
+    private static void RestorePersistedCoreDiscovery(ServiceProvider services, AppPaths paths)
+    {
+        try
+        {
+            var variant = ReadManagedVariant(services.GetRequiredService<ISettingsStore>(), paths);
+            // 先解析结论持有人：它订阅协调器的结论变化，必须在接回之前就位，
+            // 否则恢复出来的这条结论只更新了侧栏，托盘菜单会少一份待更新项。
+            _ = services.GetRequiredService<CoreUpdateResultHandler>();
+            services.GetRequiredService<ICoreUpdateCoordinator>().ReconcileDiscovery(variant);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or FormatException or InvalidOperationException)
+        {
+            services.GetRequiredService<IAppDiagnostics>().Record("恢复核心更新提示失败（不影响启动）", error);
+        }
     }
 
     private void CleanupDesktop()

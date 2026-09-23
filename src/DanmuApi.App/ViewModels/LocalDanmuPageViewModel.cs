@@ -788,12 +788,15 @@ public sealed partial class LocalDanmuPageViewModel : ViewModelBase, IAsyncDispo
     /// <summary>
     /// 上传一个文件。<paramref name="interactive"/> = true 走单文件那套：进度弹窗 + 成功/失败提示。
     /// 批量导入必须传 false —— 否则 N 个文件会弹 N 次窗（用户实测反馈），批量进度改为在面板里用进度条展示。
+    /// <paramref name="batchToken"/> 是批量取消令牌：不传进去的话「取消导入」只发生在文件之间，
+    /// 一个大文件最坏还要再等满上传超时。
     /// </summary>
     private async Task<UploadAttempt> UploadOnceAsync(
         PendingUpload upload,
         string progressTitle,
         bool interactive,
-        IProgress<double>? fileFraction = null)
+        IProgress<double>? fileFraction = null,
+        CancellationToken batchToken = default)
     {
         CoreLocalDanmuResourceResult? result = null;
 
@@ -844,7 +847,25 @@ public sealed partial class LocalDanmuPageViewModel : ViewModelBase, IAsyncDispo
         }
         else
         {
-            await RunAsync(NullProgress.Instance, CancellationToken.None).ConfigureAwait(true);
+            try
+            {
+                await RunAsync(NullProgress.Instance, batchToken).ConfigureAwait(true);
+            }
+            catch (OperationCanceledException) when (batchToken.IsCancellationRequested)
+            {
+                return UploadAttempt.CanceledAttempt;
+            }
+            catch (Exception error)
+            {
+                // 单个文件打不开、读到一半被删、正文写坏——只能记在这一行上。
+                // 让它冒出去会整批中断：用户只看到「成功 0 / 失败 N」，既不知道是哪个文件，
+                // 剩下的文件也再没机会传（原来就是这么炸的）。
+                var diagnostic = $"{upload.FileName} 读取或上传失败：{error.Message}";
+                Diagnostic = diagnostic;
+                _diagnostics.Record("批量导入本地弹幕单个文件失败", error);
+                return new UploadAttempt(false, diagnostic);
+            }
+
             if (result is null)
             {
                 return new UploadAttempt(false, "上传没有返回结果");
@@ -988,7 +1009,17 @@ public sealed partial class LocalDanmuPageViewModel : ViewModelBase, IAsyncDispo
                     progressTitle: string.Empty,
                     interactive: false,
                     fileFraction: new Progress<double>(fraction =>
-                        BatchProgress = (index + fraction) / items.Count)).ConfigureAwait(true);
+                        BatchProgress = (index + fraction) / items.Count),
+                    _batchCancellation.Token).ConfigureAwait(true);
+                if (attempt.Canceled)
+                {
+                    // 在文件中途取消：这一行没传，剩下的也不再传，但行状态要落到「已取消」而不是停在「上传中」。
+                    item.StatusText = "已取消";
+                    item.IsFailed = false;
+                    canceled = true;
+                    break;
+                }
+
                 if (attempt.Succeeded)
                 {
                     succeeded++;

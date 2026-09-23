@@ -153,6 +153,73 @@ public sealed class CoreInstallerTests
     }
 
     [Fact]
+    public async Task PreparedMergeKeepsPreviousCoreUntilConfirmedAndRecordsOrderedStack()
+    {
+        using var directory = new TemporaryDirectory();
+        var project = Path.Combine(directory.Path, "project");
+        var cache = Path.Combine(directory.Path, "cache");
+        var archive = CreateCoreArchive(directory.Path, "1.0.0", "old");
+        var installer = new CoreInstaller(project, cache, new CopyingDownloader(archive));
+        var previous = await installer.InstallAsync(Request(new string('a', 40)));
+        var staging = CreateMergeStaging(project, "new");
+        var sources = new[]
+        {
+            new CorePullRequestSource(12, "fork/core", "feature-1", new string('c', 40), null),
+            new CorePullRequestSource(13, "fork/core", "feature-2", new string('d', 40), null),
+        };
+        var prepared = new CorePreparedInstallRequest(ManagedCoreVariant.Stable, staging, previous.Manifest!,
+            previous.Manifest!.CommitSha, new string('b', 40), sources);
+
+        var applied = await installer.InstallPreparedAsync(prepared);
+        Assert.NotNull(applied.BackupDirectory);
+        Assert.True(Directory.Exists(applied.BackupDirectory));
+        Assert.Equal("old", File.ReadAllText(Path.Combine(applied.BackupDirectory!, "payload.txt")));
+        Assert.Equal("new", File.ReadAllText(Path.Combine(applied.Installation.Directory, "payload.txt")));
+        Assert.Equal(CoreInstallKind.LocalPullRequestStack, applied.Installation.Manifest!.InstallKind);
+        Assert.Equal(new string('a', 40), applied.Installation.Manifest.BaseCommitSha);
+        Assert.Equal(new string('b', 40), applied.Installation.Manifest.LocalMergeSha);
+        Assert.Equal([12, 13], applied.Installation.Manifest.PullRequests.Select(source => source.Number));
+        Assert.Equal([12, 13], CoreManifestStore.Read(applied.Installation.Directory)!.PullRequests.Select(source => source.Number));
+
+        await installer.ConfirmPreparedBackupAsync(ManagedCoreVariant.Stable, applied.BackupDirectory);
+        Assert.False(Directory.Exists(applied.BackupDirectory));
+        Assert.Equal("old", File.ReadAllText(Path.Combine(Assert.Single(installer.GetHistory(ManagedCoreVariant.Stable)).Directory, "payload.txt")));
+    }
+
+    [Fact]
+    public async Task PreparedMergeRestoresPreviousCoreAfterCandidateFailsHealth()
+    {
+        using var directory = new TemporaryDirectory();
+        var project = Path.Combine(directory.Path, "project");
+        var archive = CreateCoreArchive(directory.Path, "1.0.0", "old");
+        var installer = new CoreInstaller(project, Path.Combine(directory.Path, "cache"), new CopyingDownloader(archive));
+        var previous = await installer.InstallAsync(Request(new string('a', 40)));
+        var staging = CreateMergeStaging(project, "candidate");
+        var request = new CorePreparedInstallRequest(ManagedCoreVariant.Stable, staging, previous.Manifest!,
+            previous.Manifest!.CommitSha, new string('b', 40),
+            [new CorePullRequestSource(12, "fork/core", "feature", new string('c', 40), null)]);
+
+        var applied = await installer.InstallPreparedAsync(request);
+        var restored = await installer.RestorePreparedBackupAsync(ManagedCoreVariant.Stable, applied.BackupDirectory!);
+
+        Assert.Equal("old", File.ReadAllText(Path.Combine(restored.Directory, "payload.txt")));
+        Assert.Equal(previous.Manifest, restored.Manifest);
+        Assert.False(Directory.Exists(applied.BackupDirectory));
+    }
+
+    private static string CreateMergeStaging(string project, string payload)
+    {
+        var staging = Path.Combine(project, $".danmu_api_stable.merge-staging-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(staging, "configs"));
+        File.WriteAllText(Path.Combine(staging, "worker.js"), "export default {};\n");
+        File.WriteAllText(Path.Combine(staging, "package.json"), "{\"type\":\"module\"}");
+        File.WriteAllText(Path.Combine(staging, "configs", "envs.js"), "export const envVarConfig = {};\n");
+        File.WriteAllText(Path.Combine(staging, "configs", "globals.js"), "export const VERSION = '2.0.0';\n");
+        File.WriteAllText(Path.Combine(staging, "payload.txt"), payload);
+        return staging;
+    }
+
+    [Fact]
     public void UnknownDownloadRouteIsRejected()
     {
         Assert.Throws<ArgumentException>(() => GithubProxyCatalog.GetById("missing-route"));

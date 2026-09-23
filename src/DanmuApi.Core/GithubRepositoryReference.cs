@@ -5,7 +5,24 @@ namespace DanmuApi.Core;
 public enum CoreRepositorySource
 {
     Official,
+    Dev,
     Custom,
+}
+
+/// <summary>
+/// 仓库来源与核心变体必须一一对应：官方上游装稳定核心、开发上游装开发核心，
+/// 用户自选仓库只能装自定义核心。装错变体会让「更新检查」去比对另一个仓库的提交。
+/// </summary>
+public static class CoreRepositorySourceExtensions
+{
+    public static bool Matches(this CoreRepositorySource source, ManagedCoreVariant variant) =>
+        (source, variant) switch
+        {
+            (CoreRepositorySource.Official, ManagedCoreVariant.Stable) => true,
+            (CoreRepositorySource.Dev, ManagedCoreVariant.Dev) => true,
+            (CoreRepositorySource.Custom, ManagedCoreVariant.Custom) => true,
+            _ => false,
+        };
 }
 
 public sealed partial record GithubRepositoryReference(
@@ -17,11 +34,18 @@ public sealed partial record GithubRepositoryReference(
     public const string OfficialOwner = "huangxd-";
     public const string OfficialRepository = "danmu_api";
 
+    /// <summary>开发核心上游（specs/02 §1 的 dev 变体），与签名依赖包白名单同源。</summary>
+    public const string DevOwner = "lilixu3";
+    public const string DevRepository = "danmu_api";
+
     public string FullName => $"{Owner}/{Repository}";
     public bool HasExplicitBranch => !string.IsNullOrWhiteSpace(Branch);
 
     public static GithubRepositoryReference Official(string? branch = null) =>
         new(OfficialOwner, OfficialRepository, NormalizeOptionalBranch(branch), CoreRepositorySource.Official);
+
+    public static GithubRepositoryReference Dev(string? branch = null) =>
+        new(DevOwner, DevRepository, NormalizeOptionalBranch(branch), CoreRepositorySource.Dev);
 
     public static GithubRepositoryReference Parse(string input)
     {

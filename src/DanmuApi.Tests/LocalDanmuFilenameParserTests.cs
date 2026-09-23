@@ -25,8 +25,9 @@ public sealed class LocalDanmuFilenameParserTests
     [InlineData("[Lilith-Raws] 逐玉 - 05 [Baha][WEB-DL][1080p].mp4", "逐玉", null, "tv", 5, 1)]
     // 电影（季集可空）
     [InlineData("某剧场版 2024.mkv", "某剧场版", 2024, "movie", null, 1)]
-    // 文件名里带 Movie 也算电影信号；没有集数信息时保持 tv 并给说明
-    [InlineData("Some Show (2023).mp4", "Some Show", 2023, "tv", null, 1)]
+    // 文件名里带 Movie 也算电影信号；没有集数信息时保持 tv，并按提示真的补第 1 集
+    // （只写提示不填值会让整批导入被「集数必须是大于 0 的整数」挡住，一条都传不上去）
+    [InlineData("Some Show (2023).mp4", "Some Show", 2023, "tv", 1, 1)]
     // Exx
     [InlineData("逐玉_EP12_第12集.xml", "逐玉", null, "tv", 12, 1)]
     // 核心返回的 animeTitle 形如「剧名 第N季(年)【类型】from 平台」——剧名只保留主体（用户实测反馈）

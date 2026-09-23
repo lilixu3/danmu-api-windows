@@ -94,6 +94,9 @@ public sealed class MergeSourcePairsEditor : Border
 
     public bool ConfirmStaging() => _picker.ConfirmStagedValues();
 
+    /// <summary>保存前把暂存区合成一个合并组落地；失败时保留暂存内容并给出原因。</summary>
+    public bool TryConfirmPendingStaging(out string? error) => _picker.TryConfirmPendingStaging(out error);
+
     /// <summary>
     /// 关闭合并模式就禁止写入：候选置灰 + 提示。打开时恢复。
     /// </summary>

@@ -49,6 +49,25 @@
       <!-- 中性胶囊：用于「核心默认」「未配置」这类无语义状态，深浅主题各自取灰阶。 -->
       <SolidColorBrush x:Key="ChipNeutralBrush">#F0F1F4</SolidColorBrush>
       <SolidColorBrush x:Key="ChipNeutralTextBrush">#5D6672</SolidColorBrush>
+
+      <!-- 侧栏「有更新」卡片：用强调色家族（蓝→紫）而不是警告琥珀色。
+           「可更新」是一个可执行的发现，不是故障告警；琥珀在浅色侧栏上会糊成一片。
+           卡片底是极浅的蓝紫渐变，徽章底是实心渐变，两者都不依赖位图，
+           因此在 150%/200% DPI 下依然是矢量锐边，且跟随深浅主题换色。 -->
+      <LinearGradientBrush x:Key="UpdateCardBrush" StartPoint="0%,0%" EndPoint="100%,100%">
+        <GradientStop Offset="0" Color="#EFF4FE" />
+        <GradientStop Offset="1" Color="#F6F1FF" />
+      </LinearGradientBrush>
+      <LinearGradientBrush x:Key="UpdateCardHoverBrush" StartPoint="0%,0%" EndPoint="100%,100%">
+        <GradientStop Offset="0" Color="#E4EDFE" />
+        <GradientStop Offset="1" Color="#EFE7FF" />
+      </LinearGradientBrush>
+      <LinearGradientBrush x:Key="UpdateBadgeBrush" StartPoint="0%,0%" EndPoint="100%,100%">
+        <GradientStop Offset="0" Color="#3B6FF5" />
+        <GradientStop Offset="1" Color="#7B4DFF" />
+      </LinearGradientBrush>
+      <SolidColorBrush x:Key="UpdateCardBorderBrush">#D5DFF7</SolidColorBrush>
+      <SolidColorBrush x:Key="UpdateCardRailBrush">#9BB8FB</SolidColorBrush>
     </ResourceDictionary>
     <ResourceDictionary x:Key="Dark">
       <SolidColorBrush x:Key="AppBackgroundBrush">#131519</SolidColorBrush>
@@ -92,6 +111,22 @@
 
       <SolidColorBrush x:Key="ChipNeutralBrush">#2A2F38</SolidColorBrush>
       <SolidColorBrush x:Key="ChipNeutralTextBrush">#A2AAB6</SolidColorBrush>
+
+      <!-- 深色主题下的更新卡片：底是同族但压暗的蓝紫渐变，避免整块亮起来太抢眼。 -->
+      <LinearGradientBrush x:Key="UpdateCardBrush" StartPoint="0%,0%" EndPoint="100%,100%">
+        <GradientStop Offset="0" Color="#1B2436" />
+        <GradientStop Offset="1" Color="#25203A" />
+      </LinearGradientBrush>
+      <LinearGradientBrush x:Key="UpdateCardHoverBrush" StartPoint="0%,0%" EndPoint="100%,100%">
+        <GradientStop Offset="0" Color="#233050" />
+        <GradientStop Offset="1" Color="#302A4C" />
+      </LinearGradientBrush>
+      <LinearGradientBrush x:Key="UpdateBadgeBrush" StartPoint="0%,0%" EndPoint="100%,100%">
+        <GradientStop Offset="0" Color="#4F7DFF" />
+        <GradientStop Offset="1" Color="#9B7BFF" />
+      </LinearGradientBrush>
+      <SolidColorBrush x:Key="UpdateCardBorderBrush">#37415E</SolidColorBrush>
+      <SolidColorBrush x:Key="UpdateCardRailBrush">#4F6EA8</SolidColorBrush>
     </ResourceDictionary>
   </ResourceDictionary.ThemeDictionaries>
 </ResourceDictionary>

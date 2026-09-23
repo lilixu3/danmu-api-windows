@@ -401,7 +401,7 @@ public sealed class CoreCredentialClient : ICoreCredentialClient
             ? $"[{host}]"
             : host;
         return new Uri(
-            $"http://{authority}:{port}/{Uri.EscapeDataString(pathToken.Trim())}/{path.TrimStart('/')}",
+            $"http://{authority}:{port}/{RuntimeEndpointBuilder.EncodeTokenSegment(pathToken.Trim())}/{path.TrimStart('/')}",
             UriKind.Absolute);
     }
 
@@ -508,8 +508,10 @@ public sealed class CoreCredentialClient : ICoreCredentialClient
                      .Where(secret => !string.IsNullOrWhiteSpace(secret))
                      .Distinct(StringComparer.Ordinal))
         {
-            value = value.Replace(secret!, "***", StringComparison.Ordinal);
-            value = value.Replace(Uri.EscapeDataString(secret!), "***", StringComparison.OrdinalIgnoreCase);
+            foreach (var form in RuntimeEndpointBuilder.TokenTextForms(secret!))
+            {
+                value = value.Replace(form, "***", StringComparison.OrdinalIgnoreCase);
+            }
         }
 
         return value;

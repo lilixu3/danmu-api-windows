@@ -73,11 +73,16 @@ public sealed class WindowsProcessTerminator : IProcessTerminator
             return new(true, "进程在验证后退出", process.ExitCode);
         }
 
+        if (ResolveSystemTool("taskkill.exe") is not { } taskkillPath)
+        {
+            return new(false, "无法定位原生系统目录里的 taskkill.exe（SystemRoot 未设置或文件缺失），拒绝按 PATH 猜测工具");
+        }
+
         using var killer = new Process
         {
             StartInfo = new ProcessStartInfo
             {
-                FileName = "taskkill.exe",
+                FileName = taskkillPath,
                 Arguments = $"/PID {process.Id} /T /F",
                 UseShellExecute = false,
                 CreateNoWindow = true,
@@ -145,12 +150,20 @@ public sealed class WindowsProcessTerminator : IProcessTerminator
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {
+        // 进程元数据查询要绝对路径的原生 powershell：PATH 里可能是商店别名存根（CreateProcess 直接
+        // 拒绝访问），而 32 位构建的进程看到的 System32 会被重定向到 SysWOW64。
+        if (ResolveSystemTool("WindowsPowerShell", "v1.0", "powershell.exe") is not { } powershellPath)
+        {
+            throw new InvalidOperationException(
+                "无法定位原生系统目录里的 powershell.exe（SystemRoot 未设置或文件缺失），拒绝按 PATH 猜测工具");
+        }
+
         const string query = "$OutputEncoding = [Text.UTF8Encoding]::new($false); [Console]::OutputEncoding = $OutputEncoding; $p = Get-CimInstance -ClassName Win32_Process -Filter 'ProcessId = PID_PLACEHOLDER' | Select-Object -First 1 ExecutablePath, CommandLine; if ($null -eq $p) { exit 2 }; $p | ConvertTo-Json -Compress";
         using var queryProcess = new Process
         {
             StartInfo = new ProcessStartInfo
             {
-                FileName = "powershell.exe",
+                FileName = powershellPath,
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
@@ -229,6 +242,31 @@ public sealed class WindowsProcessTerminator : IProcessTerminator
         var normalizedCommandLine = commandLine.Replace('/', '\\');
         var normalizedExpected = RuntimeValidation.CanonicalPath(expectedMainScript).Replace('/', '\\');
         return normalizedCommandLine.Contains(normalizedExpected, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// 原生系统目录里的系统工具（specs/03 §1 的踩坑：PATH 上的 taskkill / powershell 可能是商店别名
+    /// 存根，CreateProcess 直接拒绝访问；32 位构建的进程还会把 System32 重定向到 SysWOW64）。
+    /// 定位不到就返回 null，由调用方显式报错——不回到 PATH 猜一个。
+    /// </summary>
+    private static string? ResolveSystemTool(params string[] relativeParts)
+    {
+        var systemRoot = Environment.GetEnvironmentVariable("SystemRoot");
+        if (string.IsNullOrWhiteSpace(systemRoot))
+        {
+            return null;
+        }
+
+        try
+        {
+            var path = Path.GetFullPath(
+                Path.Combine(SystemPaths.NativeSystemDirectory(systemRoot), Path.Combine(relativeParts)));
+            return File.Exists(path) ? path : null;
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
     }
 
     private static string Truncate(string value) => value.Length <= 2_000 ? value : value[..2_000] + "…";

@@ -5,7 +5,7 @@ using System.Text.Json;
 
 namespace DanmuApi.Core;
 
-public sealed class CoreInstaller : ICoreInstaller
+public sealed class CoreInstaller : ICoreInstaller, ICorePreparedInstaller
 {
     private const long MinArchiveBytes = 1024;
     private const long MaxExtractedBytes = 512L * 1024L * 1024L;
@@ -15,18 +15,26 @@ public sealed class CoreInstaller : ICoreInstaller
     private readonly string _cacheDirectory;
     private readonly IGithubFileDownloader _downloader;
     private readonly Action<CoreInstallStage>? _stageHook;
+
+    /// <summary>
+    /// 「核心已装好，但善后没做完」这类故障的出口（旧版本历史归档、临时目录清理）。
+    /// 它们不许把成功的安装判成失败，但也不能静默丢掉，所以交给宿主的诊断汇记录下来。
+    /// </summary>
+    private readonly Action<string>? _maintenanceDiagnostic;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public CoreInstaller(
         string nodeProjectDirectory,
         string cacheDirectory,
         IGithubFileDownloader downloader,
-        Action<CoreInstallStage>? stageHook = null)
+        Action<CoreInstallStage>? stageHook = null,
+        Action<string>? maintenanceDiagnostic = null)
     {
         _nodeProjectDirectory = Path.GetFullPath(nodeProjectDirectory);
         _cacheDirectory = Path.GetFullPath(cacheDirectory);
         _downloader = downloader ?? throw new ArgumentNullException(nameof(downloader));
         _stageHook = stageHook;
+        _maintenanceDiagnostic = maintenanceDiagnostic;
     }
 
     /// <summary>Serializes dependency mutations with install, delete, rename and rollback.
@@ -190,6 +198,8 @@ public sealed class CoreInstaller : ICoreInstaller
                 ReplaceWithRollback(request.Variant, staging, backup);
                 replacementApplied = true;
                 _stageHook?.Invoke(CoreInstallStage.Completed);
+                // 替换已经提交，旧版本历史只是善后：这里失败不能把「已装好的新核心」判成安装失败
+                // （那样 CoreUpdateResultHandler 会保留待更新状态并无限重试通知）。
                 try
                 {
                     ArchivePreviousVersion(request.Variant, backup);
@@ -197,9 +207,9 @@ public sealed class CoreInstaller : ICoreInstaller
                 }
                 catch (Exception historyError) when (historyError is IOException or UnauthorizedAccessException)
                 {
-                    throw new IOException(
+                    ReportMaintenance(
                         $"新核心已安装并生效，但旧版本历史维护失败：{historyError.Message}",
-                        historyError);
+                        progress);
                 }
                 Report(progress, CoreInstallStage.Completed, "核心安装完成");
                 return InspectOrThrow(request.Variant);
@@ -234,19 +244,205 @@ public sealed class CoreInstaller : ICoreInstaller
             }
             finally
             {
-                DeleteIfExists(staging);
-                DeleteIfExists(extractRoot);
-                DeleteFileIfExists(archive);
-                if (Directory.Exists(backup) && Directory.Exists(CoreDirectory(request.Variant)))
-                {
-                    DeleteIfExists(backup);
-                }
+                // finally 里抛异常会替换掉正在传播的那个异常：清理失败只留临时目录，
+                // 绝不让它盖掉安装/回滚的真正原因。
+                TryCleanup(staging, extractRoot, archive, backup, request.Variant, progress);
             }
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    public async Task<CorePreparedInstallation> InstallPreparedAsync(
+        CorePreparedInstallRequest request,
+        IProgress<CoreInstallProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.ExpectedManifest.Variant != request.Variant)
+        {
+            throw new ArgumentException("待应用的核心变体与基线 manifest 不一致", nameof(request));
+        }
+        if (!Directory.Exists(request.StagingDirectory))
+        {
+            throw new DirectoryNotFoundException($"待应用的核心暂存目录不存在：{request.StagingDirectory}");
+        }
+
+        var staging = Path.GetFullPath(request.StagingDirectory);
+        var target = CoreDirectory(request.Variant);
+        var parent = Directory.GetParent(target)?.FullName
+            ?? throw new IOException("核心目录路径没有父目录");
+        EnsureContained(parent, staging, "待应用的核心暂存目录越界");
+        EnsureSameVolume(parent, staging);
+
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            Report(progress, CoreInstallStage.Validating, "正在校验本地 PR 合并结果");
+            ValidatePreparedCore(staging);
+            ValidateLocalMergeRequest(request);
+            var manifest = request.ExpectedManifest with
+            {
+                SchemaVersion = CoreInstallationManifest.CurrentSchemaVersion,
+                CommitSha = request.BaseCommitSha.ToLowerInvariant(),
+                InstallKind = CoreInstallKind.LocalPullRequestStack,
+                PullRequestNumber = null,
+                BaseCommitSha = request.BaseCommitSha.ToLowerInvariant(),
+                LocalMergeSha = request.LocalMergeSha.ToLowerInvariant(),
+                PullRequests = request.PullRequests.ToArray(),
+                Version = CoreVersionReader.ReadVersion(staging),
+                InstalledAt = DateTimeOffset.UtcNow,
+            };
+            CoreManifestStore.Write(staging, manifest);
+
+            var operationId = Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
+            var backup = Path.Combine(parent, $".{request.Variant.ToDirectoryName()}.backup-{operationId}");
+            var replacementApplied = false;
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                Report(progress, CoreInstallStage.Replacing, "正在原子替换目标核心");
+                ReplaceWithRollback(request.Variant, staging, backup);
+                replacementApplied = true;
+                Report(progress, CoreInstallStage.Completed, "本地 PR 合并已应用，等待服务健康确认");
+                return new CorePreparedInstallation(
+                    InspectOrThrow(request.Variant),
+                    Directory.Exists(backup) ? backup : null);
+            }
+            catch (OperationCanceledException)
+            {
+                if (!replacementApplied)
+                {
+                    RestoreBackupIfNeeded(request.Variant, backup);
+                }
+                throw;
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException or JsonException)
+            {
+                if (!replacementApplied)
+                {
+                    try
+                    {
+                        RestoreBackupIfNeeded(request.Variant, backup);
+                    }
+                    catch (Exception rollbackError) when (rollbackError is IOException or UnauthorizedAccessException)
+                    {
+                        throw new IOException(
+                            $"本地 PR 应用失败：{error.Message}；恢复原核心也失败：{rollbackError.Message}",
+                            new AggregateException(error, rollbackError));
+                    }
+                }
+                throw;
+            }
+            finally
+            {
+                TryCleanup(staging, string.Empty, string.Empty, string.Empty, request.Variant, progress);
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<CoreInstallationInfo> RestorePreparedBackupAsync(
+        ManagedCoreVariant variant,
+        string backupDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(backupDirectory);
+        var backup = ValidatePreparedBackupPath(variant, backupDirectory);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!Directory.Exists(backup))
+            {
+                throw new IOException($"本地 PR 恢复点不存在：{backup}");
+            }
+            var manifest = CoreManifestStore.Read(backup)
+                ?? throw new IOException("本地 PR 恢复点缺少来源 manifest");
+            if (manifest.Variant != variant)
+            {
+                throw new IOException("本地 PR 恢复点变体不匹配");
+            }
+            ValidatePreparedCore(backup);
+            var target = CoreDirectory(variant);
+            var failed = Path.Combine(_nodeProjectDirectory, $".{variant.ToDirectoryName()}.failed-{Guid.NewGuid():N}");
+            if (Directory.Exists(target))
+            {
+                Directory.Move(target, failed);
+            }
+            try
+            {
+                Directory.Move(backup, target);
+                var restored = InspectOrThrow(variant);
+                try
+                {
+                    DeleteIfExists(failed);
+                }
+                catch (Exception cleanupError) when (cleanupError is IOException or UnauthorizedAccessException)
+                {
+                    ReportMaintenance($"旧核心已恢复，但候选核心清理失败：{cleanupError.Message}", null);
+                }
+                return restored;
+            }
+            catch (Exception restoreError)
+            {
+                if (Directory.Exists(failed) && !Directory.Exists(target))
+                {
+                    try
+                    {
+                        Directory.Move(failed, target);
+                    }
+                    catch (Exception returnError) when (returnError is IOException or UnauthorizedAccessException)
+                    {
+                        throw new IOException($"恢复旧核心失败：{restoreError.Message}；重新放回候选核心也失败：{returnError.Message}",
+                            new AggregateException(restoreError, returnError));
+                    }
+                }
+                throw;
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task ConfirmPreparedBackupAsync(
+        ManagedCoreVariant variant,
+        string? backupDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        if (backupDirectory is null)
+        {
+            return;
+        }
+        var backup = ValidatePreparedBackupPath(variant, backupDirectory);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ArchivePreviousVersion(variant, backup);
+            PruneHistory(variant);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private string ValidatePreparedBackupPath(ManagedCoreVariant variant, string path)
+    {
+        var backup = Path.GetFullPath(path);
+        EnsureContained(_nodeProjectDirectory, backup, "本地 PR 恢复点路径越界");
+        if (!string.Equals(Path.GetDirectoryName(backup), _nodeProjectDirectory, StringComparison.OrdinalIgnoreCase) ||
+            !Path.GetFileName(backup).StartsWith($".{variant.ToDirectoryName()}.backup-", StringComparison.Ordinal))
+        {
+            throw new IOException("本地 PR 恢复点路径无效");
+        }
+        return backup;
     }
 
     public async Task<CoreInstallationInfo> RestoreHistoryAsync(
@@ -280,6 +476,7 @@ public sealed class CoreInstaller : ICoreInstaller
             var operationId = Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
             var staging = Path.Combine(_nodeProjectDirectory, $".{variant.ToDirectoryName()}.restore-{operationId}");
             var backup = Path.Combine(_nodeProjectDirectory, $".{variant.ToDirectoryName()}.backup-{operationId}");
+            var rollbackApplied = false;
             try
             {
                 CopyDirectoryStrict(historyDirectory, staging);
@@ -291,21 +488,54 @@ public sealed class CoreInstaller : ICoreInstaller
                 CoreManifestStore.Write(staging, restoredManifest);
                 cancellationToken.ThrowIfCancellationRequested();
                 ReplaceWithRollback(variant, staging, backup);
-                ArchivePreviousVersion(variant, backup);
-                PruneHistory(variant);
+                rollbackApplied = true;
+                try
+                {
+                    ArchivePreviousVersion(variant, backup);
+                    PruneHistory(variant);
+                }
+                catch (Exception historyError) when (historyError is IOException or UnauthorizedAccessException)
+                {
+                    ReportMaintenance($"已回滚到历史版本，但旧版本历史维护失败：{historyError.Message}", null);
+                }
                 return InspectOrThrow(variant);
             }
-            catch
+            catch (Exception error)
             {
-                RestoreBackupIfNeeded(variant, backup);
+                if (rollbackApplied)
+                {
+                    // 回滚已经生效：这时候再去动备份会把刚恢复好的版本又换掉，
+                    // 而且它的异常会盖掉真正的根因。
+                    throw;
+                }
+
+                try
+                {
+                    RestoreBackupIfNeeded(variant, backup);
+                }
+                catch (Exception rollbackError) when (rollbackError is IOException or UnauthorizedAccessException)
+                {
+                    throw new IOException(
+                        $"回滚历史版本失败：{error.Message}；恢复原核心也失败：{rollbackError.Message}",
+                        new AggregateException(error, rollbackError));
+                }
+
                 throw;
             }
             finally
             {
-                DeleteIfExists(staging);
-                if (Directory.Exists(backup) && Directory.Exists(CoreDirectory(variant)))
+                // finally 里抛异常会替换正在传播的那个异常：清理失败只记诊断。
+                try
                 {
-                    DeleteIfExists(backup);
+                    DeleteIfExists(staging);
+                    if (Directory.Exists(backup) && Directory.Exists(CoreDirectory(variant)))
+                    {
+                        DeleteIfExists(backup);
+                    }
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                {
+                    ReportMaintenance($"回滚的临时文件清理失败（不影响已恢复的核心）：{error.Message}", null);
                 }
             }
         }
@@ -521,6 +751,13 @@ public sealed class CoreInstaller : ICoreInstaller
         };
     }
 
+    public static void PrepareGitCoreStaging(string coreDirectory, string repositoryRoot)
+    {
+        EnsureEsmPackageJson(coreDirectory, repositoryRoot);
+        ValidatePreparedCore(coreDirectory);
+        _ = CoreVersionReader.ReadVersion(coreDirectory);
+    }
+
     private static void EnsureEsmPackageJson(string coreDirectory, string repositoryRoot)
     {
         var packagePath = Path.Combine(coreDirectory, "package.json");
@@ -633,15 +870,50 @@ public sealed class CoreInstaller : ICoreInstaller
         return info;
     }
 
+    private static void ValidateLocalMergeRequest(CorePreparedInstallRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.ExpectedManifest.Repository) ||
+            string.IsNullOrWhiteSpace(request.ExpectedManifest.Branch) ||
+            !ValidFullSha(request.BaseCommitSha) ||
+            !ValidFullSha(request.LocalMergeSha) ||
+            request.PullRequests.Count is 0 or > 100)
+        {
+            throw new ArgumentException("本地 PR 合并来源信息无效", nameof(request));
+        }
+
+        _ = GithubRepositoryReference.Parse(request.ExpectedManifest.Repository);
+        GithubRepositoryReference.ValidateBranch(request.ExpectedManifest.Branch);
+        var numbers = new HashSet<int>();
+        foreach (var pullRequest in request.PullRequests)
+        {
+            var headRepository = GithubRepositoryReference.Parse(pullRequest.HeadRepository);
+            if (pullRequest.Number <= 0 || !numbers.Add(pullRequest.Number) ||
+                headRepository.Branch is not null ||
+                !string.Equals(headRepository.FullName, pullRequest.HeadRepository, StringComparison.Ordinal) ||
+                !ValidFullSha(pullRequest.HeadSha) ||
+                (pullRequest.BaseSha is not null && !ValidFullSha(pullRequest.BaseSha)))
+            {
+                throw new ArgumentException("本地 PR 合并队列包含无效来源", nameof(request));
+            }
+            GithubRepositoryReference.ValidateBranch(pullRequest.HeadBranch);
+        }
+    }
+
+    private static bool ValidFullSha(string value) =>
+        value.Length == 40 && value.All(Uri.IsHexDigit);
+
     private static void ValidateRequest(CoreInstallRequest request)
     {
-        if (request.Repository.Source == CoreRepositorySource.Official && request.Variant != ManagedCoreVariant.Stable)
+        if (!request.Repository.Source.Matches(request.Variant))
         {
-            throw new ArgumentException("官方上游只能安装为稳定核心", nameof(request));
-        }
-        if (request.Repository.Source == CoreRepositorySource.Custom && request.Variant != ManagedCoreVariant.Custom)
-        {
-            throw new ArgumentException("自定义仓库只能安装为自定义核心", nameof(request));
+            throw new ArgumentException(
+                request.Repository.Source switch
+                {
+                    CoreRepositorySource.Official => "官方上游只能安装为稳定核心",
+                    CoreRepositorySource.Dev => "开发上游（lilixu3/danmu_api）只能安装为开发核心",
+                    _ => "自定义仓库只能安装为自定义核心；要装官方或开发上游，请在对应变体页用它们的安装入口",
+                },
+                nameof(request));
         }
         GithubRepositoryReference.ValidateBranch(request.Branch);
         if (request.CommitSha.Length is < 7 or > 64 || !request.CommitSha.All(Uri.IsHexDigit))
@@ -699,6 +971,41 @@ public sealed class CoreInstaller : ICoreInstaller
         {
             Directory.Delete(path, recursive: true);
         }
+    }
+
+    /// <summary>
+    /// 安装/回滚收尾的清理：失败只留下临时目录，绝不在 finally 里抛——那会替换掉正在传播的
+    /// 真正的安装或回滚故障，用户就只能看到一句与根因无关的清理错误。
+    /// </summary>
+    private void TryCleanup(
+        string staging,
+        string extractRoot,
+        string archive,
+        string backup,
+        ManagedCoreVariant variant,
+        IProgress<CoreInstallProgress>? progress)
+    {
+        try
+        {
+            DeleteIfExists(staging);
+            DeleteIfExists(extractRoot);
+            DeleteFileIfExists(archive);
+            if (Directory.Exists(backup) && Directory.Exists(CoreDirectory(variant)))
+            {
+                DeleteIfExists(backup);
+            }
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            ReportMaintenance($"安装临时文件清理失败（不影响已安装的核心）：{error.Message}", progress);
+        }
+    }
+
+    /// <summary>善后类故障的统一的出口：既进 UI 的进度文案，也进宿主诊断汇。</summary>
+    private void ReportMaintenance(string message, IProgress<CoreInstallProgress>? progress)
+    {
+        _maintenanceDiagnostic?.Invoke(message);
+        Report(progress, CoreInstallStage.Completed, message);
     }
 
     private static void DeleteFileIfExists(string path)

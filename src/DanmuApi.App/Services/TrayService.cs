@@ -209,12 +209,7 @@ public sealed class TrayService : IDisposable
         _trayIcon.ToolTipText = $"弹幕 API · {FormatState(snapshot.State)}";
     }
 
-    private static string FormatVariant(ManagedCoreVariant variant) => variant switch
-    {
-        ManagedCoreVariant.Stable => "稳定核心",
-        ManagedCoreVariant.Custom => "自定义核心",
-        _ => variant.ToString(),
-    };
+    private static string FormatVariant(ManagedCoreVariant variant) => variant.ToLabel();
 
     private static string FormatState(DesktopRuntimeState state) => state switch
     {

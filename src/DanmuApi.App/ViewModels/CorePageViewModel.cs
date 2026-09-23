@@ -2,6 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DanmuApi.App.Services;
 using DanmuApi.Core;
+using DanmuApi.Platform;
 
 namespace DanmuApi.App.ViewModels;
 
@@ -11,6 +12,45 @@ public enum CorePageMode
     Commits,
     PullRequests,
     History,
+}
+
+/// <summary>
+/// PR 列表的一行。队列位次是行的状态而不是列表的状态：放进这里，
+/// 行模板就能直接绑定「已选第几个 / 加入还是移出」，不必用转换器去查字典。
+/// </summary>
+public sealed partial class PullRequestRow(GithubPullRequest pullRequest) : ObservableObject
+{
+    public GithubPullRequest PullRequest { get; } = pullRequest ?? throw new ArgumentNullException(nameof(pullRequest));
+    public int Number => PullRequest.Number;
+    public string Title => PullRequest.Title;
+    public string HeadRepository => PullRequest.HeadRepository;
+
+    [ObservableProperty]
+    private int _queuePosition;
+
+    /// <summary>该 PR 已经在当前已安装的本地组合里（移动端同样在列表行上标"已包含"）。</summary>
+    [ObservableProperty]
+    private bool _isIncludedInCore;
+
+    public bool IsQueued => QueuePosition > 0;
+    public bool CanQueue => !IsIncludedInCore;
+    public string QueueActionText => IsQueued ? "移出队列" : "加入队列";
+    public string QueueBadgeText => IsQueued ? $"队列第 {QueuePosition} 位" : "未加入队列";
+    /// <summary>已并入当前核心的行不再让用户排队：重复并入同一个 PR 没有意义。</summary>
+    public string InclusionBadgeText => "已并入当前核心";
+
+    partial void OnQueuePositionChanged(int value)
+    {
+        OnPropertyChanged(nameof(IsQueued));
+        OnPropertyChanged(nameof(QueueActionText));
+        OnPropertyChanged(nameof(QueueBadgeText));
+        OnPropertyChanged(nameof(CanQueue));
+    }
+
+    partial void OnIsIncludedInCoreChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanQueue));
+    }
 }
 
 /// <summary>运行变体的展示信息。图标、上游仓库与一行说明在这里声明，供变体卡片在不展开的情况下
@@ -56,6 +96,10 @@ public sealed partial class CorePageViewModel : ViewModelBase
     private readonly IGithubTokenConfigurationService _githubTokenConfiguration;
     private readonly SynchronizationContext? _uiContext;
     private readonly RuntimePreparationService? _preparation;
+    private readonly ICorePullRequestManagementService? _pullRequestManagement;
+    private readonly IActiveCoreVariantStore? _activeVariant;
+    private readonly Func<ManagedCoreVariant, CancellationToken, Task<RuntimeVariantSwitchResult>>? _runtimeVariantSwitch;
+    private readonly List<GithubPullRequest> _selectedPullRequests = [];
     private CoreDependencyHealth _coreDependencyHealth = CoreDependencyHealth.Unknown;
     private int _preparationUpdateQueued;
     private CoreInstallationInfo _installation;
@@ -63,6 +107,10 @@ public sealed partial class CorePageViewModel : ViewModelBase
     /// <summary>记录 <see cref="_updateResult"/> 是哪一次检查时、对着哪个已安装提交得出的结论。</summary>
     private string? _updateResultCommit;
     private bool _isBusy;
+
+    /// <summary>「安装后切换」开关：与移动端 PR 实验室的构建对话框同义，默认开启。</summary>
+    [ObservableProperty]
+    private bool _activateAfterBuild = true;
 
     [ObservableProperty]
     private ManagedCoreVariant _selectedVariant = ManagedCoreVariant.Stable;
@@ -96,6 +144,20 @@ public sealed partial class CorePageViewModel : ViewModelBase
 
     [ObservableProperty]
     private IReadOnlyList<GithubPullRequest> _pullRequests = [];
+
+    /// <summary>带队列状态的行模型，供 PR 实验室列表绑定。</summary>
+    public IReadOnlyList<PullRequestRow> PullRequestRows
+    {
+        get
+        {
+            var merged = MergedPullRequestNumbers.ToHashSet();
+            return PullRequests.Select(item => new PullRequestRow(item)
+            {
+                QueuePosition = PullRequestQueuePosition(item),
+                IsIncludedInCore = merged.Contains(item.Number),
+            }).ToArray();
+        }
+    }
 
     [ObservableProperty]
     private IReadOnlyList<CoreVersionRecord> _history = [];
@@ -137,7 +199,10 @@ public sealed partial class CorePageViewModel : ViewModelBase
         IAppDiagnostics diagnostics,
         IGithubTokenConfigurationService githubTokenConfiguration,
         Func<ManagedCoreVariant, CancellationToken, Task<CoreDependencyHealth>>? verifyDependencies = null,
-        RuntimePreparationService? preparation = null)
+        RuntimePreparationService? preparation = null,
+        ICorePullRequestManagementService? pullRequestManagement = null,
+        IActiveCoreVariantStore? activeVariant = null,
+        Func<ManagedCoreVariant, CancellationToken, Task<RuntimeVariantSwitchResult>>? runtimeVariantSwitch = null)
     {
         _verifyDependencies = verifyDependencies;
         _management = management ?? throw new ArgumentNullException(nameof(management));
@@ -151,6 +216,9 @@ public sealed partial class CorePageViewModel : ViewModelBase
         _dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
         _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
         _githubTokenConfiguration = githubTokenConfiguration ?? throw new ArgumentNullException(nameof(githubTokenConfiguration));
+        _pullRequestManagement = pullRequestManagement;
+        _activeVariant = activeVariant;
+        _runtimeVariantSwitch = runtimeVariantSwitch;
         _uiContext = SynchronizationContext.Current;
         if (preparation is not null)
         {
@@ -161,7 +229,8 @@ public sealed partial class CorePageViewModel : ViewModelBase
         VariantOptions =
         [
             new(ManagedCoreVariant.Stable, "稳定核心", "\uE950", "huangxd-/danmu_api", "官方主线，跟随上游发布"),
-            new(ManagedCoreVariant.Custom, "自定义核心", "\uE943", "自选仓库", "提交或 PR 安装的实验版本"),
+            new(ManagedCoreVariant.Dev, "开发核心", "\uE896", "lilixu3/danmu_api", "开发上游，新特性验证用"),
+            new(ManagedCoreVariant.Custom, "自定义核心", "\uE943", "自选仓库", "自选仓库的提交或本地 PR 组合"),
         ];
         SyncVariantSelection();
         _selectedVariantOption = VariantOptions[0];
@@ -184,7 +253,7 @@ public sealed partial class CorePageViewModel : ViewModelBase
         (manifest.CommitSha.StartsWith(remote.Sha, StringComparison.OrdinalIgnoreCase) ||
          remote.Sha.StartsWith(manifest.CommitSha, StringComparison.OrdinalIgnoreCase));
     public bool HasUpdate => _updateResult is { Status: CoreUpdateCheckStatus.Checked, UpdateAvailable: true } && !RemoteMatchesInstalled;
-    public string VariantLabel => SelectedVariant == ManagedCoreVariant.Stable ? "稳定核心" : "自定义核心";
+    public string VariantLabel => SelectedVariant.ToLabel();
     public string InstallationStatusText => !Installation.IsInstalled
         ? "尚未安装"
         : !Installation.IsValid
@@ -192,7 +261,8 @@ public sealed partial class CorePageViewModel : ViewModelBase
             : "已安装";
     public string InstallationDetailText => Installation.Diagnostic
         ?? (Manifest is null ? "缺少来源 manifest，需重新安装" : "来源和入口校验通过");
-    public string RepositoryDisplay => Manifest?.Repository ?? (SelectedVariant == ManagedCoreVariant.Stable ? "huangxd-/danmu_api" : "尚未配置");
+    public string RepositoryDisplay => Manifest?.Repository ??
+        SelectedVariant.DefaultRepositoryFullName() ?? "尚未配置";
     public string BranchDisplay => Manifest?.Branch ?? "—";
     public string CommitDisplay => Manifest?.CommitSha ?? "—";
     public string VersionDisplay => Manifest?.Version ?? Installation.Version ?? "未知";
@@ -202,15 +272,19 @@ public sealed partial class CorePageViewModel : ViewModelBase
         ? $"发现 {remote.ShortSha}"
         : "发现新版本";
     public string DisplayNameValue => Manifest?.DisplayName ?? DisplayName;
-    /// <summary>身份带第一行（眉标）：当前运行状态、运行变体、显示名、来源仓库，用 · 连成一句。
+    /// <summary>身份带第一行（眉标）：所选变体的安装状态、名称、来源仓库，用 · 连成一句。
     /// 必须是一个字符串：拆成多个控件放进横向 StackPanel 时子控件拿不到宽度约束，
     /// 窄窗口下会直接压到右边的版本号上（TextTrimming 不会生效）。</summary>
     public string IdentityEyebrow => string.Join(" · ",
-        new[] { IsInstalled ? "当前运行" : "尚未安装", VariantLabel, DisplayNameValue, IsInstalled ? RepositoryDisplay : null }
+        new[] { IsInstalled ? "已安装" : "尚未安装", VariantLabel, DisplayNameValue, IsInstalled ? RepositoryDisplay : null }
             .Where(part => !string.IsNullOrWhiteSpace(part)));
-    /// <summary>身份带第二行（次级信息）：分支、短提交、安装时间，或校验未通过时的诊断原因。</summary>
+    /// <summary>身份带第二行（次级信息）：分支、短提交、安装时间，或校验未通过时的诊断原因。
+    /// 当前核心是本地 PR 组合时把「已合并 PR」摆在这一行的最前面 —— 与移动端核心卡一致，
+    /// 用户不用再进 PR 实验室才能确认组合到底装上了没有。</summary>
     public string IdentityMetaText => IsInstalled && Manifest is { } manifest
-        ? $"分支 {manifest.Branch} · 提交 {manifest.ShortSha} · 安装于 {manifest.InstalledAt.ToLocalTime():yyyy-MM-dd HH:mm}"
+        ? (HasMergedPullRequests
+            ? $"本地 PR 组合 {MergedPullRequestText} · 基线 {manifest.ShortSha} · 安装于 {manifest.InstalledAt.ToLocalTime():yyyy-MM-dd HH:mm}"
+            : $"分支 {manifest.Branch} · 提交 {manifest.ShortSha} · 安装于 {manifest.InstalledAt.ToLocalTime():yyyy-MM-dd HH:mm}")
         : InstallationDetailText;
     public string UpdateStatusText => _updateResult switch
     {
@@ -292,20 +366,68 @@ public sealed partial class CorePageViewModel : ViewModelBase
         !string.Equals(branch.Name, Manifest?.Branch, StringComparison.Ordinal);
     public string GithubTokenStatusText => GetGithubTokenStatusText();
     public bool CanInstallOfficial => !_isBusy && SelectedVariant == ManagedCoreVariant.Stable;
+    public bool CanInstallDev => !_isBusy && SelectedVariant == ManagedCoreVariant.Dev;
     public bool CanInstallCustom => !_isBusy && SelectedVariant == ManagedCoreVariant.Custom;
     public bool CanOperateInstalled => !_isBusy && IsInstalled;
+
+    /// <summary>所选变体是不是当前的运行核心。读不出覆盖值时按"不是"处理并给出诊断，
+    /// 不能让界面显示一个可能不成立的运行归属。</summary>
+    public bool CanActivateSelectedVariant
+    {
+        get
+        {
+            if (_activeVariant is null || _runtimeVariantSwitch is null || !IsInstalled)
+            {
+                return false;
+            }
+
+            try
+            {
+                return _activeVariant.Read() != SelectedVariant;
+            }
+            catch (IOException error)
+            {
+                _diagnostics.Record("读取运行核心选择失败", error);
+                return false;
+            }
+        }
+    }
     public bool CanApplyUpdate => !_isBusy && HasUpdate;
     public bool HasCommitPreviousPage => CommitPage > 1;
     public bool HasPullRequestPreviousPage => PullRequestPage > 1;
     public bool HasCommits => Commits.Count > 0;
     public bool HasPullRequests => PullRequests.Count > 0;
+    public IReadOnlyList<GithubPullRequest> SelectedPullRequests => _selectedPullRequests.ToArray();
+    public bool HasSelectedPullRequests => _selectedPullRequests.Count > 0;
+    public string SelectedPullRequestSummary => _selectedPullRequests.Count == 0
+        ? "未选择 PR"
+        : $"已选 {_selectedPullRequests.Count} 个 PR：{string.Join("、", _selectedPullRequests.Select(item => $"#{item.Number}"))}";
+    /// <summary>队列摘要按合并顺序展开（移动端同样把顺序摆在最显眼处）。</summary>
+    public string PullRequestQueueSummary => _selectedPullRequests.Count == 0
+        ? "队列为空：从下方列表加入要并入当前核心的 PR"
+        : $"合并顺序：{string.Join(" → ", _selectedPullRequests.Select((item, index) => $"{index + 1}. #{item.Number}"))}";
+    public bool CanBuildPullRequestStack => !_isBusy && _pullRequestManagement is not null && IsInstalled && HasSelectedPullRequests;
+    /// <summary>已装在该变体上的本地 PR 组合（合并结果），来自安装 manifest。</summary>
+    public IReadOnlyList<int> MergedPullRequestNumbers =>
+        Manifest is { IsLocalPullRequestStack: true } manifest
+            ? manifest.PullRequests.Select(source => source.Number).ToArray()
+            : [];
+    public bool HasMergedPullRequests => MergedPullRequestNumbers.Count > 0;
+    public string MergedPullRequestText => HasMergedPullRequests
+        ? string.Join(" ", MergedPullRequestNumbers.Select(number => $"#{number}"))
+        : "无";
     public int CommitPage { get; private set; } = 1;
     public int PullRequestPage { get; private set; } = 1;
     public string PageSummaryText => $"第 {CommitPage} 页";
     public string PullRequestPageSummaryText => $"第 {PullRequestPage} 页";
-    public string InstallDescription => SelectedVariant == ManagedCoreVariant.Stable
-        ? "从官方上游安装稳定核心；默认分支由 GitHub API 返回，不猜固定分支名。"
-        : "从你输入的 GitHub 仓库安装自定义核心；分支可写在 /tree/branch 地址中。";
+    public string InstallDescription => SelectedVariant switch
+    {
+        ManagedCoreVariant.Stable =>
+            "从官方上游安装稳定核心；默认分支由 GitHub API 返回，不猜固定分支名。",
+        ManagedCoreVariant.Dev =>
+            "从开发上游 lilixu3/danmu_api 安装开发核心；默认分支同样以 GitHub API 返回为准。",
+        _ => "从你输入的 GitHub 仓库安装自定义核心；分支可写在 /tree/branch 地址中。",
+    };
 
     [RelayCommand]
     private void RefreshInstallation()
@@ -344,6 +466,32 @@ public sealed partial class CorePageViewModel : ViewModelBase
                 ManagedCoreVariant.Stable,
                 repository,
                 NormalizeDisplayName("官方核心"),
+                route,
+                progress,
+                token)).ConfigureAwait(true);
+    }
+
+    [RelayCommand]
+    private async Task InstallDevAsync()
+    {
+        if (!CanInstallDev)
+        {
+            return;
+        }
+
+        var repository = GithubRepositoryReference.Dev();
+        if (!string.IsNullOrWhiteSpace(BranchText))
+        {
+            repository = repository.WithBranch(GithubRepositoryReference.ValidateBranch(BranchText));
+        }
+
+        await RunDownloadOperationAsync(
+            "安装开发核心",
+            "首次安装开发核心前，请先测速并选择 GitHub 线路。",
+            (route, progress, token) => _management.InstallBranchAsync(
+                ManagedCoreVariant.Dev,
+                repository,
+                NormalizeDisplayName("开发核心"),
                 route,
                 progress,
                 token)).ConfigureAwait(true);
@@ -520,7 +668,22 @@ public sealed partial class CorePageViewModel : ViewModelBase
             return Task.CompletedTask;
         }
 
-        var update = _updateResult;
+        return ApplyUpdateAsync(_updateResult);
+    }
+
+    /// <summary>
+    /// 侧栏「有更新」卡片走的正是这条：检查结论可能来自后台或进前台的静默检查，
+    /// 用户从没进过核心页，所以这里直接吃调用方给的结果，而不是页面上缓存的那份。
+    /// 线路确认、进度弹窗、失败原因与取消处理全部复用同一段下载编排，不另立流程。
+    /// </summary>
+    public Task<CoreManagementOperationResult?> ApplyUpdateAsync(CoreUpdateCheckResult update)
+    {
+        ArgumentNullException.ThrowIfNull(update);
+        if (update is not { Status: CoreUpdateCheckStatus.Checked, UpdateAvailable: true, Remote: not null })
+        {
+            throw new ArgumentException("这份检查结论里没有可应用的新提交。", nameof(update));
+        }
+
         return RunDownloadOperationAsync(
             "应用核心更新",
             "应用核心更新前，请确认一条 GitHub 下载线路。",
@@ -830,13 +993,7 @@ public sealed partial class CorePageViewModel : ViewModelBase
             var details = await ReadWithProgressAsync("读取 PR 详情", token => _remote.GetPullRequestAsync(repository, pullRequest.Number, token)).ConfigureAwait(true);
             var files = await ReadWithProgressAsync("读取 PR 文件", token => _remote.GetAllPullRequestFilesAsync(repository, pullRequest.Number, token)).ConfigureAwait(true);
             NotifyRateLimitChanged();
-            var install = await _dialogService.ShowPullRequestDetailsAsync(details, files).ConfigureAwait(true);
-            if (install)
-            {
-                _isBusy = false;
-                NotifyBusyChanged();
-                await InstallSelectedPullRequestAsync(details).ConfigureAwait(true);
-            }
+            await _dialogService.ShowPullRequestDetailsAsync(details, files).ConfigureAwait(true);
         }
         catch (Exception error)
         {
@@ -850,42 +1007,314 @@ public sealed partial class CorePageViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private async Task InstallSelectedPullRequestAsync(GithubPullRequest? pullRequest)
+    private void TogglePullRequestSelection(GithubPullRequest? pullRequest)
     {
         if (_isBusy || pullRequest is null)
         {
             return;
         }
 
-        if (SelectedVariant != ManagedCoreVariant.Custom)
+        var existing = _selectedPullRequests.FindIndex(item => item.Number == pullRequest.Number);
+        if (existing >= 0)
         {
+            _selectedPullRequests.RemoveAt(existing);
+            NotifyPullRequestSelectionChanged();
+            return;
+        }
+
+        // 已并入当前核心的 PR 不允许再排队：合并的语义是「当前核心 + 这些 PR」，重复并入没有意义。
+        if (MergedPullRequestNumbers.Contains(pullRequest.Number))
+        {
+            return;
+        }
+
+        _selectedPullRequests.Add(pullRequest);
+        NotifyPullRequestSelectionChanged();
+    }
+
+    /// <summary>调整队列顺序：合并按这个顺序逐个进行，所以顺序必须由用户可改。</summary>
+    [RelayCommand]
+    private void MoveSelectedPullRequestUp(GithubPullRequest? pullRequest) => MoveSelectedPullRequest(pullRequest, -1);
+
+    [RelayCommand]
+    private void MoveSelectedPullRequestDown(GithubPullRequest? pullRequest) => MoveSelectedPullRequest(pullRequest, 1);
+
+    private void MoveSelectedPullRequest(GithubPullRequest? pullRequest, int offset)
+    {
+        if (_isBusy || pullRequest is null)
+        {
+            return;
+        }
+
+        var index = _selectedPullRequests.FindIndex(item => item.Number == pullRequest.Number);
+        var target = index + offset;
+        if (index < 0 || target < 0 || target >= _selectedPullRequests.Count)
+        {
+            return;
+        }
+
+        var item = _selectedPullRequests[index];
+        _selectedPullRequests.RemoveAt(index);
+        _selectedPullRequests.Insert(target, item);
+        NotifyPullRequestSelectionChanged();
+    }
+
+    public bool IsPullRequestSelected(GithubPullRequest? pullRequest) =>
+        pullRequest is not null && _selectedPullRequests.Any(item => item.Number == pullRequest.Number);
+
+    /// <summary>该 PR 已在队列中的位次（从 1 开始）；0 表示未选择。
+    /// 与移动端一致：行上直接显示顺序号，用户不用回头数队列。</summary>
+    public int PullRequestQueuePosition(GithubPullRequest? pullRequest)
+    {
+        if (pullRequest is null)
+        {
+            return 0;
+        }
+
+        var index = _selectedPullRequests.FindIndex(item => item.Number == pullRequest.Number);
+        return index < 0 ? 0 : index + 1;
+    }
+
+    private void NotifyPullRequestSelectionChanged()
+    {
+        OnPropertyChanged(nameof(SelectedPullRequests));
+        OnPropertyChanged(nameof(HasSelectedPullRequests));
+        OnPropertyChanged(nameof(SelectedPullRequestSummary));
+        OnPropertyChanged(nameof(PullRequestQueueSummary));
+        OnPropertyChanged(nameof(CanBuildPullRequestStack));
+        OnPropertyChanged(nameof(PullRequestRows));
+        OnPropertyChanged(nameof(MergedPullRequestNumbers));
+        OnPropertyChanged(nameof(HasMergedPullRequests));
+        OnPropertyChanged(nameof(MergedPullRequestText));
+        BuildPullRequestStackCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>
+    /// 构建本地 PR 组合：对齐移动端 PR 实验室的唯一动作 ——
+    /// 在当前已安装核心的基线提交之上按顺序真实合并所选 PR，然后原子替换同一变体。
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanBuildPullRequestStack))]
+    private async Task BuildPullRequestStackAsync()
+    {
+        if (_pullRequestManagement is null || !CanBuildPullRequestStack || Manifest is null)
+        {
+            return;
+        }
+
+        var variant = SelectedVariant;
+        var source = Manifest;
+        var selected = _selectedPullRequests.ToArray();
+        var inherited = source.IsLocalPullRequestStack
+            ? source.PullRequests.Where(existing => selected.All(item => item.Number != existing.Number))
+                .Select(existing => existing.Number).ToArray()
+            : [];
+        PullRequestBuildConfirmation confirmation;
+        try
+        {
+            confirmation = await _dialogService.ConfirmPullRequestBuildAsync(new PullRequestBuildPrompt(
+                VariantLabel,
+                source.DisplayName,
+                source.Repository,
+                source.Branch,
+                source.BaseCommitSha ?? source.CommitSha,
+                selected,
+                inherited,
+                ActivateAfterBuild)).ConfigureAwait(true);
+        }
+        catch (Exception error)
+        {
+            // 确认窗口本身出问题也必须显式报出来：静默返回会让用户以为"点了没反应"。
+            _diagnostics.Record("PR 组合构建确认失败", error);
+            await _dialogService.ShowMessageAsync("PR 组合构建失败", error.Message, true).ConfigureAwait(true);
+            return;
+        }
+        if (!confirmation.Confirmed)
+        {
+            return;
+        }
+
+        ActivateAfterBuild = confirmation.ActivateAfterInstall;
+        _isBusy = true;
+        NotifyBusyChanged();
+        CorePreparedInstallRequest? prepared = null;
+        try
+        {
+            var route = await EnsureRouteSelectedAsync(
+                "构建本地 PR 组合需要访问 GitHub Git，请先测速并选择线路。",
+                CancellationToken.None).ConfigureAwait(true);
+            if (route is null)
+            {
+                return;
+            }
+            if (SelectedVariant != variant || Manifest != source ||
+                !_selectedPullRequests.Select(item => item.Number).SequenceEqual(selected.Select(item => item.Number)))
+            {
+                await _dialogService.ShowMessageAsync("构建已失效", "当前核心或 PR 队列已改变，请重新确认。", true).ConfigureAwait(true);
+                return;
+            }
+
+            var outcome = await _dialogService.RunWithProgressDialogAsync(
+                "构建本地 PR 组合",
+                async (progress, token) =>
+                {
+                    prepared = await _pullRequestManagement.PreparePullRequestMergeAsync(
+                        variant,
+                        selected,
+                        route,
+                        progress,
+                        token).ConfigureAwait(true);
+                }).ConfigureAwait(true);
+            if (outcome.Outcome == ProgressOperationOutcome.Canceled)
+            {
+                await _dialogService.ShowMessageAsync("操作已取消", "PR 组合构建已取消，当前核心未变更。").ConfigureAwait(true);
+                return;
+            }
+            if (outcome.Outcome != ProgressOperationOutcome.Completed || prepared is null)
+            {
+                await _dialogService.ShowMessageAsync("PR 组合构建失败", outcome.Diagnostic ?? "没有生成可应用的组合结果。", true).ConfigureAwait(true);
+                return;
+            }
+
+            CoreManagementOperationResult? result = null;
+            var applyOutcome = await _dialogService.RunWithProgressDialogAsync(
+                "应用 PR 组合",
+                async (progress, token) =>
+                {
+                    result = await _pullRequestManagement.ApplyPreparedPullRequestMergeAsync(prepared, progress, token).ConfigureAwait(true);
+                }).ConfigureAwait(true);
+            if (applyOutcome.Outcome == ProgressOperationOutcome.Canceled)
+            {
+                await _dialogService.ShowMessageAsync("操作已取消", "PR 组合未应用，当前核心未变更。", true).ConfigureAwait(true);
+                return;
+            }
+            var effective = result ?? new CoreManagementOperationResult(false, false, false, null, applyOutcome.Diagnostic ?? "应用 PR 组合失败");
+            if (applyOutcome.Outcome != ProgressOperationOutcome.Completed || !effective.Succeeded)
+            {
+                await _dialogService.ShowMessageAsync("PR 组合应用失败", effective.Diagnostic, true).ConfigureAwait(true);
+                return;
+            }
+
+            ClearPullRequestSelection();
+            RefreshInstallationState();
+            await _dialogService.ShowMessageAsync("PR 组合已安装", BuildSuccessMessage("PR 组合构建", effective)).ConfigureAwait(true);
+            await ApplyActivateAfterBuildAsync(variant, confirmation.ActivateAfterInstall).ConfigureAwait(true);
+            await VerifyDependenciesAfterMutationAsync().ConfigureAwait(true);
+        }
+        catch (Exception error)
+        {
+            _diagnostics.Record("PR 组合构建失败", error);
+            await _dialogService.ShowMessageAsync("PR 组合构建失败", error.Message, true).ConfigureAwait(true);
+        }
+        finally
+        {
+            if (prepared is not null)
+            {
+                try
+                {
+                    _pullRequestManagement.DiscardPreparedPullRequestMerge(prepared);
+                }
+                catch (Exception error)
+                {
+                    _diagnostics.Record("清理 PR 组合暂存目录失败", error);
+                    await _dialogService.ShowMessageAsync("暂存目录清理失败", error.Message, true).ConfigureAwait(true);
+                }
+            }
+            _isBusy = false;
+            NotifyBusyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 「安装后切换」：把运行核心换成刚装好组合的那个变体。失败时恢复原来的选择并重启原核心，
+    /// 与移动端 finishInstallation 的语义一致 —— 不让用户在"服务起不来"的状态里自己猜。
+    /// </summary>
+    private async Task ApplyActivateAfterBuildAsync(ManagedCoreVariant variant, bool activate)
+    {
+        if (!activate)
+        {
+            return;
+        }
+
+        // 构建对话框里的「安装后切换」就是这次切换的确认，不再二次追问。
+        await ActivateVariantAsync(variant, confirm: false).ConfigureAwait(true);
+    }
+
+    /// <summary>把运行核心切换到指定变体；已在该变体上时什么也不做。</summary>
+    private async Task ActivateVariantAsync(ManagedCoreVariant variant, bool confirm)
+    {
+        if (_activeVariant is null || _runtimeVariantSwitch is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (_activeVariant.Read() == variant)
+            {
+                return;
+            }
+        }
+        catch (IOException error)
+        {
+            _diagnostics.Record("读取运行核心选择失败", error);
+            await _dialogService.ShowMessageAsync("切换运行核心失败", error.Message, true).ConfigureAwait(true);
+            return;
+        }
+
+        try
+        {
+            if (confirm)
+            {
+                var confirmed = await _dialogService.ConfirmAsync(
+                    $"切换到{variant.ToLabel()}？",
+                    "运行中的服务会先安全停止，切换后自动启动；核心与配置不受影响。",
+                    "切换并重启").ConfigureAwait(true);
+                if (!confirmed)
+                {
+                    return;
+                }
+            }
+
+            var switchResult = await _runtimeVariantSwitch(variant, CancellationToken.None).ConfigureAwait(true);
             await _dialogService.ShowMessageAsync(
-                "PR 实验安装",
-                "PR 实验版本只会安装到自定义核心；请切换到「自定义核心」变体后重试。",
-                isError: true).ConfigureAwait(true);
-            return;
+                switchResult.Succeeded ? "已切换运行核心" : "切换运行核心失败",
+                switchResult.Diagnostic,
+                isError: !switchResult.Succeeded).ConfigureAwait(true);
+            NotifyActivationChanged();
         }
+        catch (Exception error)
+        {
+            _diagnostics.Record("切换运行核心失败", error);
+            await _dialogService.ShowMessageAsync("切换运行核心失败", error.Message, true).ConfigureAwait(true);
+        }
+    }
 
-        var confirmed = await _dialogService.ConfirmAsync(
-            $"安装 PR #{pullRequest.Number}（实验版本）？",
-            $"将把 {pullRequest.HeadRepository}@{pullRequest.HeadBranch} 的安装到自定义核心作为实验版本；不经过稳定版校验，可随时在「本地历史」回退。",
-            "安装实验版本").ConfigureAwait(true);
-        if (!confirmed)
+    /// <summary>核心页的「切换到此核心」：所选变体不是运行变体时把它设为运行核心。</summary>
+    [RelayCommand]
+    private async Task ActivateSelectedVariantAsync()
+    {
+        if (_isBusy || !CanOperateInstalled || !CanActivateSelectedVariant)
         {
             return;
         }
 
-        var repository = GithubRepositoryReference.Parse(RepositoryDisplay);
-        await RunDownloadOperationAsync(
-            $"安装 PR #{pullRequest.Number}",
-            "安装 PR 实验版本前，请确认一条 GitHub 下载线路。",
-            (route, progress, token) => _management.InstallPullRequestAsync(
-                repository,
-                pullRequest.Number,
-                $"PR #{pullRequest.Number}（实验版本）",
-                route,
-                progress,
-                token)).ConfigureAwait(true);
+        _isBusy = true;
+        NotifyBusyChanged();
+        try
+        {
+            await ActivateVariantAsync(SelectedVariant, confirm: true).ConfigureAwait(true);
+        }
+        finally
+        {
+            _isBusy = false;
+            NotifyBusyChanged();
+        }
+    }
+
+    private void NotifyActivationChanged()
+    {
+        OnPropertyChanged(nameof(CanActivateSelectedVariant));
+        ActivateSelectedVariantCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand]
@@ -1055,6 +1484,25 @@ public sealed partial class CorePageViewModel : ViewModelBase
     partial void OnPullRequestsChanged(IReadOnlyList<GithubPullRequest> value)
     {
         OnPropertyChanged(nameof(HasPullRequests));
+        OnPropertyChanged(nameof(PullRequestRows));
+    }
+
+    private void ClearPullRequestSelection()
+    {
+        _selectedPullRequests.Clear();
+        NotifyPullRequestSelectionChanged();
+    }
+
+    private void ClearPullRequestPage()
+    {
+        PullRequests = [];
+        ClearPullRequestSelection();
+        PullRequestPage = 1;
+        HasPullRequestNextPage = false;
+        OnPropertyChanged(nameof(PullRequestRows));
+        OnPropertyChanged(nameof(PullRequestPageSummaryText));
+        OnPropertyChanged(nameof(HasPullRequestPreviousPage));
+        PreviousPullRequestPageCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnSelectedVariantChanged(ManagedCoreVariant value)
@@ -1067,10 +1515,10 @@ public sealed partial class CorePageViewModel : ViewModelBase
         SelectedBranch = null;
         Branches = [];
         Commits = [];
-        PullRequests = [];
+        ClearPullRequestPage();
         CommitPage = 1;
-        PullRequestPage = 1;
         RefreshInstallationState();
+        NotifyActivationChanged();
         NotifyUpdateChanged();
     }
 
@@ -1201,6 +1649,7 @@ public sealed partial class CorePageViewModel : ViewModelBase
 
         try
         {
+            var variant = SelectedVariant;
             var repository = GetInstalledRepository();
             var route = await EnsureRouteSelectedAsync(
                 "读取 PR 列表需要访问 GitHub，请先测速并选择线路。",
@@ -1212,7 +1661,13 @@ public sealed partial class CorePageViewModel : ViewModelBase
 
             _isBusy = true;
             NotifyBusyChanged();
-            var result = await ReadWithProgressAsync("读取 PR 列表", token => _remote.GetPullRequestsAsync(repository, Manifest.Branch, page: page, cancellationToken: token)).ConfigureAwait(true);
+            var result = await ReadWithProgressAsync("读取 PR 列表", token => _remote.GetPullRequestsAsync(repository, repository.Branch!, page: page, cancellationToken: token)).ConfigureAwait(true);
+            if (SelectedVariant != variant || !IsInstalled || Manifest is null ||
+                !string.Equals(Manifest.Repository, repository.FullName, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(Manifest.Branch, repository.Branch, StringComparison.Ordinal))
+            {
+                return;
+            }
             PullRequests = result.Items;
             PullRequestPage = result.Page;
             HasPullRequestNextPage = result.HasNextPage;
@@ -1521,7 +1976,12 @@ public sealed partial class CorePageViewModel : ViewModelBase
 
     private CoreInstallationInfo RefreshInstallationState()
     {
+        var previousSource = Manifest is { } previous ? (previous.Repository, previous.Branch) : ((string, string)?)null;
         _installation = _management.Inspect(SelectedVariant);
+        if (previousSource != (Manifest is { } current ? (current.Repository, current.Branch) : ((string, string)?)null))
+        {
+            ClearPullRequestPage();
+        }
         History = _management.GetHistory(SelectedVariant);
         DisplayName = Manifest?.DisplayName ?? DisplayName;
         OnPropertyChanged(nameof(IdentityEyebrow));
@@ -1532,7 +1992,8 @@ public sealed partial class CorePageViewModel : ViewModelBase
             nameof(InstallationStatusText), nameof(InstallationDetailText), nameof(RepositoryDisplay),
             nameof(BranchDisplay), nameof(CommitDisplay), nameof(VersionDisplay), nameof(InstalledAtDisplay),
             nameof(DisplayNameValue), nameof(IdentityEyebrow), nameof(IdentityMetaText),
-            nameof(CanInstallOfficial), nameof(CanInstallCustom),
+            nameof(MergedPullRequestNumbers), nameof(HasMergedPullRequests), nameof(MergedPullRequestText),
+            nameof(CanInstallOfficial), nameof(CanInstallDev), nameof(CanInstallCustom),
             nameof(CanOperateInstalled), nameof(InstallDescription),
             // 切换分支的可用性依赖"当前安装的分支"，安装态一变就要重算。
             nameof(CanSwitchSelectedBranch),
@@ -1581,10 +2042,15 @@ public sealed partial class CorePageViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(IsBusy));
         OnPropertyChanged(nameof(CanInstallOfficial));
+        OnPropertyChanged(nameof(CanInstallDev));
         OnPropertyChanged(nameof(CanInstallCustom));
         OnPropertyChanged(nameof(CanOperateInstalled));
+        OnPropertyChanged(nameof(CanActivateSelectedVariant));
+        OnPropertyChanged(nameof(CanBuildPullRequestStack));
         OnPropertyChanged(nameof(CanApplyUpdate));
+        ActivateSelectedVariantCommand.NotifyCanExecuteChanged();
         InstallOfficialCommand.NotifyCanExecuteChanged();
+        InstallDevCommand.NotifyCanExecuteChanged();
         InstallCustomCommand.NotifyCanExecuteChanged();
         CheckUpdateCommand.NotifyCanExecuteChanged();
         ShowUpdateDetailsCommand.NotifyCanExecuteChanged();
@@ -1604,7 +2070,10 @@ public sealed partial class CorePageViewModel : ViewModelBase
         NextPullRequestPageCommand.NotifyCanExecuteChanged();
         PreviousPullRequestPageCommand.NotifyCanExecuteChanged();
         ShowPullRequestDetailsCommand.NotifyCanExecuteChanged();
-        InstallSelectedPullRequestCommand.NotifyCanExecuteChanged();
+        TogglePullRequestSelectionCommand.NotifyCanExecuteChanged();
+        MoveSelectedPullRequestUpCommand.NotifyCanExecuteChanged();
+        MoveSelectedPullRequestDownCommand.NotifyCanExecuteChanged();
+        BuildPullRequestStackCommand.NotifyCanExecuteChanged();
         SwitchSelectedBranchCommand.NotifyCanExecuteChanged();
         ConfigureGithubTokenCommand.NotifyCanExecuteChanged();
         OpenCommitsPageCommand.NotifyCanExecuteChanged();

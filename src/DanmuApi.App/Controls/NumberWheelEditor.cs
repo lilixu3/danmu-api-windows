@@ -25,11 +25,20 @@ public sealed class NumberWheelEditor : StackPanel
             throw new ArgumentOutOfRangeException(nameof(maximum), "数字上限必须大于下限");
         }
 
-        _minimum = minimum;
-        _maximum = maximum;
+        // 存量的越界值不能用 Clamp 悄悄改写（那等于「打开编辑器再保存就改了用户配置」）：
+        // 把可表示范围放宽到能容纳它，值原样保留，合法性交给保存时的核心口径校验。
+        var lower = minimum;
+        var upper = maximum;
+        if (initial is { } seed)
+        {
+            lower = Math.Min(lower, seed);
+            upper = Math.Max(upper, seed);
+        }
+
+        _minimum = lower;
+        _maximum = upper;
         // 核心口径：空值按下限处理（const currentValue = value || min）。
-        _value = initial ?? minimum;
-        _value = Math.Clamp(_value, minimum, maximum);
+        _value = initial ?? lower;
 
         Orientation = Orientation.Vertical;
         Spacing = 8;
@@ -61,10 +70,12 @@ public sealed class NumberWheelEditor : StackPanel
         var picker = new Border { Child = pickerContent };
         picker.Classes.Add("number-picker");
 
-        _slider.Minimum = minimum;
-        _slider.Maximum = maximum;
+        _slider.Minimum = lower;
+        _slider.Maximum = upper;
         _slider.Value = _value;
-        _slider.IsSnapToTickEnabled = true;
+        // 只在整数区间上吸附：区间或存量值带小数时，吸附会把 1.5 静默改成 2。
+        _slider.IsSnapToTickEnabled =
+            lower == Math.Floor(lower) && upper == Math.Floor(upper) && _value == Math.Floor(_value);
         _slider.TickFrequency = 1;
         _slider.PropertyChanged += (_, args) =>
         {

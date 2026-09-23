@@ -162,7 +162,7 @@ public sealed class CoreEnvClient : ICoreEnvClient
             ? $"[{host}]"
             : host;
         return new Uri(
-            $"http://{authority}:{port}/{Uri.EscapeDataString(pathToken.Trim())}/api/env/del",
+            $"http://{authority}:{port}/{RuntimeEndpointBuilder.EncodeTokenSegment(pathToken.Trim())}/api/env/del",
             UriKind.Absolute);
     }
 
@@ -272,30 +272,35 @@ public sealed class CoreEnvClient : ICoreEnvClient
             {
                 using var document = JsonDocument.Parse(body);
                 var root = document.RootElement;
-                if (root.ValueKind == JsonValueKind.Object &&
-                    root.TryGetProperty("success", out var success) &&
-                    success.ValueKind is JsonValueKind.False or JsonValueKind.True)
+                if (root.ValueKind != JsonValueKind.Object ||
+                    !root.TryGetProperty("success", out var success) ||
+                    success.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
                 {
-                    if (!success.GetBoolean())
-                    {
-                        var message = root.TryGetProperty("message", out var messageElement) &&
-                                      messageElement.ValueKind == JsonValueKind.String
-                            ? messageElement.GetString()
-                            : null;
-                        var diagnostic = string.IsNullOrWhiteSpace(message)
-                            ? $"写入 {key} 失败"
-                            : Describe(message!, effectiveToken, effectiveAdminToken);
-                        return CoreEnvSetResult.Failure($"核心拒绝写入 {key}：{diagnostic}");
-                    }
-
-                    return CoreEnvSetResult.Success($"核心已写入 {key}，等待热加载");
+                    // 核心对 env/set 一律回 {success,message}（apis/env-api.js handleSetEnv）。
+                    // 2xx 却没这个字段，说明这个响应不是核心给的（反代页面、半截正文、静态兜底），
+                    // 当成写入成功就是把故障兜掉了。
+                    return CoreEnvSetResult.Failure(
+                        $"写入 {key} 的响应缺少布尔字段 success，无法确认核心已写入：{DescribeMessage(body, effectiveToken, effectiveAdminToken)}");
                 }
 
-                return CoreEnvSetResult.Success($"核心已接受 {key} 写入请求");
+                if (!success.GetBoolean())
+                {
+                    var message = root.TryGetProperty("message", out var messageElement) &&
+                                  messageElement.ValueKind == JsonValueKind.String
+                        ? messageElement.GetString()
+                        : null;
+                    var diagnostic = string.IsNullOrWhiteSpace(message)
+                        ? $"写入 {key} 失败"
+                        : Describe(message!, effectiveToken, effectiveAdminToken);
+                    return CoreEnvSetResult.Failure($"核心拒绝写入 {key}：{diagnostic}");
+                }
+
+                return CoreEnvSetResult.Success($"核心已写入 {key}，等待热加载");
             }
-            catch (JsonException)
+            catch (JsonException error)
             {
-                return CoreEnvSetResult.Success($"核心已接受 {key} 写入请求");
+                return CoreEnvSetResult.Failure(
+                    $"写入 {key} 的响应 JSON 无效，无法确认核心已写入：{Describe(error.Message, effectiveToken, effectiveAdminToken)}");
             }
         }
     }
@@ -415,7 +420,7 @@ public sealed class CoreEnvClient : ICoreEnvClient
             ? $"[{host}]"
             : host;
         return new Uri(
-            $"http://{authority}:{port}/{Uri.EscapeDataString(pathToken.Trim())}/api/{relative.TrimStart('/')}",
+            $"http://{authority}:{port}/{RuntimeEndpointBuilder.EncodeTokenSegment(pathToken.Trim())}/api/{relative.TrimStart('/')}",
             UriKind.Absolute);
     }
 
@@ -514,8 +519,10 @@ public sealed class CoreEnvClient : ICoreEnvClient
                      .Where(value => !string.IsNullOrWhiteSpace(value))
                      .Distinct(StringComparer.Ordinal))
         {
-            normalized = normalized.Replace(secret!, "***", StringComparison.Ordinal);
-            normalized = normalized.Replace(Uri.EscapeDataString(secret!), "***", StringComparison.OrdinalIgnoreCase);
+            foreach (var form in RuntimeEndpointBuilder.TokenTextForms(secret!))
+            {
+                normalized = normalized.Replace(form, "***", StringComparison.OrdinalIgnoreCase);
+            }
         }
 
         return normalized.Length <= 500 ? normalized : normalized[..500] + "...";

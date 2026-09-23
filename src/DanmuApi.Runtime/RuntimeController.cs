@@ -114,16 +114,7 @@ public sealed class RuntimeController : IRuntimeController, IAsyncDisposable
             }
             catch (OperationCanceledException)
             {
-                var supervisorSnapshot = _supervisor.Snapshot;
-                Publish(supervisorSnapshot.State == DesktopRuntimeState.Failed
-                    ? supervisorSnapshot
-                    : new RuntimeSnapshot(
-                        DesktopRuntimeState.Failed,
-                        Port: supervisorSnapshot.Port,
-                        Pid: supervisorSnapshot.Pid,
-                        RuntimeIdentity: supervisorSnapshot.RuntimeIdentity,
-                        FailureReason: "启动已取消",
-                        ExitCode: supervisorSnapshot.ExitCode));
+                PublishCancellation("启动已取消");
                 throw;
             }
             catch (Exception error)
@@ -230,6 +221,7 @@ public sealed class RuntimeController : IRuntimeController, IAsyncDisposable
             }
             catch (OperationCanceledException)
             {
+                PublishCancellation("停止请求被取消，Node 子进程状态未知。可以再点一次停止，或直接点启动（启动前会先清理残留进程）。");
                 throw;
             }
             catch (Exception error)
@@ -367,6 +359,7 @@ public sealed class RuntimeController : IRuntimeController, IAsyncDisposable
             }
             catch (OperationCanceledException)
             {
+                PublishCancellation("应用退出清理被取消，Node 子进程状态未知。");
                 throw;
             }
             catch (Exception error)
@@ -416,6 +409,25 @@ public sealed class RuntimeController : IRuntimeController, IAsyncDisposable
         {
             _gate.Dispose();
         }
+    }
+
+    /// <summary>
+    /// 启停被取消时的落地：绝不允许状态停在中间态——CanStart 与 CanStop 会同时为 false，
+    /// 用户只能重启应用才能再操作服务。这里统一落成 Failed 并保留端口/PID/身份，
+    /// 下一次启动的 start-retry 分支会先把残留进程收掉。
+    /// </summary>
+    private void PublishCancellation(string reason)
+    {
+        var supervisorSnapshot = _supervisor.Snapshot;
+        Publish(supervisorSnapshot.State == DesktopRuntimeState.Failed
+            ? supervisorSnapshot
+            : new RuntimeSnapshot(
+                DesktopRuntimeState.Failed,
+                Port: supervisorSnapshot.Port,
+                Pid: supervisorSnapshot.Pid,
+                RuntimeIdentity: supervisorSnapshot.RuntimeIdentity,
+                FailureReason: reason,
+                ExitCode: supervisorSnapshot.ExitCode));
     }
 
     private void Publish(RuntimeSnapshot snapshot)

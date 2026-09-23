@@ -11,11 +11,12 @@ public interface IPendingCoreUpdateService
     Task<CoreManagementOperationResult?> ApplyPendingAsync(CancellationToken cancellationToken = default);
 }
 
-public sealed class CoreUpdateResultHandler : ICoreUpdateResultHandler, IPendingCoreUpdateService
+public sealed class CoreUpdateResultHandler : ICoreUpdateResultHandler, IPendingCoreUpdateService, ICoreUpdateConclusionReconciler
 {
     private readonly object _sync = new();
     private readonly SemaphoreSlim _applyGate = new(1, 1);
     private readonly ICoreManagementService _management;
+    private readonly ICoreUpdateCoordinator _coordinator;
     private readonly IGithubRoutePreferenceStore _routePreferences;
     private readonly IDesktopNotificationService _notifications;
     private readonly IAppDiagnostics _diagnostics;
@@ -26,14 +27,60 @@ public sealed class CoreUpdateResultHandler : ICoreUpdateResultHandler, IPending
 
     public CoreUpdateResultHandler(
         ICoreManagementService management,
+        ICoreUpdateCoordinator coordinator,
         IGithubRoutePreferenceStore routePreferences,
         IDesktopNotificationService notifications,
         IAppDiagnostics diagnostics)
     {
         _management = management ?? throw new ArgumentNullException(nameof(management));
+        _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
         _routePreferences = routePreferences ?? throw new ArgumentNullException(nameof(routePreferences));
         _notifications = notifications ?? throw new ArgumentNullException(nameof(notifications));
         _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
+        // 托盘菜单读的是本服务这份待更新项，它必须跟着协调器的结论走：
+        // 结论被作废（装完了 / 回退 / 删核心）时，这里也要同步撤掉，否则托盘会一直
+        // 挂着一个"立即更新核心"——点下去只会把已经装上的版本再装一遍。
+        _coordinator.ResultChanged += OnCoordinatorResultChanged;
+    }
+
+    /// <summary>
+    /// 安装变更后重新对账：交给协调器按磁盘判断结论还成不成立，它会广播（可能推来 null），
+    /// 本服务在 <see cref="OnCoordinatorResultChanged"/> 里同步自己的待更新项。
+    /// </summary>
+    public void ReconcileDiscovery(ManagedCoreVariant variant)
+    {
+        ArgumentNullException.ThrowIfNull(variant);
+        _coordinator.ReconcileDiscovery(variant);
+    }
+
+    private void OnCoordinatorResultChanged(object? sender, CoreUpdateCheckResult? result)
+    {
+        var cleared = false;
+        lock (_sync)
+        {
+            if (_pendingUpdate is null)
+            {
+                return;
+            }
+
+            if (result is { UpdateAvailable: true })
+            {
+                // 仍有更新：换成协调器那份最新的（本地 manifest 可能已经刷新）。
+                _pendingUpdate = result;
+                return;
+            }
+
+            // result 为 null（结论作废）或已无更新；都是同一个变体的事，直接撤掉待更新项。
+            if (result is { } checkedResult && checkedResult.Variant != _pendingUpdate.Variant)
+            {
+                return;
+            }
+
+            _pendingUpdate = null;
+            cleared = true;
+        }
+
+        if (cleared) StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
     public CoreUpdateCheckResult? PendingUpdate
@@ -252,10 +299,5 @@ public sealed class CoreUpdateResultHandler : ICoreUpdateResultHandler, IPending
         _ => trigger.ToString(),
     };
 
-    private static string FormatVariant(ManagedCoreVariant variant) => variant switch
-    {
-        ManagedCoreVariant.Stable => "稳定核心",
-        ManagedCoreVariant.Custom => "自定义核心",
-        _ => variant.ToString(),
-    };
+    private static string FormatVariant(ManagedCoreVariant variant) => variant.ToLabel();
 }

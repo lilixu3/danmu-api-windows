@@ -176,6 +176,49 @@
       <Setter Property="Background" Value="{DynamicResource SurfaceHoverBrush}" />
       <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
     </Style>
+    <!-- 侧栏「有更新」卡片。整块由 Button 承载（不再是 Border 套一个透明 Button），
+         所以悬停底色、圆角、命中区域现在是同一个东西，不会出现"边框圆角与按钮圆角差 1px"
+         那种缝隙，也不会有点到边框却按不动的地方。
+         卡片体量比上一版明显放大（32px 渐变徽章 + 12.5px 标题），侧栏里一眼能看到。 -->
+    <Style Selector="Button.update-card">
+      <Setter Property="Background" Value="{DynamicResource UpdateCardBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource UpdateCardBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="10,9" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.update-card:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource UpdateCardHoverBrush}" />
+      <Setter Property="TextElement.Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+    </Style>
+    <Style Selector="Button.update-card:pressed /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource UpdateCardHoverBrush}" />
+    </Style>
+    <!-- 折叠侧栏时卡片只剩徽章，四周留白收窄，成为一颗方正的图标按钮。 -->
+    <Style Selector="Button.update-card.update-card-compact">
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.update-badge">
+      <Setter Property="Background" Value="{DynamicResource UpdateBadgeBrush}" />
+      <Setter Property="CornerRadius" Value="9" />
+      <Setter Property="BoxShadow" Value="0 2 6 0 #2A3B6FF5" />
+    </Style>
+    <Style Selector="TextBlock.update-card-title">
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="TextBlock.update-card-detail">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
     <Style Selector="Button.compact-action">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />

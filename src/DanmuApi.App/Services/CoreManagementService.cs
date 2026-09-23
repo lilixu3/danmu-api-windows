@@ -38,6 +38,33 @@ public sealed class CoreInstallationChangedEventArgs(ManagedCoreVariant variant)
     public ManagedCoreVariant Variant { get; } = variant;
 }
 
+/// <summary>
+/// 磁盘上的核心安装被改动后，由本服务负责把「有更新」这条结论重新对账一次。
+/// 之所以放在这里而不是让各订阅方自己判断：安装变更的入口有安装/更新/回退/重装/删除多个，
+/// 每个订阅方各自去比对提交容易漏掉其中一条；结论是否还成立只有协调器知道。
+/// </summary>
+public interface ICoreUpdateConclusionReconciler
+{
+    void ReconcileDiscovery(ManagedCoreVariant variant);
+}
+
+public interface ICorePullRequestManagementService
+{
+    Task<CorePreparedInstallRequest> PreparePullRequestMergeAsync(
+        ManagedCoreVariant variant,
+        IReadOnlyList<GithubPullRequest> pullRequests,
+        string proxyId,
+        IProgress<CoreInstallProgress>? progress = null,
+        CancellationToken cancellationToken = default);
+
+    Task<CoreManagementOperationResult> ApplyPreparedPullRequestMergeAsync(
+        CorePreparedInstallRequest request,
+        IProgress<CoreInstallProgress>? progress = null,
+        CancellationToken cancellationToken = default);
+
+    void DiscardPreparedPullRequestMerge(CorePreparedInstallRequest request);
+}
+
 public interface ICoreManagementService
 {
     /// <summary>磁盘上的核心安装状态确实发生变化后发出；在操作线程上触发，订阅方需自行回到 UI 线程。</summary>
@@ -59,13 +86,6 @@ public interface ICoreManagementService
         GithubRepositoryReference repository,
         string branch,
         string commitSha,
-        string displayName,
-        string proxyId,
-        IProgress<CoreInstallProgress>? progress = null,
-        CancellationToken cancellationToken = default);
-    Task<CoreManagementOperationResult> InstallPullRequestAsync(
-        GithubRepositoryReference baseRepository,
-        int pullRequestNumber,
         string displayName,
         string proxyId,
         IProgress<CoreInstallProgress>? progress = null,
@@ -93,14 +113,18 @@ public interface ICoreManagementService
         CancellationToken cancellationToken = default);
 }
 
-public sealed class CoreManagementService : ICoreManagementService
+public sealed class CoreManagementService : ICoreManagementService, ICorePullRequestManagementService
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly ICoreInstaller _installer;
+    private readonly ICorePreparedInstaller? _preparedInstaller;
+    private readonly ICorePullRequestMergeService? _pullRequestMerge;
     private readonly IGithubCoreRemote _remote;
     private readonly IRuntimeController _runtimeController;
     private readonly Func<CancellationToken, ValueTask<IAsyncDisposable>>? _preparationLeaseFactory;
     private readonly Func<ManagedCoreVariant> _activeVariantProvider;
+    private readonly Func<ICoreUpdateConclusionReconciler>? _conclusionReconciler;
+    private readonly Action<string>? _diagnostics;
 
     public event EventHandler<CoreInstallationChangedEventArgs>? InstallationChanged;
 
@@ -109,13 +133,21 @@ public sealed class CoreManagementService : ICoreManagementService
         IGithubCoreRemote remote,
         IRuntimeController runtimeController,
         Func<ManagedCoreVariant> activeVariantProvider,
-        Func<CancellationToken, ValueTask<IAsyncDisposable>>? preparationLeaseFactory = null)
+        Func<CancellationToken, ValueTask<IAsyncDisposable>>? preparationLeaseFactory = null,
+        Func<ICoreUpdateConclusionReconciler>? conclusionReconciler = null,
+        Action<string>? diagnosticSink = null,
+        ICorePullRequestMergeService? pullRequestMerge = null)
     {
         _installer = installer ?? throw new ArgumentNullException(nameof(installer));
+        _preparedInstaller = installer as ICorePreparedInstaller;
+        _pullRequestMerge = pullRequestMerge;
         _remote = remote ?? throw new ArgumentNullException(nameof(remote));
         _runtimeController = runtimeController ?? throw new ArgumentNullException(nameof(runtimeController));
         _activeVariantProvider = activeVariantProvider ?? throw new ArgumentNullException(nameof(activeVariantProvider));
         _preparationLeaseFactory = preparationLeaseFactory;
+        // 用 Func 延迟解析：结论的持有者（更新结果处理器）本身依赖本服务，构造期直接注入会成环。
+        _conclusionReconciler = conclusionReconciler;
+        _diagnostics = diagnosticSink;
     }
 
     public CoreInstallationInfo Inspect(ManagedCoreVariant variant) => _installer.Inspect(variant);
@@ -200,47 +232,182 @@ public sealed class CoreManagementService : ICoreManagementService
             cancellationToken);
     }
 
-    public async Task<CoreManagementOperationResult> InstallPullRequestAsync(
-        GithubRepositoryReference baseRepository,
-        int pullRequestNumber,
-        string displayName,
+    public async Task<CorePreparedInstallRequest> PreparePullRequestMergeAsync(
+        ManagedCoreVariant variant,
+        IReadOnlyList<GithubPullRequest> pullRequests,
         string proxyId,
         IProgress<CoreInstallProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(baseRepository);
-        if (pullRequestNumber <= 0)
+        if (_pullRequestMerge is null)
         {
-            throw new ArgumentOutOfRangeException(nameof(pullRequestNumber));
+            throw new InvalidOperationException("本地 PR 合并服务尚未配置");
         }
-
-        ValidateDisplayName(displayName);
+        ArgumentNullException.ThrowIfNull(pullRequests);
         _ = GithubProxyCatalog.GetById(proxyId);
-        var pullRequest = await _remote.GetPullRequestAsync(
-            baseRepository,
-            pullRequestNumber,
-            cancellationToken).ConfigureAwait(false);
-        if (pullRequest.Number != pullRequestNumber)
+        var installed = RequireInstalledManifestInfo(variant);
+        var repository = GithubRepositoryReference.Parse(installed.Manifest!.Repository)
+            .WithBranch(installed.Manifest.Branch);
+        if (pullRequests.Count is < 1 or > 100 || pullRequests.Any(pr => pr is null || pr.Number <= 0) ||
+            pullRequests.Select(pr => pr.Number).Distinct().Count() != pullRequests.Count)
         {
-            throw new GithubRemoteException(
-                GithubFailureKind.Protocol,
-                $"GitHub PR 编号不匹配：请求 #{pullRequestNumber}，返回 #{pullRequest.Number}");
+            throw new ArgumentException("PR 合并队列必须包含 1 到 100 个不重复的有效编号", nameof(pullRequests));
         }
-
-        var headRepository = GithubRepositoryReference.Parse(pullRequest.HeadRepository)
-            .WithBranch(pullRequest.HeadBranch);
-        return await InstallResolvedAsync(
-            new CoreInstallRequest(
-                ManagedCoreVariant.Custom,
-                headRepository,
-                pullRequest.HeadBranch,
-                ValidateCommitSha(pullRequest.HeadSha),
-                displayName,
-                CoreInstallKind.PullRequest,
-                proxyId,
-                pullRequest.Number),
+        var requested = pullRequests.ToDictionary(pr => pr.Number);
+        var sources = installed.Manifest.IsLocalPullRequestStack
+            ? installed.Manifest.PullRequests.Where(source => !requested.ContainsKey(source.Number))
+            : Enumerable.Empty<CorePullRequestSource>();
+        foreach (var source in sources)
+        {
+            var current = await _remote.GetPullRequestAsync(repository, source.Number, cancellationToken).ConfigureAwait(false);
+            ValidateCurrentPullRequest(current, repository, source.Number, source.HeadSha,
+                source.HeadRepository, source.HeadBranch);
+        }
+        foreach (var selected in pullRequests)
+        {
+            var current = await _remote.GetPullRequestAsync(repository, selected.Number, cancellationToken).ConfigureAwait(false);
+            ValidateCurrentPullRequest(current, repository, selected.Number, selected.HeadSha,
+                selected.HeadRepository, selected.HeadBranch);
+        }
+        return await _pullRequestMerge.PrepareAsync(
+            variant,
+            installed,
+            repository,
+            pullRequests,
+            proxyId,
+            installed.Manifest.DisplayName,
             progress,
             cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<CoreManagementOperationResult> ApplyPreparedPullRequestMergeAsync(
+        CorePreparedInstallRequest request,
+        IProgress<CoreInstallProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (_preparedInstaller is null)
+        {
+            throw new InvalidOperationException("当前核心安装器不支持应用本地 PR 合并结果");
+        }
+
+        CorePreparedInstallation? applied = null;
+        return await MutateAsync(
+            request.Variant,
+            request.BaseCommitSha,
+            async token =>
+            {
+                applied = await _preparedInstaller.InstallPreparedAsync(request, progress, token).ConfigureAwait(false);
+                return applied.Installation;
+            },
+            cancellationToken,
+            precondition: () => EnsurePreparedMergeIsCurrent(request),
+            postMutation: async (result, restartRequired) =>
+            {
+                if (applied is null) return result;
+                if (applied.BackupDirectory is null)
+                {
+                    return result with
+                    {
+                        Succeeded = false,
+                        Diagnostic = $"{result.Diagnostic}；替换后未保留旧核心恢复点，无法确认本地 PR 合并",
+                    };
+                }
+                if (!result.Succeeded)
+                {
+                    return await RestoreFailedPreparedMergeAsync(request, applied.BackupDirectory, result,
+                        restartRequired).ConfigureAwait(false);
+                }
+                try
+                {
+                    await _preparedInstaller.ConfirmPreparedBackupAsync(
+                        request.Variant, applied.BackupDirectory, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception archiveError) when (archiveError is IOException or UnauthorizedAccessException)
+                {
+                    _diagnostics?.Invoke($"本地 PR 合并成功，但归档旧核心失败：{archiveError.Message}");
+                    return result with { Diagnostic = $"{result.Diagnostic}；旧核心历史归档失败：{archiveError.Message}" };
+                }
+                return result;
+            }).ConfigureAwait(false);
+    }
+
+    private async Task<CoreManagementOperationResult> RestoreFailedPreparedMergeAsync(
+        CorePreparedInstallRequest request,
+        string backupDirectory,
+        CoreManagementOperationResult result,
+        bool restartRequired)
+    {
+        var diagnostic = result.Diagnostic;
+        try
+        {
+            if (restartRequired)
+            {
+                await _runtimeController.StopAsync(CancellationToken.None).ConfigureAwait(false);
+                var stopped = _runtimeController.Snapshot;
+                if (stopped.State != DesktopRuntimeState.Stopped || stopped.Pid is not null)
+                {
+                    throw new InvalidOperationException($"候选核心停止失败：{stopped.State}；{stopped.FailureReason}");
+                }
+            }
+            var restored = await _preparedInstaller!.RestorePreparedBackupAsync(
+                request.Variant, backupDirectory, CancellationToken.None).ConfigureAwait(false);
+            if (restartRequired)
+            {
+                await _runtimeController.StartAsync(CancellationToken.None).ConfigureAwait(false);
+                if (_runtimeController.Snapshot.State != DesktopRuntimeState.Running)
+                {
+                    throw new InvalidOperationException(_runtimeController.Snapshot.FailureReason
+                        ?? $"旧核心恢复后未运行：{_runtimeController.Snapshot.State}");
+                }
+            }
+            return result with
+            {
+                Succeeded = false,
+                DiskChangeApplied = false,
+                ServiceRestored = true,
+                Installation = restored,
+                Diagnostic = $"{diagnostic}；已恢复旧核心{(restartRequired ? "并重新启动原服务" : string.Empty)}",
+            };
+        }
+        catch (Exception recoveryError)
+        {
+            try
+            {
+                var current = _installer.Inspect(request.Variant);
+                return result with
+                {
+                    Succeeded = false,
+                    ServiceRestored = false,
+                    Installation = current,
+                    Diagnostic = $"{diagnostic}；旧核心恢复失败：{recoveryError.Message}",
+                    RestorationError = recoveryError,
+                };
+            }
+            catch (Exception inspectionError)
+            {
+                return result with
+                {
+                    Succeeded = false,
+                    ServiceRestored = false,
+                    Installation = null,
+                    Diagnostic = $"{diagnostic}；旧核心恢复失败：{recoveryError.Message}；读取磁盘状态失败：{inspectionError.Message}",
+                    RestorationError = recoveryError,
+                    DiskInspectionError = inspectionError,
+                };
+            }
+        }
+    }
+
+    public void DiscardPreparedPullRequestMerge(CorePreparedInstallRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var staging = Path.GetFullPath(request.StagingDirectory);
+        if (!Directory.Exists(staging))
+        {
+            return;
+        }
+        Directory.Delete(staging, recursive: true);
     }
 
     public Task<CoreManagementOperationResult> ApplyUpdateAsync(
@@ -257,6 +424,10 @@ public sealed class CoreManagementService : ICoreManagementService
         }
 
         _ = GithubProxyCatalog.GetById(proxyId);
+        if (update.Local.IsLocalPullRequestStack)
+        {
+            throw new InvalidOperationException("当前核心包含本地 PR 组合，不能用普通分支更新覆盖；请在 PR 实验室重新构建组合。");
+        }
         var repository = GithubRepositoryReference.Parse(update.Local.Repository)
             .WithBranch(update.Local.Branch);
         return MutateAsync(
@@ -285,8 +456,14 @@ public sealed class CoreManagementService : ICoreManagementService
     {
         var installed = RequireInstalledManifest(variant);
         _ = GithubProxyCatalog.GetById(proxyId);
+        if (installed.IsLocalPullRequestStack)
+        {
+            throw new InvalidOperationException("当前是本地 PR 组合，不能用分支压缩包重新安装；请在 PR 实验室重新构建组合，或从本地历史恢复。");
+        }
         var repository = GithubRepositoryReference.Parse(installed.Repository)
             .WithBranch(installed.Branch);
+        // 旧版单 PR 实验安装记录的 manifest 带 PR 编号，但那个安装来源已被移除：
+        // 重装按记录的提交做普通重装，并把 PR 字段清掉（不猜测、也不假装还是 PR 安装）。
         return InstallResolvedAsync(
             new CoreInstallRequest(
                 variant,
@@ -295,8 +472,7 @@ public sealed class CoreManagementService : ICoreManagementService
                 installed.CommitSha,
                 installed.DisplayName,
                 CoreInstallKind.Reinstall,
-                proxyId,
-                installed.PullRequestNumber),
+                proxyId),
             progress,
             cancellationToken);
     }
@@ -333,7 +509,9 @@ public sealed class CoreManagementService : ICoreManagementService
                 installation,
                 "核心显示名称已更新。");
             // 改名也改了磁盘上的来源 manifest，来源带与版本带同样要立刻跟上。
+            // 改名不动提交，所以更新结论仍然成立（对账会因此不广播，只刷新本地 manifest）。
             InstallationChanged?.Invoke(this, new CoreInstallationChangedEventArgs(variant));
+            ReconcileUpdateConclusion(variant);
             return result;
         }
         catch (Exception error) when (error is InvalidOperationException or IOException or UnauthorizedAccessException)
@@ -378,7 +556,8 @@ public sealed class CoreManagementService : ICoreManagementService
         Func<CancellationToken, Task<CoreInstallationInfo?>> mutation,
         CancellationToken cancellationToken,
         bool deleting = false,
-        Action? precondition = null)
+        Action? precondition = null,
+        Func<CoreManagementOperationResult, bool, Task<CoreManagementOperationResult>>? postMutation = null)
     {
         await using var preparationLease = _preparationLeaseFactory is null ? null : await _preparationLeaseFactory(cancellationToken).ConfigureAwait(false);
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -498,10 +677,19 @@ public sealed class CoreManagementService : ICoreManagementService
                 RestorationError = restorationError,
                 DiskInspectionError = inspectionError,
             };
+            if (postMutation is not null)
+            {
+                result = await postMutation(result, restartRequired).ConfigureAwait(false);
+                if (result.DiskStateKnown)
+                {
+                    installationChanged = !Equals(initialInstallation, result.Installation);
+                }
+            }
             if (installationChanged)
             {
                 // 服务恢复失败也要通知：磁盘已经变了，界面显示必须反映真实状态，不能停在旧版本。
                 InstallationChanged?.Invoke(this, new CoreInstallationChangedEventArgs(variant));
+                ReconcileUpdateConclusion(variant);
             }
 
             if (mutationError is OperationCanceledException canceled)
@@ -513,6 +701,31 @@ public sealed class CoreManagementService : ICoreManagementService
         finally
         {
             _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// 磁盘上的安装变了，「有更新」这条结论可能已经不成立（刚把新提交装上、回退到旧版、
+    /// 重装成别的提交、核心被删）。这里立刻让结论持有人重新对账，而不是等下一次联网检查 ——
+    /// 否则侧栏卡片与托盘菜单会一直挂着一个其实已经装上的「新版本」。
+    /// </summary>
+    private void ReconcileUpdateConclusion(ManagedCoreVariant variant)
+    {
+        ArgumentNullException.ThrowIfNull(variant);
+        if (_conclusionReconciler is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _conclusionReconciler().ReconcileDiscovery(variant);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or FormatException or InvalidOperationException)
+        {
+            // 对账失败不能反过来影响安装结果：安装已经落盘成功，这里只是刷新提示。
+            // 但绝不静默 —— 丢掉的是一条诊断，也必须留下。
+            _diagnostics?.Invoke($"核心安装已变更，但重新对账更新结论失败：{error.Message}");
         }
     }
 
@@ -560,16 +773,51 @@ public sealed class CoreManagementService : ICoreManagementService
         }
     }
 
-    private CoreInstallationManifest RequireInstalledManifest(ManagedCoreVariant variant)
+    private CoreInstallationInfo RequireInstalledManifestInfo(ManagedCoreVariant variant)
     {
         var installed = _installer.Inspect(variant);
         if (!installed.IsInstalled || !installed.IsValid)
         {
             throw new InvalidOperationException(installed.Diagnostic ?? "核心尚未安装");
         }
+        _ = installed.Manifest
+            ?? throw new InvalidOperationException("当前核心缺少来源 manifest，无法进行本地 PR 合并");
+        return installed;
+    }
 
-        return installed.Manifest
-            ?? throw new InvalidOperationException("当前核心缺少来源 manifest，无法重新安装");
+    private CoreInstallationManifest RequireInstalledManifest(ManagedCoreVariant variant) =>
+        RequireInstalledManifestInfo(variant).Manifest!;
+
+    private static void ValidateCurrentPullRequest(
+        GithubPullRequest current,
+        GithubRepositoryReference repository,
+        int number,
+        string expectedSha,
+        string expectedHeadRepository,
+        string expectedHeadBranch)
+    {
+        if (current.Number != number ||
+            !string.Equals(current.State, "open", StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(current.BaseBranch, repository.Branch, StringComparison.Ordinal) ||
+            !string.Equals(current.HeadRepository, expectedHeadRepository, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(current.HeadBranch, expectedHeadBranch, StringComparison.Ordinal) ||
+            !string.Equals(current.HeadSha, expectedSha, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"PR #{number} 的状态、目标分支或 head 已变化，请刷新 PR 列表后重新准备");
+        }
+    }
+
+    private void EnsurePreparedMergeIsCurrent(CorePreparedInstallRequest request)
+    {
+        var current = RequireInstalledManifestInfo(request.Variant);
+        var actual = current.Manifest!;
+        var expected = request.ExpectedManifest;
+        if (actual with { PullRequests = Array.Empty<CorePullRequestSource>() } !=
+            expected with { PullRequests = Array.Empty<CorePullRequestSource>() } ||
+            !actual.PullRequests.SequenceEqual(expected.PullRequests))
+        {
+            throw new InvalidOperationException("准备合并期间当前核心来源已变化，请重新准备 PR 合并");
+        }
     }
 
     private static void ValidateRuntimeState(RuntimeSnapshot snapshot, bool affectsActiveRuntime)

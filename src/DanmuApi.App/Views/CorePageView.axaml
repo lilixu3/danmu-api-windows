@@ -242,6 +242,14 @@
                   </Grid>
                   <Button Name="InstallOfficialButton" Content="安装稳定核心" Classes="primary" Command="{Binding InstallOfficialCommand}" HorizontalAlignment="Left" />
                 </StackPanel>
+                <StackPanel IsVisible="{Binding CanInstallDev}" Spacing="9">
+                  <TextBlock Text="开发上游 · lilixu3/danmu_api" TextWrapping="Wrap" FontSize="12" />
+                  <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                    <TextBlock Text="指定分支（可选）" Classes="wb-key" />
+                    <TextBox Grid.Column="1" Text="{Binding BranchText, Mode=TwoWay}" Watermark="留空使用仓库默认分支" AutomationProperties.Name="开发核心分支" />
+                  </Grid>
+                  <Button Name="InstallDevButton" Content="安装开发核心" Classes="primary" Command="{Binding InstallDevCommand}" HorizontalAlignment="Left" />
+                </StackPanel>
                 <StackPanel IsVisible="{Binding CanInstallCustom}" Spacing="9">
                   <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
                     <TextBlock Text="GitHub 仓库地址" Classes="wb-key" />
@@ -264,7 +272,7 @@
             <Border Name="WorkbenchPanel" Classes="workbench" IsVisible="{Binding IsInstalled}">
               <StackPanel>
                 <!-- 身份带 -->
-                <!-- 身份带：第一行是「当前运行 · 变体 · 显示名 · 仓库」的眉标，
+                <!-- 身份带：第一行是「已安装 · 所选变体 · 显示名 · 仓库」的眉标，
                      第二行是分支/提交/安装时间，与设计稿 facts-strip 的两级层次一致。 -->
                 <Border Name="IdentityPanel" Classes="wb-strip">
                   <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="16">
@@ -278,6 +286,10 @@
                       <StackPanel Orientation="Horizontal" Spacing="5" HorizontalAlignment="Right" Margin="0,3,0,0">
                         <Border Classes="chip" Classes.ok="{Binding IsInstalled}" IsVisible="{Binding IsInstalled}">
                           <TextBlock Text="{Binding InstallationStatusText}" />
+                        </Border>
+                        <!-- 已合并 PR：与移动端核心卡同一处语义 —— 组合版本必须一眼看出并入了哪些 PR。 -->
+                        <Border Classes="chip" Classes.ok="{Binding HasMergedPullRequests}" IsVisible="{Binding HasMergedPullRequests}" ToolTip.Tip="{Binding MergedPullRequestText}">
+                          <TextBlock Name="MergedPullRequestChip" Text="{Binding MergedPullRequestText, StringFormat='已合并 PR {0}'}" />
                         </Border>
                         <Border Classes="chip warn" IsVisible="{Binding HasUpdate}">
                           <TextBlock Text="{Binding UpdateLabelText}" />
@@ -328,7 +340,7 @@
                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                           <StackPanel Spacing="1" VerticalAlignment="Center">
                             <TextBlock Text="PR 实验室" FontSize="12" FontWeight="SemiBold" />
-                            <TextBlock Text="预览未合并变更，安装为自定义实验核心" Classes="wb-faint" TextWrapping="Wrap" />
+                            <TextBlock Text="查看 PR 并本地合并到所选核心" Classes="wb-faint" TextWrapping="Wrap" />
                           </StackPanel>
                           <TextBlock Grid.Column="1" Text="&#xE72A;" FontFamily="Segoe MDL2 Assets" FontSize="11" Foreground="{DynamicResource TextFaintBrush}" VerticalAlignment="Center" />
                         </Grid>
@@ -374,6 +386,10 @@
                   <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="14">
                     <TextBlock Text="维护" Classes="wb-bar-label" VerticalAlignment="Center" MinWidth="48" />
                     <WrapPanel Grid.Column="1" Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
+                      <!-- 与移动端核心卡的「切换到此核心」同义：所选变体不是运行变体时给出明确入口。 -->
+                      <Button Name="ActivateCoreButton" Content="切换到此核心" Classes="primary" IsVisible="{Binding CanActivateSelectedVariant}"
+                              Command="{Binding ActivateSelectedVariantCommand}" IsEnabled="{Binding CanOperateInstalled}"
+                              ToolTip.Tip="把运行核心切换到这个变体；服务在运行时会安全重启并保留恢复点" />
                       <Button Content="配置 GitHub Token" Classes="secondary" Command="{Binding ConfigureGithubTokenCommand}" ToolTip.Tip="配置后接口配额更高" />
                       <Button Content="修改名称" Classes="secondary" Command="{Binding RenameCoreCommand}" />
                       <Button Content="重新安装" Classes="secondary" Command="{Binding ReinstallCommand}" />
@@ -454,27 +470,72 @@
             </StackPanel>
           </Border>
 
-          <!-- PR 实验室 -->
+          <!-- PR 实验室：与移动端同一套语义 —— 只有一个动作「构建本地 PR 组合」，
+               先排队（可调顺序），再在当前核心的基线提交上真实合并并原子替换同一变体。 -->
           <Border Name="PullRequestsStage" Classes="workbench" IsVisible="{Binding IsPullRequestsPage}">
             <StackPanel Margin="14" Spacing="10">
               <Button Content="← 返回核心总览" Classes="secondary" Command="{Binding BackToOverviewCommand}" HorizontalAlignment="Left" />
               <StackPanel Spacing="3">
                 <TextBlock Text="PR 实验室" FontSize="16" FontWeight="SemiBold" />
-                <TextBlock Text="PR 从贡献者仓库安装到自定义核心，并标记为实验版本。" Classes="wb-caption" />
+                <TextBlock Text="把这几个 PR 按顺序并入所选变体的当前核心：在本机隔离 Git 工作区真实合并，冲突或校验失败时当前核心不变。" Classes="wb-caption" />
               </StackPanel>
-              <ItemsControl Name="PullRequestList" ItemsSource="{Binding PullRequests}">
+              <Border Classes="wb-strip">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" RowDefinitions="Auto,Auto" RowSpacing="4">
+                  <TextBlock Text="{Binding PullRequestQueueSummary}" Classes="wb-eyebrow" TextWrapping="Wrap" />
+                  <Button Grid.Column="1" Grid.RowSpan="2" Content="构建本地 PR 组合" Classes="primary" Command="{Binding BuildPullRequestStackCommand}" IsEnabled="{Binding CanBuildPullRequestStack}" VerticalAlignment="Center" />
+                  <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasSelectedPullRequests}">
+                    <TextBlock Text="调整顺序：" Classes="wb-faint" VerticalAlignment="Center" />
+                    <ItemsControl ItemsSource="{Binding SelectedPullRequests}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><WrapPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="core:GithubPullRequest">
+                          <StackPanel Orientation="Horizontal" Spacing="3" Margin="0,0,8,3">
+                            <TextBlock Text="{Binding Number, StringFormat='#{0}'}" Classes="wb-faint" VerticalAlignment="Center" />
+                            <Button Content="↑" Classes="compact" Padding="6,0"
+                                    ToolTip.Tip="在合并顺序里上移"
+                                    Command="{Binding ((vm:CorePageViewModel)DataContext).MoveSelectedPullRequestUpCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                    CommandParameter="{Binding}" />
+                            <Button Content="↓" Classes="compact" Padding="6,0"
+                                    ToolTip.Tip="在合并顺序里下移"
+                                    Command="{Binding ((vm:CorePageViewModel)DataContext).MoveSelectedPullRequestDownCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                    CommandParameter="{Binding}" />
+                            <Button Content="移除" Classes="secondary" Padding="7,0"
+                                    Command="{Binding ((vm:CorePageViewModel)DataContext).TogglePullRequestSelectionCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                    CommandParameter="{Binding}" />
+                          </StackPanel>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </Grid>
+              </Border>
+              <ItemsControl Name="PullRequestList" ItemsSource="{Binding PullRequestRows}">
                 <ItemsControl.ItemTemplate>
-                  <DataTemplate x:DataType="core:GithubPullRequest">
+                  <DataTemplate x:DataType="vm:PullRequestRow">
                     <Border Classes="record-row">
                       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                         <StackPanel Spacing="4" VerticalAlignment="Center">
-                          <TextBlock Text="{Binding Number, StringFormat='PR #{0} · 实验版本'}" Classes="wb-faint" />
+                          <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="{Binding Number, StringFormat='PR #{0}'}" Classes="wb-faint" VerticalAlignment="Center" />
+                            <Border Classes="chip" IsVisible="{Binding IsQueued}">
+                              <TextBlock Text="{Binding QueueBadgeText}" />
+                            </Border>
+                            <Border Classes="chip ok" IsVisible="{Binding IsIncludedInCore}">
+                              <TextBlock Text="{Binding InclusionBadgeText}" />
+                            </Border>
+                          </StackPanel>
                           <TextBlock Text="{Binding Title}" FontSize="12.5" FontWeight="SemiBold" TextWrapping="Wrap" />
                           <TextBlock Text="{Binding HeadRepository}" Classes="mono wb-faint" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                          <Button Content="查看变更" Classes="compact" Command="{Binding ((vm:CorePageViewModel)DataContext).ShowPullRequestDetailsCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" />
-                          <Button Content="安装 PR" Classes="secondary" Command="{Binding ((vm:CorePageViewModel)DataContext).InstallSelectedPullRequestCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" />
+                          <Button Content="{Binding QueueActionText}" Classes="secondary" IsEnabled="{Binding CanQueue}"
+                                  Command="{Binding ((vm:CorePageViewModel)DataContext).TogglePullRequestSelectionCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                  CommandParameter="{Binding PullRequest}" />
+                          <Button Content="查看变更" Classes="compact"
+                                  Command="{Binding ((vm:CorePageViewModel)DataContext).ShowPullRequestDetailsCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                  CommandParameter="{Binding PullRequest}" />
                         </StackPanel>
                       </Grid>
                     </Border>

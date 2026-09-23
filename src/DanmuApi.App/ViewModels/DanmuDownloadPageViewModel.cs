@@ -1467,7 +1467,8 @@ public sealed partial class DanmuDownloadPageViewModel : ViewModelBase
                 return null;
             }
 
-            var original = read.Value?.Trim() ?? string.Empty;
+            // null = 核心里没有这一项（未配置）；空串按同一含义处理，恢复时走「删除」而不是写空值。
+            var original = read.Value?.Trim();
             if (original == "0")
             {
                 return new RateLimitBypassSession(original, false);
@@ -1478,6 +1479,14 @@ public sealed partial class DanmuDownloadPageViewModel : ViewModelBase
             if (!set.Succeeded)
             {
                 return null;
+            }
+
+            // 核心 reload .env 有防抖（桌面 500ms），写完立刻开跑会有一批请求按旧限流被打回 429。
+            // 只等一小段时间，等不到也照跑：写已经成功，最坏是头几个请求撞上旧限流后按任务失败上报，
+            // 反过来因为「读不到新值」就撤掉旁路会更让用户困惑（核心的 /api/config 可能一直报启动快照）。
+            if (!await WaitForRateLimitBypassAsync(admin, cancellationToken).ConfigureAwait(false))
+            {
+                _diagnostics.Record("下载限流旁路已写入，但未在限时内读到生效值；按旁路已生效继续下载", null);
             }
 
             return new RateLimitBypassSession(original, true);
@@ -1491,6 +1500,30 @@ public sealed partial class DanmuDownloadPageViewModel : ViewModelBase
             _diagnostics.Record("下载限流旁路准备失败", error);
             return null;
         }
+    }
+
+    /// <summary>
+    /// 等限流旁路真正生效：核心 reload .env 有防抖，写完就读到的仍是旧值。
+    /// 只轮询「核心侧已生效」这一个条件，超时不代表失败（后续按原限流下载即可）。
+    /// </summary>
+    private async Task<bool> WaitForRateLimitBypassAsync(string? admin, CancellationToken cancellationToken)
+    {
+        // 核心桌面侧 reload 防抖 500ms（android-server.js scheduleConfigReload），
+        // 因此最多等 4×200ms：等到就放心开跑，等不到也不因此撤销旁路。
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            var read = await _envClient.ReadConfigValueAsync(
+                _context.Host, _context.Port!.Value, _context.Token, admin, RateLimitEnvKey, cancellationToken)
+                .ConfigureAwait(false);
+            if (read.Succeeded && read.Value?.Trim() == "0")
+            {
+                return true;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(200), cancellationToken).ConfigureAwait(false);
+        }
+
+        return false;
     }
 
     private async Task<string?> RestoreRateLimitBypassAsync(RateLimitBypassSession? session)
@@ -1508,8 +1541,16 @@ public sealed partial class DanmuDownloadPageViewModel : ViewModelBase
             }
 
             var admin = _context.AdminToken();
+            if (string.IsNullOrEmpty(session.OriginalValue))
+            {
+                // 旁路前这一项根本不存在：恢复=删掉，写空串会凭空造出一行用户从未声明的配置。
+                var deleted = await _envClient.DeleteAsync(
+                    _context.Host, _context.Port!.Value, _context.Token, admin, RateLimitEnvKey).ConfigureAwait(false);
+                return deleted.Succeeded ? null : $"下载限流旁路恢复失败：{deleted.Diagnostic}";
+            }
+
             var set = await _envClient.SetAsync(
-                _context.Host, _context.Port!.Value, _context.Token, admin, RateLimitEnvKey, session.OriginalValue ?? "0").ConfigureAwait(false);
+                _context.Host, _context.Port!.Value, _context.Token, admin, RateLimitEnvKey, session.OriginalValue).ConfigureAwait(false);
             return set.Succeeded ? null : $"下载限流旁路恢复失败：{set.Diagnostic}";
         }
         catch (Exception error) when (error is DanmuApiException or ArgumentException)

@@ -25,7 +25,7 @@
             Background="{DynamicResource SidebarBackgroundBrush}"
             BorderBrush="{DynamicResource HairlineBrush}"
             BorderThickness="0,0,1,0">
-      <Grid RowDefinitions="72,Auto,*,Auto" Margin="12,0">
+      <Grid RowDefinitions="72,Auto,*,Auto,Auto" Margin="12,0">
         <Grid ColumnDefinitions="40,*" ColumnSpacing="10" VerticalAlignment="Center">
           <Border Width="34" Height="34" CornerRadius="8" Background="{DynamicResource AccentBrush}">
             <TextBlock Text="D" Foreground="{DynamicResource AccentTextBrush}" FontSize="17" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
@@ -73,9 +73,65 @@
           </ListBox.ItemTemplate>
         </ListBox>
 
-        <Border Grid.Row="3" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,1,0,0" Padding="8,14" Margin="0,8,0,4">
-          <StackPanel Spacing="10">
-            <Button Content="软件有更新" Classes="primary-action" Command="{Binding OpenApplicationUpdatesCommand}" IsVisible="{Binding ApplicationUpdates.HasUpdate}" ToolTip.Tip="查看软件更新" />
+        <!-- 「有更新」卡片贴着下方那条分割线放，而不是紧跟导航项：外层只有第 2 行（导航列表）是 *，
+             卡片行是 Auto，所以卡片出现或消失只是在空档里占位，既不会把侧栏撑高，也不会挤掉状态行。
+             核心与应用各一条，两条都有就并列。
+             展开态：渐变徽章 + 标题/详情 + 右侧箭头；折叠态：只剩徽章（Tooltip 说明是哪一条）。 -->
+        <ItemsControl Grid.Row="3"
+                      ItemsSource="{Binding UpdateHints}"
+                      IsVisible="{Binding HasUpdateHints}"
+                      Margin="4,8,4,2">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <StackPanel Spacing="7" />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:SidebarUpdateHint">
+              <Panel>
+                <Button Classes="update-card"
+                        Command="{Binding $parent[Window].DataContext.OpenUpdateHintCommand}"
+                        CommandParameter="{Binding}"
+                        IsVisible="{Binding $parent[Window].DataContext.IsSidebarExpanded}"
+                        ToolTip.Tip="{Binding ToolTip}"
+                        AutomationProperties.Name="{Binding ToolTip}">
+                  <!-- 详情单独占一行（跨到箭头那一列之下），因为侧栏里留给文字的宽度只有 ~120px：
+                       挤在标题右边会把「稳定核心 · abcdef1」这类内容截断。 -->
+                  <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="3">
+                    <Border Classes="update-badge" Grid.RowSpan="2" Width="32" Height="32"
+                            VerticalAlignment="Center">
+                      <PathIcon Data="{Binding Icon}" Width="17" Height="17"
+                                Foreground="{DynamicResource AccentTextBrush}" />
+                    </Border>
+                    <TextBlock Grid.Column="1" Text="{Binding Title}" Classes="update-card-title"
+                               VerticalAlignment="Center" />
+                    <!-- 箭头是"点得动"的提示：以前整块卡片没有任何可点击的视觉线索。 -->
+                    <PathIcon Grid.Column="2"
+                              Data="M9 5l5 5-5 5"
+                              Width="11" Height="14"
+                              VerticalAlignment="Center"
+                              Foreground="{DynamicResource UpdateCardRailBrush}" />
+                    <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2"
+                               Text="{Binding Detail}" Classes="update-card-detail" />
+                  </Grid>
+                </Button>
+                <Button Classes="update-card update-card-compact"
+                        Command="{Binding $parent[Window].DataContext.OpenUpdateHintCommand}"
+                        CommandParameter="{Binding}"
+                        IsVisible="{Binding $parent[Window].DataContext.IsSidebarCollapsed}"
+                        ToolTip.Tip="{Binding ToolTip}"
+                        AutomationProperties.Name="{Binding ToolTip}">
+                  <Border Classes="update-badge" Width="32" Height="32">
+                    <PathIcon Data="{Binding Icon}" Width="17" Height="17"
+                              Foreground="{DynamicResource AccentTextBrush}" />
+                  </Border>
+                </Button>
+              </Panel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <Border Grid.Row="4" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,1,0,0" Padding="8,14" Margin="0,8,0,4">
           <Grid ColumnDefinitions="Auto,*" ColumnSpacing="9">
             <Ellipse Width="8" Height="8" Fill="{Binding StatusBrush}" VerticalAlignment="Center" />
             <StackPanel Grid.Column="1" IsVisible="{Binding IsSidebarExpanded}" Spacing="1">
@@ -83,7 +139,6 @@
               <TextBlock Text="{Binding CoreVersionShortText, StringFormat='核心 {0}'}" Classes="body-muted" FontSize="11" />
             </StackPanel>
           </Grid>
-          </StackPanel>
         </Border>
       </Grid>
     </Border>

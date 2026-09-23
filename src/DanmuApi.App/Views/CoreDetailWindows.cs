@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Media;
+using DanmuApi.App.Services;
 using DanmuApi.Core;
 
 namespace DanmuApi.App.Views;
@@ -32,6 +33,24 @@ internal static class CoreDetailControls
         var block = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, FontSize = 12 };
         block.Classes.Add("mono-text");
         return block;
+    }
+
+    /// <summary>GitHub 正文（PR 描述、提交说明）都是 Markdown：统一走 MarkdownView 渲染。
+    /// 解析失败时控件内部会退回原文，所以这里不做二次兜底；
+    /// 链接打不开、图片加载失败都经 <paramref name="linkFailure"/> 上报给宿主的诊断链。</summary>
+    internal static Control Markdown(string text, Action<string>? linkFailure = null, double baseFontSize = 12.5)
+    {
+        var view = new Controls.MarkdownView
+        {
+            Markdown = text,
+            BaseFontSize = baseFontSize,
+        };
+        if (linkFailure is not null)
+        {
+            view.LinkOpenFailed += (_, url) => linkFailure($"Markdown 链接无法打开：{url}");
+        }
+
+        return view;
     }
 
     internal static Border Card(Thickness padding, params Control[] children)
@@ -199,7 +218,7 @@ internal static class CoreDetailControls
 /// <summary>提交变动详情：提交说明 + 统计 + 逐文件 diff；「回退到此版本」返回 true。</summary>
 public sealed class CommitDetailsWindow : Window
 {
-    public CommitDetailsWindow(GithubCommitDetails details)
+    public CommitDetailsWindow(GithubCommitDetails details, Action<string>? linkFailure = null)
     {
         ArgumentNullException.ThrowIfNull(details);
         var commit = details.Commit;
@@ -223,7 +242,7 @@ public sealed class CommitDetailsWindow : Window
             : CoreDetailControls.Card(
                 new Thickness(16),
                 new TextBlock { Text = "提交说明", FontWeight = FontWeight.SemiBold },
-                CoreDetailControls.Muted(description));
+                CoreDetailControls.Markdown(description, linkFailure));
         var filesHeading = new TextBlock
         {
             Text = details.Files.Count == 0 ? "变更文件（GitHub 未返回文件级变动）" : "变更文件",
@@ -246,26 +265,20 @@ public sealed class CommitDetailsWindow : Window
     }
 }
 
-/// <summary>PR 详情：实验版本警示 + 元数据 + 文件变动；「安装此 PR」返回 true。</summary>
+/// <summary>PR 详情：只读展示元数据与文件变动（对齐移动端的 PR 详情面板）。
+/// 这里没有安装入口 —— 合并只通过 PR 实验室的「构建本地 PR 组合」。</summary>
 public sealed class PullRequestDetailsWindow : Window
 {
-    public PullRequestDetailsWindow(GithubPullRequest pullRequest, IReadOnlyList<GithubFileChange> files)
+    public PullRequestDetailsWindow(GithubPullRequest pullRequest, IReadOnlyList<GithubFileChange> files, Action<string>? linkFailure = null)
     {
         ArgumentNullException.ThrowIfNull(pullRequest);
-        Title = $"PR #{pullRequest.Number.ToString(CultureInfo.InvariantCulture)} 详情（实验版本）";
+        Title = $"PR #{pullRequest.Number.ToString(CultureInfo.InvariantCulture)} 详情";
         Width = 980;
         Height = 660;
         MinWidth = 640;
         MinHeight = 420;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
-        var warning = new TextBlock
-        {
-            Text = "实验版本：来自贡献者的 head 仓库，不经过稳定版校验，安装后可随时回退。",
-            TextWrapping = TextWrapping.Wrap,
-            FontSize = 12,
-            Foreground = new SolidColorBrush(Color.Parse("#D97706")),
-        };
         var summary = CoreDetailControls.Card(
             new Thickness(16),
             new TextBlock { Text = pullRequest.Title, FontSize = 17, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap },
@@ -280,7 +293,7 @@ public sealed class PullRequestDetailsWindow : Window
             : CoreDetailControls.Card(
                 new Thickness(16),
                 new TextBlock { Text = "PR 描述", FontWeight = FontWeight.SemiBold },
-                CoreDetailControls.Muted(pullRequest.Body));
+                CoreDetailControls.Markdown(pullRequest.Body, linkFailure));
         var filesHeading = new TextBlock
         {
             Text = files.Count == 0 ? "文件变动（GitHub 未返回）" : "文件变动",
@@ -288,19 +301,97 @@ public sealed class PullRequestDetailsWindow : Window
             FontWeight = FontWeight.SemiBold,
         };
 
-        var close = new Button { Content = "关闭", MinWidth = 88, IsCancel = true };
-        close.Classes.Add("secondary-action");
-        close.Click += (_, _) => Close(false);
-        var install = new Button { Content = "安装此 PR（实验版本）", MinWidth = 160, IsDefault = true };
-        install.Classes.Add("primary-action");
-        install.Click += (_, _) => Close(true);
+        var close = new Button { Content = "关闭", MinWidth = 88, IsCancel = true, IsDefault = true };
+        close.Classes.Add("primary-action");
+        close.Click += (_, _) => Close();
         Content = CoreDetailWindowShell.Build(
-            $"PR #{pullRequest.Number.ToString(CultureInfo.InvariantCulture)}（实验版本）",
-            "从 head 仓库安装到自定义核心，随时可回退",
-            new Control?[] { warning, summary, body, filesHeading, CoreDetailControls.BuildFileDiffList(files) },
+            $"PR #{pullRequest.Number.ToString(CultureInfo.InvariantCulture)}",
+            "回到 PR 实验室用「加入队列」把它排进待构建的本地组合",
+            new Control?[] { summary, body, filesHeading, CoreDetailControls.BuildFileDiffList(files) },
             close,
-            install);
+            null);
     }
+}
+
+/// <summary>
+/// 「构建本地 PR 组合」确认框（对齐移动端 PR 实验室的构建对话框）：
+/// 风险提示 + 有序队列 + 「安装后切换」开关。
+/// </summary>
+public sealed class PullRequestBuildConfirmWindow : Window
+{
+    private bool _activateAfterInstall;
+
+    public PullRequestBuildConfirmWindow(PullRequestBuildPrompt prompt)
+    {
+        ArgumentNullException.ThrowIfNull(prompt);
+        _activateAfterInstall = prompt.ActivateAfterInstall;
+        Title = "构建本地 PR 组合";
+        Width = 760;
+        Height = 620;
+        MinWidth = 520;
+        MinHeight = 420;
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+
+        var warning = new TextBlock
+        {
+            Text = "PR 中的代码将在本机执行。构建只读取 GitHub，不会修改或合并远程仓库。",
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 12.5,
+            Foreground = new SolidColorBrush(Color.Parse("#D97706")),
+        };
+        var target = CoreDetailControls.Card(
+            new Thickness(16),
+            new TextBlock { Text = $"目标：{prompt.VariantLabel} · {prompt.DisplayName}", FontWeight = FontWeight.SemiBold },
+            CoreDetailControls.Mono($"{prompt.Repository}@{prompt.Branch}"),
+            CoreDetailControls.Mono($"基线提交 {prompt.BaseCommitSha}"),
+            prompt.InheritedPullRequestNumbers.Count == 0
+                ? CoreDetailControls.Muted("基线之上只并入本次选择的 PR")
+                : CoreDetailControls.Muted($"将继承已安装的本地组合：{Format(prompt.InheritedPullRequestNumbers)}"));
+
+        var queue = new StackPanel { Spacing = 5 };
+        for (var index = 0; index < prompt.PullRequests.Count; index++)
+        {
+            var pullRequest = prompt.PullRequests[index];
+            queue.Children.Add(new TextBlock
+            {
+                Text = $"{index + 1}. #{pullRequest.Number.ToString(CultureInfo.InvariantCulture)} {pullRequest.Title}",
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = 12.5,
+            });
+        }
+
+        var activateTitle = new TextBlock { Text = "安装后切换", FontWeight = FontWeight.SemiBold, FontSize = 13 };
+        var activateHint = CoreDetailControls.Muted("服务运行时会安全重启并保留恢复点");
+        var toggle = new CheckBox
+        {
+            IsChecked = _activateAfterInstall,
+            VerticalAlignment = VerticalAlignment.Center,
+            Content = "安装完成后把运行核心切换到该变体",
+        };
+        toggle.IsCheckedChanged += (_, _) => _activateAfterInstall = toggle.IsChecked == true;
+
+        var cancel = new Button { Content = "取消", MinWidth = 88, IsCancel = true };
+        cancel.Classes.Add("secondary-action");
+        cancel.Click += (_, _) => Close(PullRequestBuildConfirmation.Canceled);
+        var confirm = new Button { Content = "开始构建", MinWidth = 110, IsDefault = true };
+        confirm.Classes.Add("primary-action");
+        confirm.Click += (_, _) => Close(new PullRequestBuildConfirmation(true, _activateAfterInstall));
+        Content = CoreDetailWindowShell.Build(
+            "构建本地 PR 组合",
+            $"{prompt.PullRequests.Count.ToString(CultureInfo.InvariantCulture)} 个 PR 将按顺序并入 {prompt.VariantLabel} 的当前核心",
+            new Control?[]
+            {
+                warning,
+                target,
+                CoreDetailControls.Card(new Thickness(16), (Control)new TextBlock { Text = "合并顺序", FontWeight = FontWeight.SemiBold }, queue),
+                CoreDetailControls.Card(new Thickness(16), (Control)activateTitle, (Control)activateHint, (Control)toggle),
+            },
+            cancel,
+            confirm);
+    }
+
+    private static string Format(IReadOnlyList<int> numbers) =>
+        string.Join(" ", numbers.Select(number => $"#{number.ToString(CultureInfo.InvariantCulture)}"));
 }
 
 /// <summary>更新详情：变更总结 + 提交记录 + 逐文件 diff；「立即更新」返回 true。</summary>
@@ -385,7 +476,7 @@ internal static class CoreDetailWindowShell
         string subtitle,
         IReadOnlyList<Control?> content,
         Button close,
-        Button primary)
+        Button? primary)
     {
         var panel = new StackPanel { Spacing = 12 };
         foreach (var control in content)
@@ -408,8 +499,12 @@ internal static class CoreDetailWindowShell
             HorizontalAlignment = HorizontalAlignment.Right,
             Spacing = 8,
             Margin = new Thickness(24, 12, 24, 18),
-            Children = { close, primary },
+            Children = { close },
         };
+        if (primary is not null)
+        {
+            actions.Children.Add(primary);
+        }
         var grid = new Grid
         {
             RowDefinitions = new RowDefinitions("Auto,*,Auto"),

@@ -35,6 +35,22 @@ public sealed record GithubTokenDialogResult(bool Cancelled, bool Clear, string?
 /// <summary>文件选择器的过滤器（不泄漏 Avalonia 类型到接口层）。</summary>
 public sealed record UiFileFilter(string Name, IReadOnlyList<string> Patterns);
 
+/// <summary>本地 PR 组合的构建确认信息。与移动端 PR 实验室一致：整条有序队列一次性构建并应用到目标核心。</summary>
+public sealed record PullRequestBuildPrompt(
+    string VariantLabel,
+    string DisplayName,
+    string Repository,
+    string Branch,
+    string BaseCommitSha,
+    IReadOnlyList<GithubPullRequest> PullRequests,
+    IReadOnlyList<int> InheritedPullRequestNumbers,
+    bool ActivateAfterInstall);
+
+public sealed record PullRequestBuildConfirmation(bool Confirmed, bool ActivateAfterInstall)
+{
+    public static PullRequestBuildConfirmation Canceled { get; } = new(false, false);
+}
+
 public interface IUiDialogService
 {
     Task EditPortAsync(MainWindowViewModel viewModel);
@@ -67,6 +83,9 @@ public interface IUiDialogService
     /// <summary>显示弹幕文件详情弹窗（本地弹幕页用）；关闭由模型的 CloseRequested 驱动。</summary>
     Task ShowLocalDanmuDetailAsync(LocalDanmuDetailDialogViewModel model) => Task.CompletedTask;
 
+    /// <summary>侧栏「有更新」卡片的快速更新弹窗：核心与软件都在弹窗内完成，不跳转页面。</summary>
+    Task ShowQuickUpdateAsync(QuickUpdateDialogViewModel model) => Task.CompletedTask;
+
     /// <summary>显示本地弹幕编辑弹窗（核心 1.21.1 的 PATCH 接口）；关闭由模型的 CloseRequested 驱动。</summary>
     Task ShowLocalDanmuEditAsync(LocalDanmuEditDialogViewModel model) => Task.CompletedTask;
     Task CopyTextAsync(string text);
@@ -79,7 +98,15 @@ public interface IUiDialogService
         Func<IProgress<CoreInstallProgress>, CancellationToken, Task> operation) =>
         Task.FromResult(new ProgressOperationResult(ProgressOperationOutcome.Failed, "当前环境没有可用的进度弹窗"));
     Task<bool> ShowCommitDetailsAsync(GithubCommitDetails details) => Task.FromResult(false);
-    Task<bool> ShowPullRequestDetailsAsync(GithubPullRequest pullRequest, IReadOnlyList<GithubFileChange> files) => Task.FromResult(false);
+
+    /// <summary>PR 详情只读展示。合并入口只有 PR 实验室的「构建本地 PR 组合」，
+    /// 这里不再返回「安装」意图（旧的单 PR 实验安装已按移动端语义删除）。</summary>
+    Task ShowPullRequestDetailsAsync(GithubPullRequest pullRequest, IReadOnlyList<GithubFileChange> files) => Task.CompletedTask;
+
+    /// <summary>构建本地 PR 组合前的确认：目标变体、基线提交、有序队列，以及「安装后切换」开关。</summary>
+    Task<PullRequestBuildConfirmation> ConfirmPullRequestBuildAsync(PullRequestBuildPrompt prompt) =>
+        Task.FromResult(PullRequestBuildConfirmation.Canceled);
+
     Task<bool> ShowUpdateDetailsAsync(GithubCompareResult comparison, string localDisplay, string remoteDisplay) => Task.FromResult(false);
     Task<GithubTokenDialogResult> PromptGithubTokenAsync(bool configured, string hint) => Task.FromResult(GithubTokenDialogResult.Cancel());
     Task<string?> PromptCoreEnvValueAsync(CoreEnvDefinition definition, string initial, string description) =>
@@ -96,6 +123,17 @@ public interface IUiDialogService
                 CancellationToken.None,
                 TaskContinuationOptions.ExecuteSynchronously,
                 TaskScheduler.Default);
+
+    /// <summary>
+    /// 结构化编辑器读不懂当前值时的逃生口：按原文（文本框）编辑同一项，
+    /// 仍然走「不能把已有值抹成空」的守卫。没有弹窗的实现方直接按取消处理。
+    /// </summary>
+    Task<CoreEnvEditResult> PromptCoreEnvRawEditAsync(
+        CoreEnvDefinition definition,
+        string initial,
+        bool configured,
+        string description) =>
+        Task.FromResult(CoreEnvEditResult.Cancel());
 }
 
 public sealed partial class UiDialogService : IUiDialogService
@@ -557,6 +595,28 @@ public sealed partial class UiDialogService : IUiDialogService
         }
     }
 
+    /// <summary>
+    /// 侧栏「有更新」卡片的快速更新弹窗。核心与软件两条流程都在这个窗口里完成，
+    /// 点卡片本身不跳转页面；窗口关掉即解除订阅，避免弹窗 VM 被软件更新 VM 长期持有。
+    /// </summary>
+    public async Task ShowQuickUpdateAsync(QuickUpdateDialogViewModel model)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        var owner = GetOwner();
+        var window = new Views.QuickUpdateWindow { DataContext = model };
+        void Close(object? sender, EventArgs args) => window.Close();
+        model.CloseRequested += Close;
+        try
+        {
+            await window.ShowDialog(owner).ConfigureAwait(true);
+        }
+        finally
+        {
+            model.CloseRequested -= Close;
+            model.Dispose();
+        }
+    }
+
     public async Task ShowLocalDanmuEditAsync(LocalDanmuEditDialogViewModel model)
     {
         ArgumentNullException.ThrowIfNull(model);
@@ -787,7 +847,16 @@ public sealed partial class UiDialogService : IUiDialogService
         {
             try
             {
+                // 合并模式下的暂存区必须在保存前落地成「已选」，否则用户组合完直接保存就丢项
+                // （核心前端同样是保存前 confirmMergeGroup）。
+                if (!editor.TryConfirmPendingStaging(out var stagingError))
+                {
+                    error.Text = stagingError;
+                    return;
+                }
+
                 var value = string.Join(',', editor.Values);
+                GuardAgainstEmptyOverwrite(definition.Key, value, configured);
                 CoreEnvStructuredValidation.Validate(definition, value);
                 dialog.Result = CoreEnvEditResult.Set(value);
                 dialog.Close();
@@ -815,6 +884,7 @@ public sealed partial class UiDialogService : IUiDialogService
         {
             try
             {
+                GuardAgainstEmptyOverwrite(definition.Key, editor.Value, configured);
                 CoreEnvStructuredValidation.Validate(definition, editor.Value);
                 dialog.Result = CoreEnvEditResult.Set(editor.Value);
                 dialog.Close();
@@ -890,6 +960,13 @@ public sealed partial class UiDialogService : IUiDialogService
         return result.Action == CoreEnvEditAction.Set ? result.Value : null;
     }
 
+    public Task<CoreEnvEditResult> PromptCoreEnvRawEditAsync(
+        CoreEnvDefinition definition,
+        string initial,
+        bool configured,
+        string description) =>
+        PromptBasicCoreEnvEditAsync(definition, initial, configured, description);
+
     private async Task<CoreEnvEditResult> PromptBasicCoreEnvEditAsync(
         CoreEnvDefinition definition,
         string initial,
@@ -897,10 +974,12 @@ public sealed partial class UiDialogService : IUiDialogService
         string description)
     {
         ArgumentNullException.ThrowIfNull(definition);
-        if (initial.Length > 0)
-        {
-            CoreEnvRepository.ValidateValue(definition, initial);
-        }
+        // 打开编辑器前不再拿存量值做硬校验：核心改了选项/上下限、或我们的选项与核心不同时，
+        // 直接抛错会让这个变量变成「看得见、点不开、也改不了」的死角。
+        // 严格性挪到保存处：**改动过**的值一律走核心口径校验，没改动则允许原样存回去。
+        var selectCannotShowCurrentValue = definition.Type == CoreEnvType.Select &&
+                                           initial.Length > 0 &&
+                                           !definition.Options.Contains(initial, StringComparer.Ordinal);
 
         // 每种类型的控件形状、标签文案与核心自带前端 renderValueInput 的分支对齐：
         // boolean → 「值」+ 48×26 开关（右侧 启用/禁用）；number → 「值 (min-max)」+ 滚轮 + 滑块；
@@ -915,10 +994,14 @@ public sealed partial class UiDialogService : IUiDialogService
                 : string.Equals(initial, "true", StringComparison.OrdinalIgnoreCase);
             input = new SwitchEditor(initialOn);
         }
-        else if (definition.Type == CoreEnvType.Number)
+        else if (definition.Type == CoreEnvType.Number &&
+                 definition.Minimum is not null && definition.Maximum is not null)
         {
-            var minimum = definition.Minimum is null ? 1d : (double)definition.Minimum.Value;
-            var maximum = definition.Maximum is null ? 100d : (double)definition.Maximum.Value;
+            // 只有核心真的声明了上下限才用滚轮：猜一个范围会把 100 以上的存量值 Clamp 掉，
+            // 也把用户能合法填写的值挡在控件之外。没声明范围时退回文本框，
+            // 合法性仍由 CoreEnvRepository.ValidateValue 按核心口径判。
+            var minimum = (double)definition.Minimum.Value;
+            var maximum = (double)definition.Maximum.Value;
             input = new NumberWheelEditor(
                 minimum,
                 maximum,
@@ -926,7 +1009,7 @@ public sealed partial class UiDialogService : IUiDialogService
                     ? (double)parsed
                     : null);
         }
-        else if (definition.Type == CoreEnvType.Select)
+        else if (definition.Type == CoreEnvType.Select && !selectCannotShowCurrentValue)
         {
             input = new TagSelectEditor(definition.Options, initial);
         }
@@ -996,7 +1079,12 @@ public sealed partial class UiDialogService : IUiDialogService
                 }
 
                 GuardAgainstEmptyOverwrite(definition.Key, value, configured);
-                CoreEnvRepository.ValidateValue(definition, value);
+                if (!string.Equals(value, initial, StringComparison.Ordinal))
+                {
+                    // 与上面「打开不校验」配对：只要用户动了值，就按核心口径严格校验；
+                    // 原样存回存量值不校验，避免我们自己的选项过期反而把用户挡在门外。
+                    CoreEnvRepository.ValidateValue(definition, value);
+                }
                 dialog.Result = CoreEnvEditResult.Set(value);
                 dialog.Close();
             }
@@ -1084,16 +1172,26 @@ public sealed partial class UiDialogService : IUiDialogService
     public async Task<bool> ShowCommitDetailsAsync(GithubCommitDetails details)
     {
         ArgumentNullException.ThrowIfNull(details);
-        var dialog = new CommitDetailsWindow(details);
+        var dialog = new CommitDetailsWindow(details, ReportMarkdownLinkFailure);
         return await dialog.ShowDialog<bool>(GetOwner());
     }
 
-    public async Task<bool> ShowPullRequestDetailsAsync(GithubPullRequest pullRequest, IReadOnlyList<GithubFileChange> files)
+    public async Task ShowPullRequestDetailsAsync(GithubPullRequest pullRequest, IReadOnlyList<GithubFileChange> files)
     {
         ArgumentNullException.ThrowIfNull(pullRequest);
         ArgumentNullException.ThrowIfNull(files);
-        var dialog = new PullRequestDetailsWindow(pullRequest, files);
-        return await dialog.ShowDialog<bool>(GetOwner());
+        var dialog = new PullRequestDetailsWindow(pullRequest, files, ReportMarkdownLinkFailure);
+        await dialog.ShowDialog(GetOwner());
+    }
+
+    /// <summary>Markdown 里的链接打不开时记诊断：用户点了没反应也要在日志里留痕。</summary>
+    private void ReportMarkdownLinkFailure(string message) => _diagnostics?.Record(message);
+
+    public async Task<PullRequestBuildConfirmation> ConfirmPullRequestBuildAsync(PullRequestBuildPrompt prompt)
+    {
+        ArgumentNullException.ThrowIfNull(prompt);
+        var dialog = new PullRequestBuildConfirmWindow(prompt);
+        return await dialog.ShowDialog<PullRequestBuildConfirmation>(GetOwner());
     }
 
     public async Task<bool> ShowUpdateDetailsAsync(GithubCompareResult comparison, string localDisplay, string remoteDisplay)

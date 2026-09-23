@@ -186,8 +186,10 @@ public sealed class RuntimeManagementClient : IRuntimeManagementClient
     {
         foreach (var secret in secrets.Where(x => !string.IsNullOrWhiteSpace(x)).OrderByDescending(x => x!.Length))
         {
-            message = message.Replace(secret!, "***", StringComparison.Ordinal);
-            message = message.Replace(Uri.EscapeDataString(secret!), "***", StringComparison.OrdinalIgnoreCase);
+            foreach (var form in RuntimeEndpointBuilder.TokenTextForms(secret!))
+            {
+                message = message.Replace(form, "***", StringComparison.OrdinalIgnoreCase);
+            }
         }
         return message.Replace('\r', ' ').Replace('\n', ' ');
     }

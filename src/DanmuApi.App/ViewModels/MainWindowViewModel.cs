@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Globalization;
 using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -8,6 +9,17 @@ using DanmuApi.Platform;
 using DanmuApi.Runtime;
 
 namespace DanmuApi.App.ViewModels;
+
+/// <summary>
+/// 侧栏「有更新」卡片的一条内容。核心与应用各算一条：两条都有就并列显示，
+/// 一条都没有时整块卡片收起（不留空洞）。Icon 是 24×24 的 SVG 路径数据（PathIcon 直接用），
+/// 点击不跳转页面，而是由 <see cref="MainWindowViewModel.OpenUpdateHintCommand"/> 打开快速更新弹窗。
+/// </summary>
+public sealed record SidebarUpdateHint(string Kind, string Icon, string Title, string Detail)
+{
+    /// <summary>折叠侧栏时卡片只剩图标，靠 ToolTip 与无障碍名称说明这是哪一条更新。</summary>
+    public string ToolTip => string.IsNullOrWhiteSpace(Detail) ? Title : $"{Title}｜{Detail}";
+}
 
 public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 {
@@ -23,6 +35,7 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     private readonly SettingsPageViewModel _settingsPage;
     private readonly CorePageViewModel? _corePage;
     private readonly ICoreManagementService? _coreManagement;
+    private readonly IAppDiagnostics? _diagnostics;
     private readonly Func<ActivityPageViewModel>? _activityPageFactory;
     private readonly Func<ToolsPageViewModel>? _toolsPageFactory;
     private readonly Func<DanmuDownloadPageViewModel>? _downloadPageFactory;
@@ -86,7 +99,9 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         IAdminWriteGate? writeGate = null,
         ICoreRequestRecordsClient? requestRecordsClient = null,
         RuntimePreparationService? preparation = null,
-        ICoreManagementService? coreManagement = null)
+        ICoreManagementService? coreManagement = null,
+        ICoreUpdateCoordinator? coreUpdateCoordinator = null,
+        IAppDiagnostics? diagnostics = null)
     {
         _controller = controller ?? throw new ArgumentNullException(nameof(controller));
         _healthClient = healthClient ?? throw new ArgumentNullException(nameof(healthClient));
@@ -99,7 +114,16 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         _dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
         _settingsPage = settingsPage ?? throw new ArgumentNullException(nameof(settingsPage));
         _corePage = corePage;
+        if (coreUpdateCoordinator is not null)
+        {
+            // 核心更新的权威来源是协调器：前台、后台、托盘与手动检查都只往它那里汇一次结果。
+            // 绑核心页自己的状态会漏掉「用户从没进过核心页」的那一半场景。
+            _coreUpdate = coreUpdateCoordinator.LastResult;
+            _coreUpdateCoordinator = coreUpdateCoordinator;
+            coreUpdateCoordinator.ResultChanged += OnCoreUpdateResultChanged;
+        }
         _coreManagement = coreManagement;
+        _diagnostics = diagnostics;
         _activityPageFactory = activityPageFactory;
         _toolsPageFactory = toolsPageFactory;
         _downloadPageFactory = downloadPageFactory;
@@ -141,6 +165,8 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         _token = LoadRuntimeToken();
         _controller.SnapshotChanged += OnSnapshotChanged;
         _healthLoop = HealthLoopAsync(_disposeCts.Token);
+        // 协调器可能在壳层构造之前就已经查过（托盘/后台触发），卡片要立刻反映这份既有结果。
+        RefreshUpdateHints();
         RestartRequestStats();
     }
 
@@ -194,8 +220,126 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
     public IReadOnlyList<NavigationItem> NavigationItems { get; }
     [ObservableProperty] private ApplicationUpdateViewModel? _applicationUpdates;
+
+    [ObservableProperty] private IReadOnlyList<SidebarUpdateHint> _updateHints = [];
+    public bool HasUpdateHints => UpdateHints.Count > 0;
     public bool HasActiveDownload => _downloadPage?.QueueRunningCount > 0;
-    [RelayCommand] private void OpenApplicationUpdates() => NavigateTo("about");
+
+    partial void OnUpdateHintsChanged(IReadOnlyList<SidebarUpdateHint> value) => OnPropertyChanged(nameof(HasUpdateHints));
+
+    private ApplicationUpdateViewModel? _hintAppSource;
+    private readonly ICoreUpdateCoordinator? _coreUpdateCoordinator;
+    private CoreUpdateCheckResult? _coreUpdate;
+
+    /// <summary>
+    /// 结论变化（<paramref name="result"/> 为 null = 已作废）时重算卡片。
+    /// 作废是关键路径：核心在核心页或托盘被更新/回退/删除后，卡片必须立刻消失，
+    /// 不能等到下一次联网检查才撤。
+    /// </summary>
+    private void OnCoreUpdateResultChanged(object? sender, CoreUpdateCheckResult? result)
+    {
+        DispatchToUi(() =>
+        {
+            _coreUpdate = result;
+            RefreshUpdateHints();
+        });
+    }
+
+    partial void OnApplicationUpdatesChanged(ApplicationUpdateViewModel? value)
+    {
+        if (_hintAppSource is not null) _hintAppSource.PropertyChanged -= OnUpdateHintSourceChanged;
+        _hintAppSource = value;
+        if (value is not null) value.PropertyChanged += OnUpdateHintSourceChanged;
+        // 软件更新的状态可能在赋值之前就已经从设置里恢复出来了，这里补一次刷新。
+        RefreshUpdateHints();
+    }
+
+    private void OnUpdateHintSourceChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName is nameof(ApplicationUpdateViewModel.HasUpdate)
+            or nameof(ApplicationUpdateViewModel.AvailableVersion))
+        {
+            DispatchToUi(RefreshUpdateHints);
+        }
+    }
+
+    private void RefreshUpdateHints()
+    {
+        var hints = new List<SidebarUpdateHint>(2);
+        // 协调器的结果里 UpdateAvailable 已经把「本地就是远端」算进去了。侧栏只有 ~150px 文本宽，
+        // 所以变体名放标题、详情只留最关键的一小段（短提交 / 版本跳转），避免把号截没。
+        if (_coreUpdate is { Status: CoreUpdateCheckStatus.Checked, UpdateAvailable: true, Remote: { } remote } coreUpdate)
+        {
+            hints.Add(new SidebarUpdateHint(
+                "core",
+                QuickUpdateDialogViewModel.CoreIcon,
+                "核心可更新",
+                $"{coreUpdate.Variant.ToLabel()} · {remote.ShortSha}"));
+        }
+
+        if (ApplicationUpdates is { HasUpdate: true } app)
+        {
+            hints.Add(new SidebarUpdateHint(
+                "app",
+                QuickUpdateDialogViewModel.ApplicationIcon,
+                "软件可更新",
+                // 侧栏文本区只有 ~140px：完整「0.5.10 → 0.6.0-preview.1」会在连字符处断行，
+                // 所以这里只留目标版本，当前版本在弹窗与关于页都是全的。
+                string.IsNullOrWhiteSpace(app.AvailableVersion)
+                    ? "发现新的测试版"
+                    : $"→ {app.AvailableVersion}"));
+        }
+
+        UpdateHints = hints;
+    }
+
+    /// <summary>
+    /// 卡片点击的唯一动作：开快速更新弹窗，两种更新都在弹窗里做完。
+    /// 以前这里直接 NavigateTo 跳页，用户为了装一个更新要在侧栏里来回找。
+    /// </summary>
+    [RelayCommand]
+    private async Task OpenUpdateHintAsync(SidebarUpdateHint? hint)
+    {
+        if (hint is null)
+        {
+            return;
+        }
+
+        if (hint.Kind == "core")
+        {
+            if (_corePage is not { } page || _coreUpdate is not { Remote: { } remote } update)
+            {
+                await _dialogService.ShowMessageAsync("核心更新", "这条更新提示已经过期，请到核心页重新检查。", isError: true);
+                return;
+            }
+
+            var model = QuickUpdateDialogViewModel.ForCore(
+                update.Variant,
+                update.Local?.CommitSha ?? "",
+                remote.Sha,
+                remote.Title,
+                applyCoreAsync: async () =>
+                {
+                    // 线路确认与下载进度由核心页那套编排自己弹窗；这里只负责更新完把提示撤掉。
+                    var result = await page.ApplyUpdateAsync(update);
+                    if (result?.Succeeded == true)
+                    {
+                        _coreUpdate = null;
+                        RefreshUpdateHints();
+                    }
+                },
+                openCorePage: () => NavigateTo("core"));
+            await _dialogService.ShowQuickUpdateAsync(model);
+            return;
+        }
+
+        if (ApplicationUpdates is { } applicationUpdates)
+        {
+            await _dialogService.ShowQuickUpdateAsync(
+                QuickUpdateDialogViewModel.ForApplication(applicationUpdates));
+        }
+    }
+
 
     public double SidebarWidth => IsSidebarCollapsed ? 68 : 216;
     public bool IsSidebarExpanded => !IsSidebarCollapsed;
@@ -250,6 +394,42 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             _ => "未知",
         };
     public string CoreVariantText => _config is null ? "配置无效" : $"{_config.Variant.ToUpperInvariant()} 变体";
+
+    /// <summary>
+    /// 当前运行变体是不是本地 PR 组合，以及并入了哪些 PR。读的是该变体目录里落盘的来源 manifest，
+    /// 所以核心页合并完（含托盘/后台路径）在概览与侧栏能立刻看到「已合并 PR」。
+    /// 读不出来只记诊断并显示「未知」：这里绝不能把"读不到"当成"没有组合"。
+    /// </summary>
+    public string MergedPullRequestText
+    {
+        get
+        {
+            if (_config is null)
+            {
+                return "配置无效";
+            }
+
+            try
+            {
+                var directory = Path.Combine(_paths.NodeProjectDirectory, $"danmu_api_{_config.Variant}");
+                var manifest = CoreManifestStore.Read(directory);
+                if (manifest is not { IsLocalPullRequestStack: true } || manifest.PullRequests.Count == 0)
+                {
+                    return "无";
+                }
+
+                return string.Join(" ", manifest.PullRequests.Select(source => $"#{source.Number.ToString(CultureInfo.InvariantCulture)}"));
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or FormatException)
+            {
+                _diagnostics?.Record("读取核心 PR 组合来源失败", error);
+                return "未知";
+            }
+        }
+    }
+
+    public bool HasMergedPullRequests => MergedPullRequestText is not ("无" or "未知" or "配置无效");
+    public string MergedPullRequestSummaryText => HasMergedPullRequests ? $"已合并 PR {MergedPullRequestText}" : string.Empty;
     public string PortText => Runtime.Port?.ToString(CultureInfo.InvariantCulture) ?? (_config?.Port.ToString(CultureInfo.InvariantCulture) ?? "配置无效");
     public string TokenMasked => MaskToken(_token);
     public string TokenDisplay => IsTokenVisible ? _token : TokenMasked;
@@ -719,6 +899,10 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         {
             OnPropertyChanged(nameof(CoreVersionText));
             OnPropertyChanged(nameof(CoreVersionShortText));
+            // 本地 PR 组合同样是"磁盘上的安装被换掉了"：概览与侧栏的「已合并 PR」必须立刻跟上。
+            OnPropertyChanged(nameof(MergedPullRequestText));
+            OnPropertyChanged(nameof(HasMergedPullRequests));
+            OnPropertyChanged(nameof(MergedPullRequestSummaryText));
         });
 
     private void NotifyConfigurationChanged()
@@ -728,6 +912,9 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         OnPropertyChanged(nameof(TokenDisplay));
         OnPropertyChanged(nameof(CoreVersionText));
         OnPropertyChanged(nameof(CoreVariantText));
+        OnPropertyChanged(nameof(MergedPullRequestText));
+        OnPropertyChanged(nameof(HasMergedPullRequests));
+        OnPropertyChanged(nameof(MergedPullRequestSummaryText));
         OnPropertyChanged(nameof(EndpointItems));
         OnPropertyChanged(nameof(ListenHostText));
     }
@@ -995,6 +1182,8 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _settingsPage.SettingsChanged -= OnSettingsChanged;
+        if (_coreUpdateCoordinator is not null) _coreUpdateCoordinator.ResultChanged -= OnCoreUpdateResultChanged;
+        if (_hintAppSource is not null) _hintAppSource.PropertyChanged -= OnUpdateHintSourceChanged;
         if (ConfigurationPage is not null)
         {
             ConfigurationPage.CoreConfigurationChanged -= OnCoreConfigurationChanged;

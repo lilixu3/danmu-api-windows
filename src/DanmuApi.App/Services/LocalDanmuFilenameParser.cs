@@ -76,7 +76,11 @@ public static partial class LocalDanmuFilenameParser
             }
         }
 
-        return new LocalDanmuFileGuess(title, year, type, season ?? 1, episode, notes);
+        // 缺集数时按提示真的填成第 1 集（与季数同一口径，导入面板里每行都还能改）。
+        // 只写提示不填值的话，用户看到「默认第 1 集」却仍被判「集数必须是大于 0 的整数」，整批一条都传不上去。
+        var resolvedEpisode = type == LocalDanmuTypes.Tv ? episode ?? 1 : episode;
+
+        return new LocalDanmuFileGuess(title, year, type, season ?? 1, resolvedEpisode, notes);
     }
 
     /// <summary>去掉目录与扩展名（含 <c>.tar.gz</c> 这类多重后缀里的最后一段）。</summary>

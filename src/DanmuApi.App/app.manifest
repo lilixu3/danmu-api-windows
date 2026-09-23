@@ -15,4 +15,13 @@
       <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" />
     </application>
   </compatibility>
+
+  <!-- 声明进程支持长路径（>260 字符）。不声明时即使系统开了 LongPathsEnabled，进程内仍按 MAX_PATH
+       限制，首启解压 node_modules 的深层依赖、或运行目录被 OneDrive 重定向到深处时就会抛
+       PathTooLongException（AGENTS §5 把长路径列为必测项）。 -->
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
+    </windowsSettings>
+  </application>
 </assembly>

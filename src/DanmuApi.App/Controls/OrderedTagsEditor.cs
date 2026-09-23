@@ -141,6 +141,9 @@ public sealed class OrderedTagsEditor : Border
 
     public IReadOnlyList<string> Values => _picker.Values;
 
+    /// <summary>保存前把合并模式暂存区落地；失败时保留暂存内容并给出原因。</summary>
+    public bool TryConfirmPendingStaging(out string? error) => _picker.TryConfirmPendingStaging(out error);
+
     public TagPicker Picker => _picker;
 
     /// <summary>已选中但核心未声明的条目，为空表示全部合法。</summary>

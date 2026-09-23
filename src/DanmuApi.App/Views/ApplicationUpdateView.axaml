@@ -1,4 +1,4 @@
-<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:vm="using:DanmuApi.App.ViewModels" x:Class="DanmuApi.App.Views.ApplicationUpdateView" x:DataType="vm:ApplicationUpdateViewModel">
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:vm="using:DanmuApi.App.ViewModels" xmlns:controls="using:DanmuApi.App.Controls" x:Class="DanmuApi.App.Views.ApplicationUpdateView" x:DataType="vm:ApplicationUpdateViewModel">
   <Border Classes="dashboard-panel" Padding="28" CornerRadius="12">
     <StackPanel Spacing="16">
       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
@@ -16,7 +16,8 @@
         <TextBlock Text="{Binding PackageText}" Classes="body-muted" TextWrapping="Wrap" />
         <Expander Header="发行说明" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" IsExpanded="True">
           <ScrollViewer MaxHeight="260" HorizontalScrollBarVisibility="Disabled">
-            <SelectableTextBlock Text="{Binding ReleaseNotes}" TextWrapping="Wrap" Margin="0,12" />
+            <!-- 发行说明是 GitHub 的 Markdown 正文：与 PR 描述用同一个渲染控件。 -->
+            <controls:MarkdownView Markdown="{Binding ReleaseNotes}" Margin="0,12" />
           </ScrollViewer>
         </Expander>
         <WrapPanel>

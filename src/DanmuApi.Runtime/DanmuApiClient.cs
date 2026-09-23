@@ -13,6 +13,13 @@ public sealed class DanmuApiClient : IDanmuApiClient
     private const int MaxResponseBytes = 8 * 1024 * 1024;
     private readonly HttpClient _httpClient;
     private readonly TimeSpan _requestTimeout;
+
+    /// <summary>
+    /// 收藏的增改刷新要等核心把多源搜索跑完才回话（<c>favorite-api.js</c> 里
+    /// <c>handleFavoriteRefresh</c> 是 <c>await refreshFavoriteByKeyword</c>），20 秒的通用超时会对
+    /// 慢源判成假失败；而核心此时仍在跑，用户再点一次就撞 409「该收藏正在刷新」。
+    /// </summary>
+    private static readonly TimeSpan FavoriteMutationTimeout = TimeSpan.FromSeconds(90);
     private readonly IRuntimeController? _runtimeController;
     private readonly ILocalRequestRecordStore? _requestRecords;
 
@@ -455,7 +462,7 @@ public sealed class DanmuApiClient : IDanmuApiClient
         var authority = host.Contains(':', StringComparison.Ordinal) && !host.StartsWith('[')
             ? $"[{host}]"
             : host;
-        return new Uri($"http://{authority}:{port}/{Uri.EscapeDataString(token.Trim())}{pathAndQuery}", UriKind.Absolute);
+        return new Uri($"http://{authority}:{port}/{RuntimeEndpointBuilder.EncodeTokenSegment(token.Trim())}{pathAndQuery}", UriKind.Absolute);
     }
 
     public static DanmuSearchAnimeResult ParseSearchAnime(byte[] body)
@@ -678,7 +685,9 @@ public sealed class DanmuApiClient : IDanmuApiClient
         var endpoint = BuildApiUri(host, port, EffectiveToken(effectivePathToken), path);
         var trace = BeginTrace(FavoriteScene(path), HttpMethod.Post, endpoint, payload);
         var body = new StringContent(payload, Encoding.UTF8, "application/json");
-        var response = await SendAsync(host, port, token, adminToken, HttpMethod.Post, endpoint, body, trace, cancellationToken).ConfigureAwait(false);
+        var response = await SendAsync(
+            host, port, token, adminToken, HttpMethod.Post, endpoint, body, trace, cancellationToken,
+            FavoriteMutationTimeout).ConfigureAwait(false);
         try
         {
             using var document = ParseDocument(response.Bytes, "收藏操作");
@@ -801,7 +810,8 @@ public sealed class DanmuApiClient : IDanmuApiClient
         Uri endpoint,
         HttpContent? content,
         RequestTrace? trace,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? timeoutOverride = null)
     {
         RuntimeValidation.ValidateHost(host);
         RuntimeValidation.ValidatePort(port);
@@ -816,7 +826,7 @@ public sealed class DanmuApiClient : IDanmuApiClient
         }
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(_requestTimeout);
+        timeout.CancelAfter(timeoutOverride ?? _requestTimeout);
         using var request = new HttpRequestMessage(method, endpoint) { Content = content };
         try
         {
@@ -1517,8 +1527,10 @@ public sealed class DanmuApiClient : IDanmuApiClient
         var result = value.Replace('\r', ' ').Replace('\n', ' ');
         foreach (var secret in new[] { token, adminToken }.Where(secret => !string.IsNullOrWhiteSpace(secret)))
         {
-            result = result.Replace(secret!, "***", StringComparison.Ordinal)
-                .Replace(Uri.EscapeDataString(secret!), "***", StringComparison.Ordinal);
+            foreach (var form in RuntimeEndpointBuilder.TokenTextForms(secret!))
+            {
+                result = result.Replace(form, "***", StringComparison.OrdinalIgnoreCase);
+            }
         }
 
         return result;

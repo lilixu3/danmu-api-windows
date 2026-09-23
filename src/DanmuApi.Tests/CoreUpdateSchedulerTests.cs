@@ -9,7 +9,7 @@ public sealed class CoreUpdateSchedulerTests
     public async Task SoftwareUpdatePausePreventsCoreInstallDispatchAndCanResume()
     {
         var remote = new RecordingRemote(RemoteCommit(new string('b',40)));
-        var coordinator = new CoreUpdateCoordinator(new FixedInstaller(Installed(new string('a',40))),remote,new MemoryTimestampStore());
+        var coordinator = new CoreUpdateCoordinator(new FixedInstaller(Installed(new string('a',40))),remote,new MemoryTimestampStore(),new MemoryCoreUpdateDiscoveryStore());
         var handler = new RecordingHandler();
         await using var scheduler = new CoreUpdateScheduler(coordinator,new FixedPolicyStore(CoreUpdateScheduleOptions.Default),handler,()=>ManagedCoreVariant.Stable);
         await scheduler.PauseForApplicationUpdateAsync();
@@ -24,7 +24,7 @@ public sealed class CoreUpdateSchedulerTests
     public async Task FailedNotificationClaimIsReleasedButSuccessfulSubmissionIsDeduplicated()
     {
         var remote = new RecordingRemote(RemoteCommit(new string('b', 40)));
-        var coordinator = new CoreUpdateCoordinator(new FixedInstaller(Installed(new string('a', 40))), remote, new MemoryTimestampStore());
+        var coordinator = new CoreUpdateCoordinator(new FixedInstaller(Installed(new string('a', 40))), remote, new MemoryTimestampStore(), new MemoryCoreUpdateDiscoveryStore());
         var handler = new RecordingHandler { FailNext = true };
         await using var scheduler = new CoreUpdateScheduler(coordinator, new FixedPolicyStore(CoreUpdateScheduleOptions.Default), handler, () => ManagedCoreVariant.Stable);
         await Assert.ThrowsAsync<IOException>(() => scheduler.CheckManualAsync(ManagedCoreVariant.Stable));
@@ -39,7 +39,7 @@ public sealed class CoreUpdateSchedulerTests
         var release = new TaskCompletionSource<GithubCommit>(TaskCreationOptions.RunContinuationsAsynchronously);
         var remote = new RecordingRemote(release.Task);
         var installer = new FixedInstaller(Installed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
-        var coordinator = new CoreUpdateCoordinator(installer, remote, new MemoryTimestampStore());
+        var coordinator = new CoreUpdateCoordinator(installer, remote, new MemoryTimestampStore(), new MemoryCoreUpdateDiscoveryStore());
         var handler = new RecordingHandler();
         await using var scheduler = new CoreUpdateScheduler(
             coordinator,
@@ -66,6 +66,7 @@ public sealed class CoreUpdateSchedulerTests
             new FixedInstaller(Installed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")),
             remote,
             new MemoryTimestampStore(),
+            new MemoryCoreUpdateDiscoveryStore(),
             timeProvider: time);
         var options = CoreUpdateScheduleOptions.Default;
         await using var scheduler = new CoreUpdateScheduler(
@@ -94,7 +95,8 @@ public sealed class CoreUpdateSchedulerTests
         var coordinator = new CoreUpdateCoordinator(
             new FixedInstaller(Installed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")),
             remote,
-            new MemoryTimestampStore());
+            new MemoryTimestampStore(),
+            new MemoryCoreUpdateDiscoveryStore());
         await using var scheduler = new CoreUpdateScheduler(
             coordinator,
             new FixedPolicyStore(CoreUpdateScheduleOptions.Default),
@@ -116,7 +118,8 @@ public sealed class CoreUpdateSchedulerTests
         var coordinator = new CoreUpdateCoordinator(
             new FixedInstaller(Installed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")),
             remote,
-            new MemoryTimestampStore());
+            new MemoryTimestampStore(),
+            new MemoryCoreUpdateDiscoveryStore());
         await using var scheduler = new CoreUpdateScheduler(
             coordinator,
             new FixedPolicyStore(CoreUpdateScheduleOptions.Default with { BackgroundEnabled = false }),
@@ -311,4 +314,97 @@ public sealed class SettingsCoreUpdatePolicyStoreTests : IDisposable
 
     private SettingsCoreUpdatePolicyStore CreateStore() =>
         new(new SettingsStore(Path.Combine(_root, "settings.properties")));
+}
+
+/// <summary>
+/// 核心更新发现记录的落盘：这是"重启后侧栏卡片还在"的唯一依据，所以
+/// ① 每变体独立、② 值能原样读回、③ 残缺记录不许拼半个卡片出来。
+/// </summary>
+public sealed class SettingsCoreUpdateDiscoveryStoreTests : IDisposable
+{
+    private readonly string _root = Path.Combine(Path.GetTempPath(), $"danmu-discovery-{Guid.NewGuid():N}");
+
+    [Fact]
+    public void SavedDiscoverySurvivesAFreshStoreInstance()
+    {
+        var expected = new CoreUpdateDiscovery(
+            ManagedCoreVariant.Dev,
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "fix: 修复合并规则",
+            DateTimeOffset.FromUnixTimeMilliseconds(1790000000000));
+        CreateStore().Write(expected);
+
+        // 新实例 = 新进程：只认磁盘上的内容。
+        Assert.Equal(expected, CreateStore().Read(ManagedCoreVariant.Dev));
+    }
+
+    [Fact]
+    public void VariantsKeepSeparateRecordsAndClearIsPerVariant()
+    {
+        var store = CreateStore();
+        var checkedAt = DateTimeOffset.FromUnixTimeMilliseconds(1790000000000);
+        store.Write(new CoreUpdateDiscovery(
+            ManagedCoreVariant.Stable, new string('a', 40), new string('b', 40), "stable", checkedAt));
+        store.Write(new CoreUpdateDiscovery(
+            ManagedCoreVariant.Custom, new string('c', 40), new string('d', 40), "custom", checkedAt));
+
+        store.Clear(ManagedCoreVariant.Stable);
+
+        Assert.Null(store.Read(ManagedCoreVariant.Stable));
+        Assert.Equal("custom", store.Read(ManagedCoreVariant.Custom)!.RemoteTitle);
+    }
+
+    [Fact]
+    public void MissingRecordReadsAsNullWithoutDiagnostics()
+    {
+        var diagnostics = new List<string>();
+
+        Assert.Null(CreateStore(diagnostics).Read(ManagedCoreVariant.Stable));
+        Assert.Empty(diagnostics);
+    }
+
+    [Fact]
+    public void IncompleteRecordIsReportedInsteadOfGuessed()
+    {
+        var settings = new SettingsStore(Path.Combine(_root, "settings.properties"));
+        settings.Write(new Dictionary<string, string?>
+        {
+            [SettingsCoreUpdateDiscoveryStore.Key(ManagedCoreVariant.Stable, SettingsCoreUpdateDiscoveryStore.RemoteShaSuffix)] =
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        });
+        var diagnostics = new List<string>();
+
+        Assert.Null(new SettingsCoreUpdateDiscoveryStore(settings, diagnostics.Add).Read(ManagedCoreVariant.Stable));
+        Assert.Contains(diagnostics, message => message.Contains("不完整", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void GarbageTimestampIsReportedInsteadOfGuessed()
+    {
+        var settings = new SettingsStore(Path.Combine(_root, "settings.properties"));
+        settings.Write(new Dictionary<string, string?>
+        {
+            [SettingsCoreUpdateDiscoveryStore.Key(ManagedCoreVariant.Stable, SettingsCoreUpdateDiscoveryStore.RemoteShaSuffix)] = "b",
+            [SettingsCoreUpdateDiscoveryStore.Key(ManagedCoreVariant.Stable, SettingsCoreUpdateDiscoveryStore.LocalShaSuffix)] = "a",
+            [SettingsCoreUpdateDiscoveryStore.Key(ManagedCoreVariant.Stable, SettingsCoreUpdateDiscoveryStore.TitleSuffix)] = "title",
+            [SettingsCoreUpdateDiscoveryStore.Key(ManagedCoreVariant.Stable, SettingsCoreUpdateDiscoveryStore.CheckedAtSuffix)] = "not-a-number",
+        });
+        var diagnostics = new List<string>();
+
+        Assert.Null(new SettingsCoreUpdateDiscoveryStore(settings, diagnostics.Add).Read(ManagedCoreVariant.Stable));
+        Assert.Contains(diagnostics, message => message.Contains("时间无效", StringComparison.Ordinal));
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_root))
+        {
+            Directory.Delete(_root, recursive: true);
+        }
+    }
+
+    private SettingsCoreUpdateDiscoveryStore CreateStore(List<string>? diagnostics = null) =>
+        new(new SettingsStore(Path.Combine(_root, "settings.properties")),
+            diagnostics is null ? null : diagnostics.Add);
 }

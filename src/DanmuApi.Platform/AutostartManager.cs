@@ -23,14 +23,72 @@ public sealed record CommandExecutionResult(
 public interface IPlatformCommandExecutor
 {
     CommandExecutionResult Execute(string executablePath, IReadOnlyList<string> arguments);
+
+    /// <summary>
+    /// 带超时与取消的执行。外部命令（reg.exe / netsh.exe / 提权后的 powershell）都可能无限期挂住——
+    /// UAC 提示不答就是永久 Pending，UI 连取消都不生效，所以这两件事必须由执行器负责。
+    /// 默认实现退化为无超时版本，好让测试替身不必跟着改签名。
+    /// </summary>
+    CommandExecutionResult Execute(
+        string executablePath,
+        IReadOnlyList<string> arguments,
+        TimeSpan timeout,
+        CancellationToken cancellationToken) =>
+        Execute(executablePath, arguments);
+
+    CommandExecutionResult Execute(
+        string executablePath,
+        IReadOnlyList<string> arguments,
+        string workingDirectory,
+        TimeSpan timeout,
+        CancellationToken cancellationToken) =>
+        Execute(executablePath, arguments, timeout, cancellationToken);
+
+    CommandExecutionResult Execute(
+        string executablePath,
+        IReadOnlyList<string> arguments,
+        string workingDirectory,
+        TimeSpan timeout,
+        CancellationToken cancellationToken,
+        IReadOnlyDictionary<string, string> environment) =>
+        throw new NotSupportedException("此命令执行器不支持隔离 Git 环境");
 }
 
 public sealed class ProcessCommandExecutor : IPlatformCommandExecutor
 {
-    public CommandExecutionResult Execute(string executablePath, IReadOnlyList<string> arguments)
+    /// <summary>没显式给预算时的兜底：够 reg.exe 写完一个键，又不至于把 UI 挂死。</summary>
+    private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(30);
+
+    public CommandExecutionResult Execute(string executablePath, IReadOnlyList<string> arguments) =>
+        Execute(executablePath, arguments, DefaultTimeout, CancellationToken.None);
+
+    public CommandExecutionResult Execute(
+        string executablePath,
+        IReadOnlyList<string> arguments,
+        TimeSpan timeout,
+        CancellationToken cancellationToken) =>
+        Execute(executablePath, arguments, string.Empty, timeout, cancellationToken);
+
+    public CommandExecutionResult Execute(
+        string executablePath,
+        IReadOnlyList<string> arguments,
+        string workingDirectory,
+        TimeSpan timeout,
+        CancellationToken cancellationToken) =>
+        Execute(executablePath, arguments, workingDirectory, timeout, cancellationToken,
+            new Dictionary<string, string>());
+
+    public CommandExecutionResult Execute(
+        string executablePath,
+        IReadOnlyList<string> arguments,
+        string workingDirectory,
+        TimeSpan timeout,
+        CancellationToken cancellationToken,
+        IReadOnlyDictionary<string, string> environment)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(executablePath);
         ArgumentNullException.ThrowIfNull(arguments);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
 
         using var process = new Process
         {
@@ -43,11 +101,29 @@ public sealed class ProcessCommandExecutor : IPlatformCommandExecutor
                 RedirectStandardError = true,
                 StandardOutputEncoding = Encoding.UTF8,
                 StandardErrorEncoding = Encoding.UTF8,
+                WorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory)
+                    ? Environment.CurrentDirectory
+                    : Path.GetFullPath(workingDirectory),
             },
         };
         foreach (var argument in arguments)
         {
             process.StartInfo.ArgumentList.Add(argument);
+        }
+        if (environment.ContainsKey("GIT_CONFIG_NOSYSTEM"))
+        {
+            foreach (var key in process.StartInfo.Environment.Keys
+                .Where(key => key.StartsWith("GIT_", StringComparison.OrdinalIgnoreCase) ||
+                              key.StartsWith("GCM_", StringComparison.OrdinalIgnoreCase) ||
+                              key.Equals("SSH_ASKPASS", StringComparison.OrdinalIgnoreCase))
+                .ToArray())
+            {
+                process.StartInfo.Environment.Remove(key);
+            }
+        }
+        foreach (var (key, value) in environment)
+        {
+            process.StartInfo.Environment[key] = value;
         }
 
         try
@@ -59,18 +135,80 @@ public sealed class ProcessCommandExecutor : IPlatformCommandExecutor
 
             var standardOutputTask = process.StandardOutput.ReadToEndAsync();
             var standardErrorTask = process.StandardError.ReadToEndAsync();
-            process.WaitForExit();
-            Task.WaitAll(standardOutputTask, standardErrorTask);
+            // 轮询而不是无参 WaitForExit()：后者在子进程等 UAC / netsh 卡住时会永久挂住调用线程，
+            // 取消令牌也就永远没有生效的机会。
+            var deadline = DateTime.UtcNow + timeout;
+            while (!process.WaitForExit(200))
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    Abort(process, executablePath, "命令已取消");
+                }
+
+                if (DateTime.UtcNow >= deadline)
+                {
+                    Abort(process, executablePath, $"命令超时（{(int)timeout.TotalSeconds} 秒）");
+                }
+            }
+
+            // 进程已退出，只给读尾流留一小段预算，避免流句柄没关闭时的第二次挂死。
+            var drained = false;
+            try
+            {
+                drained = Task.WaitAll([standardOutputTask, standardErrorTask], TimeSpan.FromSeconds(5));
+            }
+            catch (AggregateException)
+            {
+                // 读取流本身失败：下面按"没读完"处理，诊断里带上已经拿到的部分。
+            }
+
+            var standardOutput = standardOutputTask.IsCompletedSuccessfully ? standardOutputTask.Result : string.Empty;
+            var standardError = standardErrorTask.IsCompletedSuccessfully ? standardErrorTask.Result : string.Empty;
+            if (!drained)
+            {
+                standardError = string.IsNullOrWhiteSpace(standardError)
+                    ? "命令输出读取超时"
+                    : standardError + " | 命令输出读取超时";
+            }
+
             return new CommandExecutionResult(
                 true,
                 process.ExitCode,
-                standardOutputTask.Result,
-                standardErrorTask.Result);
+                standardOutput,
+                standardError);
+        }
+        catch (TimeoutException error)
+        {
+            // 取消/超时走这条：诊断里就是原因本身，不要包成"执行命令异常"。
+            return CommandExecutionResult.Failure(error.Message ?? "命令未完成");
         }
         catch (Exception error)
         {
             return CommandExecutionResult.Failure($"执行命令异常: {Describe(error)}");
         }
+    }
+
+    /// <summary>
+    /// 超时/取消都要留下痕迹：直接返回诊断，不静默吞掉进程——提权窗口里的 netsh 可能仍在跑，
+    /// 调用方要靠这句话判断该不该复查规则。
+    /// </summary>
+    private static void Abort(Process process, string executablePath, string reason)
+    {
+        var diagnostic = $"{reason}: {Path.GetFileName(executablePath)}";
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                process.WaitForExit(2000);
+            }
+        }
+        catch (Exception error)
+        {
+            diagnostic += $"（终止进程失败：{Describe(error)}）";
+        }
+
+        throw new TimeoutException(diagnostic);
     }
 
     private static string Describe(Exception error) => string.IsNullOrWhiteSpace(error.Message)

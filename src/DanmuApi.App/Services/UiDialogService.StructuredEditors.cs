@@ -131,7 +131,16 @@ public sealed partial class UiDialogService
         {
             try
             {
+                // 同 OrderedTagsEditor：暂存区里还没确认的组合必须在保存前落地，否则「已选」
+                // 变成写不进值的死路。
+                if (!editor.TryConfirmPendingStaging(out var stagingError))
+                {
+                    error.Text = stagingError;
+                    return;
+                }
+
                 var value = CoreEnvStructuredValues.FormatMergeSourcePairs(editor.Groups);
+                GuardAgainstEmptyOverwrite(definition.Key, value, configured);
                 _ = CoreEnvStructuredValues.ParseMergeSourcePairs(definition, value);
                 dialog.Result = CoreEnvEditResult.Set(value);
                 dialog.Close();
@@ -583,7 +592,9 @@ public sealed partial class UiDialogService
         {
             try
             {
-                dialog.Result = CoreEnvEditResult.Set(editor.GetValue());
+                var value = editor.GetValue();
+                GuardAgainstEmptyOverwrite(definition.Key, value, configured);
+                dialog.Result = CoreEnvEditResult.Set(value);
                 dialog.Close();
             }
             catch (Exception exception) when (exception is ArgumentException or FormatException)
@@ -609,6 +620,7 @@ public sealed partial class UiDialogService
             try
             {
                 var value = CoreEnvStructuredValues.FormatIpBlacklist(editor.Entries);
+                GuardAgainstEmptyOverwrite(definition.Key, value, configured);
                 var reparsed = CoreEnvStructuredValues.ParseIpBlacklist(value);
                 if (!reparsed.Select(entry => entry.Type).SequenceEqual(editor.Entries.Select(entry => entry.Type)))
                 {

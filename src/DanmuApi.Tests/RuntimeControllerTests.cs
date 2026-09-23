@@ -277,6 +277,68 @@ public sealed class RuntimeControllerTests
         Assert.Equal(0, supervisor.DisposeCalls);
     }
 
+    [Fact]
+    public async Task CancelledStopLandsOnFailedAndStillAllowsStartingAgain()
+    {
+        using var directory = new TemporaryDirectory();
+        var config = CreateConfig(directory.Path);
+        var supervisor = new FakeSupervisor
+        {
+            AdoptionResult = AdoptionResult.Success(new RuntimeSnapshot(
+                DesktopRuntimeState.Running,
+                config.Port,
+                1234,
+                "desktop-controller-test")),
+            StopThrowsCancellation = true,
+        };
+        await using var controller = new RuntimeController(supervisor, () => config);
+        await controller.StartAsync();
+        Assert.Equal(DesktopRuntimeState.Running, controller.Snapshot.State);
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => controller.StopAsync());
+
+        // 停在 Stopping 会让「启动」静默无效、停止按钮也点不动，只能重启应用；必须落成 Failed。
+        Assert.Equal(DesktopRuntimeState.Failed, controller.Snapshot.State);
+        Assert.False(string.IsNullOrWhiteSpace(controller.Snapshot.FailureReason));
+
+        // Failed 之后还能再点启动：start-retry 先收尾残留进程，再走认领/启动。
+        supervisor.StopThrowsCancellation = false;
+        await controller.StartAsync();
+        Assert.Equal(DesktopRuntimeState.Running, controller.Snapshot.State);
+        Assert.Contains("stop:start-retry", supervisor.Calls);
+    }
+
+    [Fact]
+    public async Task CancelledStopKeepsSupervisorFailureDetailIncludingPid()
+    {
+        using var directory = new TemporaryDirectory();
+        var config = CreateConfig(directory.Path);
+        var supervisor = new FakeSupervisor
+        {
+            AdoptionResult = AdoptionResult.Success(new RuntimeSnapshot(
+                DesktopRuntimeState.Running,
+                config.Port,
+                1234,
+                "desktop-controller-test")),
+            StopThrowsCancellation = true,
+            StopCancellationSnapshot = new RuntimeSnapshot(
+                DesktopRuntimeState.Failed,
+                config.Port,
+                4321,
+                "desktop-controller-test",
+                "停止 Node 被取消（reason=user），Node 子进程状态未知，可能仍在运行"),
+        };
+        await using var controller = new RuntimeController(supervisor, () => config);
+        await controller.StartAsync();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => controller.StopAsync());
+
+        // 监督器已经落好 Failed（含 PID）时，控制器不许用一句泛化文案把它盖掉。
+        Assert.Equal(DesktopRuntimeState.Failed, controller.Snapshot.State);
+        Assert.Equal(4321, controller.Snapshot.Pid);
+        Assert.Contains("可能仍在运行", controller.Snapshot.FailureReason, StringComparison.Ordinal);
+    }
+
     private static StartConfig CreateConfig(string scriptDir)
     {
         Directory.CreateDirectory(Path.Combine(scriptDir, "danmu_api_stable"));
@@ -317,6 +379,8 @@ public sealed class RuntimeControllerTests
 
         public RuntimeSnapshot StartResult { get; init; } = new(DesktopRuntimeState.Failed, FailureReason: "fake start not configured");
         public RuntimeSnapshot StopResult { get; init; } = new(DesktopRuntimeState.Stopped);
+        public bool StopThrowsCancellation { get; set; }
+        public RuntimeSnapshot? StopCancellationSnapshot { get; set; }
         public RuntimeSnapshot ForceStopResult { get; init; } = new(DesktopRuntimeState.Stopped);
         public bool BlockAdoption { get; init; }
         public string? LivenessResult { get; init; }
@@ -350,6 +414,16 @@ public sealed class RuntimeControllerTests
         public Task<RuntimeSnapshot> StopAsync(string reason = "user", CancellationToken cancellationToken = default)
         {
             Calls.Add($"stop:{reason}");
+            if (StopThrowsCancellation)
+            {
+                if (StopCancellationSnapshot is { } cancelled)
+                {
+                    _snapshot = cancelled;
+                }
+
+                throw new OperationCanceledException("停止被取消");
+            }
+
             _snapshot = StopResult;
             return Task.FromResult(_snapshot);
         }

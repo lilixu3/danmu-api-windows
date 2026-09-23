@@ -6,6 +6,16 @@ using DanmuApi.Runtime;
 
 namespace DanmuApi.App.Services;
 
+/// <summary>
+/// 「回到前台时静默检查一次更新」的接入面。核心侧由 <see cref="ICoreUpdateScheduler"/> 承担，
+/// 应用侧由 ApplicationUpdateViewModel 承担：两边各自负责冷却与「正在忙就让路」，
+/// 这里只负责在正确的时机敲门，不重复实现节流。
+/// </summary>
+public interface IForegroundUpdateCheck
+{
+    Task CheckOnForegroundAsync();
+}
+
 public sealed class AppLifecycleCoordinator
 {
     private readonly IRuntimeController _runtimeController;
@@ -38,6 +48,9 @@ public sealed class AppLifecycleCoordinator
     }
 
     public bool IsExitRequested => Volatile.Read(ref _exitRequested) != 0;
+
+    /// <summary>应用自身更新的检查入口；在 App 组装完成后挂上（构造期互相引用不成环，但顺序上拿不到）。</summary>
+    public IForegroundUpdateCheck? ApplicationUpdates { get; set; }
 
     public async Task HandleMainWindowClosingAsync(Window window, WindowClosingEventArgs args)
     {
@@ -194,6 +207,20 @@ public sealed class AppLifecycleCoordinator
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or FormatException or InvalidOperationException)
         {
             _diagnostics.Record("前台核心更新检查失败", error);
+        }
+
+        // 应用自身更新走同一条前台时机，但用自己的 30 分钟冷却；一条失败不影响另一条。
+        // 这里故意不 ConfigureAwait(false)：VM 要改绑定的属性，续跑必须留在 UI 线程。
+        try
+        {
+            if (ApplicationUpdates is { } updates)
+            {
+                await updates.CheckOnForegroundAsync();
+            }
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or FormatException or InvalidOperationException)
+        {
+            _diagnostics.Record("前台软件更新检查失败", error);
         }
     }
 

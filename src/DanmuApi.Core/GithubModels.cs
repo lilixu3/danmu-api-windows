@@ -65,7 +65,11 @@ public sealed record GithubPullRequest(
     string? HtmlUrl,
     int? Additions,
     int? Deletions,
-    int? ChangedFiles);
+    int? ChangedFiles)
+{
+    /// <summary>PR 创建时记录的 base SHA；GitHub 列表接口可能不提供，缺失不能猜测。</summary>
+    public string? BaseSha { get; init; }
+}
 
 public sealed record GithubPullRequestPage(
     IReadOnlyList<GithubPullRequest> Items,

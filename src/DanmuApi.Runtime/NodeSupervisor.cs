@@ -376,39 +376,42 @@ public sealed class NodeSupervisor : INodeSupervisor
                 return Snapshot;
             }
 
-            ProcessTerminationResult result;
             try
             {
-                result = await _terminator.TerminateAsync(
+                var result = await _terminator.TerminateAsync(
                     process,
                     _config?.NodeExe ?? string.Empty,
                     _config is null ? string.Empty : Path.Combine(_config.ScriptDir, "main.js"),
                     _config?.EffectiveShutdownTimeout ?? TimeSpan.FromSeconds(10),
                     cancellationToken).ConfigureAwait(false);
+
+                if (!result.Succeeded)
+                {
+                    return SetFailure($"停止 Node 失败（reason={reason}）: {result.Diagnostic}");
+                }
+
+                if (!await WaitForPortFreeAsync(current.Port ?? -1, cancellationToken).ConfigureAwait(false))
+                {
+                    return SetFailure($"Node 已退出，但端口 {current.Port} 仍被占用，拒绝报告为已停止");
+                }
+
+                var pumpDiagnostic = await CompletePumpsAsync(cancel: false).ConfigureAwait(false);
+                if (pumpDiagnostic is not null)
+                {
+                    return SetFailure($"Node 已退出，但 stdout/stderr 日志泵收尾失败: {pumpDiagnostic}");
+                }
             }
             catch (OperationCanceledException)
             {
+                // 取消不能把状态留在 Stopping：StartAsync 只接受 Stopped/Failed/CoreSetupRequired，
+                // CanStart 与 CanStop 会同时为 false，用户只能重启应用才能再操作服务。
+                // 落 Failed 并保留 PID，下一次启动的 start-retry 分支会先把残留进程收掉。
+                SetFailure($"停止 Node 被取消（reason={reason}），Node 子进程状态未知，可能仍在运行");
                 throw;
             }
             catch (Exception error)
             {
                 return SetFailure($"停止 Node 异常（reason={reason}）: {error.Message}");
-            }
-
-            if (!result.Succeeded)
-            {
-                return SetFailure($"停止 Node 失败（reason={reason}）: {result.Diagnostic}");
-            }
-
-            if (!await WaitForPortFreeAsync(current.Port ?? -1, cancellationToken).ConfigureAwait(false))
-            {
-                return SetFailure($"Node 已退出，但端口 {current.Port} 仍被占用，拒绝报告为已停止");
-            }
-
-            var pumpDiagnostic = await CompletePumpsAsync(cancel: false).ConfigureAwait(false);
-            if (pumpDiagnostic is not null)
-            {
-                return SetFailure($"Node 已退出，但 stdout/stderr 日志泵收尾失败: {pumpDiagnostic}");
             }
 
             var exitCode = ReadExitCode(process);

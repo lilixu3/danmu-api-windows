@@ -7,6 +7,33 @@ namespace DanmuApi.Tests;
 public sealed class CoreEnvClientTests
 {
     [Fact]
+    public async Task SetRequiresAnExplicitSuccessFlagFromTheCore()
+    {
+        // 核心对 env/set 一律回 {success,message}（apis/env-api.js handleSetEnv）。
+        // 2xx 但没有这个字段＝这个响应不是核心给的（反代页面、半截正文、静态兜底），
+        // 以前会被判成"已接受写入请求"，把故障兜掉了。
+        using var html = new StubHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("<html>proxy landing</html>", Encoding.UTF8, "text/html"),
+        }));
+        var htmlClient = new CoreEnvClient(new HttpClient(html), TimeSpan.FromSeconds(1));
+        var htmlResult = await htmlClient.SetAsync("127.0.0.1", 9321, "token", null, "TEST_KEY", "value");
+        Assert.False(htmlResult.Succeeded);
+        Assert.Contains("无法确认核心已写入", htmlResult.Diagnostic, StringComparison.Ordinal);
+
+        using var refused = new StubHandler((_, _) => Task.FromResult(JsonResponse("{\"success\":false,\"message\":\"拒绝\"}")));
+        var refusedResult = await new CoreEnvClient(new HttpClient(refused), TimeSpan.FromSeconds(1))
+            .SetAsync("127.0.0.1", 9321, "token", null, "TEST_KEY", "value");
+        Assert.False(refusedResult.Succeeded);
+        Assert.Contains("核心拒绝写入", refusedResult.Diagnostic, StringComparison.Ordinal);
+
+        using var accepted = new StubHandler((_, _) => Task.FromResult(JsonResponse("{\"success\":true,\"message\":\"设置成功\"}")));
+        var acceptedResult = await new CoreEnvClient(new HttpClient(accepted), TimeSpan.FromSeconds(1))
+            .SetAsync("127.0.0.1", 9321, "token", null, "TEST_KEY", "value");
+        Assert.True(acceptedResult.Succeeded, acceptedResult.Diagnostic);
+    }
+
+    [Fact]
     public async Task DeletePostsToAdminTokenPathAndParsesSuccess()
     {
         Uri? observedUri = null;

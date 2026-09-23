@@ -128,7 +128,7 @@ public sealed class CoreLogClient : ICoreLogClient
             ? $"[{host}]"
             : host;
         return new Uri(
-            $"http://{authority}:{port}/{Uri.EscapeDataString(token.Trim())}/api/logs",
+            $"http://{authority}:{port}/{RuntimeEndpointBuilder.EncodeTokenSegment(token.Trim())}/api/logs",
             UriKind.Absolute);
     }
 
@@ -173,8 +173,11 @@ public sealed class CoreLogClient : ICoreLogClient
         var normalized = string.IsNullOrWhiteSpace(message)
             ? "未提供失败详情"
             : message.Replace('\r', ' ').Replace('\n', ' ');
-        return normalized
-            .Replace(token, "***", StringComparison.Ordinal)
-            .Replace(Uri.EscapeDataString(token), "***", StringComparison.Ordinal);
+        foreach (var form in RuntimeEndpointBuilder.TokenTextForms(token))
+        {
+            normalized = normalized.Replace(form, "***", StringComparison.OrdinalIgnoreCase);
+        }
+
+        return normalized;
     }
 }

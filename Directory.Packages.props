@@ -8,10 +8,12 @@
     <PackageVersion Include="Avalonia.Desktop" Version="11.3.11" />
     <PackageVersion Include="Avalonia.Themes.Fluent" Version="11.3.11" />
     <PackageVersion Include="Avalonia.Fonts.Inter" Version="11.3.11" />
-    <PackageVersion Include="Avalonia.Diagnostics" Version="11.3.11" />
     <PackageVersion Include="Avalonia.Headless" Version="11.3.11" />
     <PackageVersion Include="Avalonia.Headless.XUnit" Version="11.3.11" />
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <!-- GitHub PR 描述、提交说明与发行说明都是 Markdown。解析交给成熟库，
+         渲染由我们自己的控件完成（不引入任何 HTML 解释器）。 -->
+    <PackageVersion Include="Markdig" Version="1.4.0" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
     <PackageVersion Include="QRCoder" Version="1.6.0" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
