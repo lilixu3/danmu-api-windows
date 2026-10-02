@@ -110,6 +110,81 @@ public sealed class AppInstanceLockTests
         Assert.InRange(elapsed, TimeSpan.FromMilliseconds(2_500), TimeSpan.FromSeconds(4.5));
     }
 
+    [Fact]
+    public async Task CancellationAtConnectCompletionFailsExplicitlyWithoutRetryingOrUsingClosedSocket()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new AppPaths(directory.Path, Path.Combine(directory.Path, "settings"));
+        Directory.CreateDirectory(paths.SettingsDirectory);
+        var diagnostics = new List<string>();
+        using var sender = new AppInstanceLock(paths, diagnostics.Add);
+
+        // Exercise the real .NET connection/cancellation race, with the peer kept open.
+        // Each iteration must return a classified failure even if ConnectAsync reports success.
+        for (var iteration = 0; iteration < 64; iteration++)
+        {
+            using var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            var endpoint = $"port={port}\ntoken=test-token\n";
+            File.WriteAllText(paths.InstanceEndpointFile, endpoint, new UTF8Encoding(false));
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var accepting = listener.AcceptTcpClientAsync(cancellation.Token);
+            var sending = sender.SendCommandAsync(InstanceCommand.REQUEST_EXIT, cancellation.Token);
+            using var peer = await accepting;
+            cancellation.Cancel();
+
+            var result = await sending;
+
+            Assert.False(result.Succeeded);
+            Assert.Contains("已取消", result.Diagnostic);
+            Assert.Contains(diagnostics, message => message.Contains("已取消", StringComparison.Ordinal));
+            Assert.False(listener.Pending()); // Exactly one connection, no retry after cancellation.
+            Assert.Equal(endpoint, File.ReadAllText(paths.InstanceEndpointFile));
+        }
+
+        Assert.DoesNotContain(diagnostics, message => message.Contains("InvalidOperationException", StringComparison.Ordinal));
+        Assert.DoesNotContain(diagnostics, message => message.Contains("test-token", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PeerClosingAfterReadingAuthenticatedExitFrameFailsWithoutRedispatch(bool resetConnection)
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new AppPaths(directory.Path, Path.Combine(directory.Path, "settings"));
+        Directory.CreateDirectory(paths.SettingsDirectory);
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var endpoint = $"port={port}\ntoken=test-token\n";
+        File.WriteAllText(paths.InstanceEndpointFile, endpoint, new UTF8Encoding(false));
+        var diagnostics = new List<string>();
+        using var sender = new AppInstanceLock(paths, diagnostics.Add);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var accepting = listener.AcceptTcpClientAsync(cancellation.Token);
+        var sending = sender.SendCommandAsync(InstanceCommand.REQUEST_EXIT, cancellation.Token);
+        using var peer = await accepting;
+        using (var reader = new StreamReader(peer.GetStream(), new UTF8Encoding(false), leaveOpen: true))
+        {
+            Assert.Equal("test-token\tREQUEST_EXIT", await reader.ReadLineAsync(cancellation.Token));
+        }
+        if (resetConnection) peer.Client.LingerState = new LingerOption(true, 0);
+        peer.Dispose(); // Fault only after consuming the real authenticated protocol frame; no timer.
+
+        var result = await sending;
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("发送本地唤醒命令失败", result.Diagnostic);
+        if (!resetConnection) Assert.Contains("未返回结果", result.Diagnostic);
+        Assert.Contains(diagnostics, message => message.Contains("exception=IOException", StringComparison.Ordinal)
+            || message.Contains("exception=SocketException", StringComparison.Ordinal));
+        Assert.False(listener.Pending()); // The failed command must not be sent a second time.
+        Assert.Equal(endpoint, File.ReadAllText(paths.InstanceEndpointFile));
+        Assert.DoesNotContain(diagnostics, message => message.Contains("test-token", StringComparison.Ordinal));
+    }
+
     private static (int Port, string Token) ReadEndpoint(string path)
     {
         var values = File.ReadAllLines(path, new UTF8Encoding(false))

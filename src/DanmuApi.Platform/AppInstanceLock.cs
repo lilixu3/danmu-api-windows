@@ -215,12 +215,29 @@ public sealed class AppInstanceLock : IDisposable
                 break;
             }
 
+            var requestStarted = false;
             try
             {
                 var endpoint = ReadEndpoint(_paths.InstanceEndpointFile);
                 using var client = new TcpClient(AddressFamily.InterNetwork);
-                using var connectCancellation = CreateTimeoutCancellation(cancellationToken, Math.Min(ConnectionTimeoutMilliseconds, remaining));
-                await client.ConnectAsync(IPAddress.Loopback, endpoint.Port, connectCancellation.Token).ConfigureAwait(false);
+                using (var connectCancellation = CreateTimeoutCancellation(cancellationToken, Math.Min(ConnectionTimeoutMilliseconds, remaining)))
+                {
+                    try
+                    {
+                        await client.ConnectAsync(IPAddress.Loopback, endpoint.Port, connectCancellation.Token).ConfigureAwait(false);
+                        // .NET 8 can complete ConnectAsync successfully while its cancellation
+                        // callback closes the socket. Cancellation must win before GetStream.
+                        connectCancellation.Token.ThrowIfCancellationRequested();
+                    }
+                    catch (OperationCanceledException error)
+                    {
+                        var diagnostic = cancellationToken.IsCancellationRequested
+                            ? "发送本地唤醒命令已取消"
+                            : "本地唤醒通道连接超时";
+                        RecordDiagnostic(diagnostic, error);
+                        return new AppInstanceLockResult(false, diagnostic);
+                    }
+                }
                 using var stream = client.GetStream();
                 using var requestCancellation = CreateTimeoutCancellation(cancellationToken, Math.Min(RequestTimeoutMilliseconds, RemainingMilliseconds(deadline)));
                 using var writer = new StreamWriter(stream, new UTF8Encoding(false), leaveOpen: true)
@@ -228,6 +245,8 @@ public sealed class AppInstanceLock : IDisposable
                     NewLine = "\n",
                     AutoFlush = true,
                 };
+                // Once writing starts the command may have reached its owner; never dispatch it twice.
+                requestStarted = true;
                 await writer.WriteLineAsync($"{endpoint.Token}\t{command}").WaitAsync(requestCancellation.Token).ConfigureAwait(false);
                 using var reader = new StreamReader(stream, new UTF8Encoding(false), detectEncodingFromByteOrderMarks: false, leaveOpen: true);
                 var response = await reader.ReadLineAsync(requestCancellation.Token).ConfigureAwait(false);
@@ -253,12 +272,21 @@ public sealed class AppInstanceLock : IDisposable
                 RecordDiagnostic(diagnostic);
                 return new AppInstanceLockResult(false, diagnostic);
             }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested)
             {
-                lastError = new TimeoutException("本地唤醒通道请求超时");
+                var diagnostic = "本地唤醒通道请求超时";
+                RecordDiagnostic(diagnostic, error);
+                return new AppInstanceLockResult(false, diagnostic);
             }
             catch (Exception error) when (error is IOException or SocketException or ObjectDisposedException or UnauthorizedAccessException or FormatException)
             {
+                if (requestStarted)
+                {
+                    var diagnostic = $"发送本地唤醒命令失败: {Describe(error)}";
+                    RecordDiagnostic(diagnostic, error);
+                    return new AppInstanceLockResult(false, diagnostic);
+                }
+
                 lastError = error;
             }
 

@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Win32.SafeHandles;
 using Xunit.Abstractions;
 using DanmuApi.Platform;
 using DanmuApi.Runtime;
@@ -16,18 +17,20 @@ public sealed class OutboundSupervisorIntegrationTests(ITestOutputHelper output)
     public async Task SupervisorStopTerminatesTheRealOutboundHelperAndReleasesItsPort()
     {
         var inputs = RequireInputs();
-        using var fixture = new OutboundFixture(inputs.Node, inputs.Helper, inputs.HostSource);
+        using var fixture = new OutboundFixture(inputs.Node, inputs.Helper, inputs.HostSource, output);
         await using var supervisor = fixture.CreateSupervisor();
         var running = await supervisor.StartAsync(fixture.CreateConfig());
         Assert.True(running.State == DesktopRuntimeState.Running, running.FailureReason);
+        fixture.PinNode(checked((int)running.Pid!.Value));
         var session = fixture.ReadSession();
         Assert.Equal(running.Pid, session.NodePid);
         Assert.Equal(running.RuntimeIdentity, session.Identity);
         Assert.True(IsAlive(session.HelperPid));
-        using var originalHelper = PinnedHelper.Capture(session.HelperPid);
+        using var originalHelper = PinnedProcess.Capture(session.HelperPid);
         ObserveHelperPort("beforeStop", session, originalHelper);
 
         var stopped = await supervisor.StopAsync("outbound-integration");
+        fixture.ObserveNode("afterStop");
 
         Assert.Equal(DesktopRuntimeState.Stopped, stopped.State);
         await AssertExitedAsync(session.HelperPid);
@@ -38,16 +41,18 @@ public sealed class OutboundSupervisorIntegrationTests(ITestOutputHelper output)
     public async Task AbruptNodeExitClosesHelperStdinAndCleansItsProcess()
     {
         var inputs = RequireInputs();
-        using var fixture = new OutboundFixture(inputs.Node, inputs.Helper, inputs.HostSource);
+        using var fixture = new OutboundFixture(inputs.Node, inputs.Helper, inputs.HostSource, output);
         await using var supervisor = fixture.CreateSupervisor();
         var running = await supervisor.StartAsync(fixture.CreateConfig());
         Assert.True(running.State == DesktopRuntimeState.Running, running.FailureReason);
+        fixture.PinNode(checked((int)running.Pid!.Value));
         var session = fixture.ReadSession();
-        using var originalHelper = PinnedHelper.Capture(session.HelperPid);
+        using var originalHelper = PinnedProcess.Capture(session.HelperPid);
         ObserveHelperPort("beforeAbruptNodeExit", session, originalHelper);
         using var node = Process.GetProcessById(checked((int)running.Pid!.Value));
         node.Kill(entireProcessTree: false);
         await node.WaitForExitAsync();
+        fixture.ObserveNode("afterAbruptNodeExit");
 
         await AssertExitedAsync(session.HelperPid);
         Assert.NotNull(supervisor.LivenessFailure());
@@ -68,7 +73,7 @@ public sealed class OutboundSupervisorIntegrationTests(ITestOutputHelper output)
 
     private static IPEndPoint[] IPGlobalListeners() => System.Net.NetworkInformation.IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners();
 
-    private void AssertPortReleased(Session session, PinnedHelper originalHelper)
+    private void AssertPortReleased(Session session, PinnedProcess originalHelper)
     {
         // 原验收谓词与预算不变：即使是其它 owner，也不能静默忽略仍在监听的端口。
         var conflicts = IPGlobalListeners().Where(endpoint => endpoint.Port == session.Port).ToArray();
@@ -79,7 +84,7 @@ public sealed class OutboundSupervisorIntegrationTests(ITestOutputHelper output)
             $"helper port={session.Port}; matching listeners: {string.Join(", ", conflicts.Select(endpoint => endpoint.ToString()))}; {evidence}");
     }
 
-    private string ObserveHelperPort(string phase, Session session, PinnedHelper originalHelper)
+    private string ObserveHelperPort(string phase, Session session, PinnedProcess originalHelper)
     {
         // 两次表读取都是即时只读观察，不重试、不把第二次空表当成第一条冲突已不存在的证明。
         var evidence = $"phase={phase} helperPid={originalHelper.Pid} helperName={originalHelper.Name} "
@@ -148,9 +153,68 @@ public sealed class OutboundSupervisorIntegrationTests(ITestOutputHelper output)
     private static extern uint GetExtendedTcpTable(IntPtr table, ref int size, [MarshalAs(UnmanagedType.Bool)] bool order,
         int addressFamily, int tableClass, uint reserved);
 
-    private sealed record PinnedHelper(Process Process, int Pid, string Name, DateTime StartedUtc) : IDisposable
+    private static string ReadNodeFileEvidence(string path)
     {
-        public static PinnedHelper Capture(int pid)
+        string attributes;
+        try
+        {
+            var value = File.GetAttributes(path);
+            attributes = $"nodeAttributes={value} nodeAttributeBits={(int)value} nodeReadOnly={value.HasFlag(FileAttributes.ReadOnly)}";
+        }
+        catch (Exception error)
+        {
+            attributes = $"nodeAttributesQueryFailed={error.GetType().Name} HResult=0x{error.HResult:X8}";
+        }
+
+        // 只打开既有文件检查 DELETE 访问和共享条件；没有 DELETE_ON_CLOSE，也绝不调用 DeleteFile。
+        string deleteAccess;
+        using (var file = CreateFileW(path, 0x10000, 7, IntPtr.Zero, 3, 0, IntPtr.Zero))
+        {
+            var error = file.IsInvalid ? Marshal.GetLastWin32Error() : 0;
+            deleteAccess = $"deleteAccessOpenSucceeded={!file.IsInvalid} deleteAccessOpenWin32Error={error} "
+                + "desiredAccess=0x10000 shareMode=7 creationDisposition=3 nativeDeleteFile=notCalled";
+        }
+        using var attributesFile = CreateFileW(path, 0x80, 7, IntPtr.Zero, 3, 0, IntPtr.Zero);
+        if (attributesFile.IsInvalid)
+        {
+            var error = Marshal.GetLastWin32Error();
+            return $"{attributes} {deleteAccess} fileProcessIdsOpenWin32Error={error}";
+        }
+        const int capacity = 65536;
+        var memory = Marshal.AllocHGlobal(capacity);
+        try
+        {
+            var status = NtQueryInformationFile(attributesFile, out _, memory, capacity, 47);
+            var prefix = $"{attributes} {deleteAccess} fileProcessIdsNtStatus=0x{status:X8}";
+            if (status != 0) return prefix;
+            var count = Marshal.ReadInt32(memory);
+            if (count < 0 || count > (capacity - IntPtr.Size) / IntPtr.Size)
+                return $"{prefix} fileProcessIdsQueryFailed=invalidCount count={count}";
+            var pids = Enumerable.Range(0, count).Select(index =>
+                Marshal.ReadIntPtr(memory, IntPtr.Size * (index + 1)).ToInt64()).ToArray();
+            return $"{prefix} fileProcessCount={count} fileProcessIds=[{string.Join(",", pids)}]";
+        }
+        finally { Marshal.FreeHGlobal(memory); }
+    }
+
+    [DllImport("kernel32.dll", ExactSpelling = true, CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern SafeFileHandle CreateFileW(string path, uint desiredAccess, uint shareMode,
+        IntPtr securityAttributes, uint creationDisposition, uint flagsAndAttributes, IntPtr templateFile);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IoStatusBlock
+    {
+        public IntPtr Status;
+        public UIntPtr Information;
+    }
+
+    [DllImport("ntdll.dll", ExactSpelling = true)]
+    private static extern int NtQueryInformationFile(SafeFileHandle file, out IoStatusBlock ioStatus,
+        IntPtr information, uint length, int informationClass);
+
+    private sealed record PinnedProcess(Process Process, int Pid, string Name, DateTime StartedUtc) : IDisposable
+    {
+        public static PinnedProcess Capture(int pid)
         {
             var process = Process.GetProcessById(pid);
             try
@@ -180,10 +244,13 @@ public sealed class OutboundSupervisorIntegrationTests(ITestOutputHelper output)
     private sealed class OutboundFixture : IDisposable
     {
         private readonly TemporaryDirectory _directory = new();
+        private readonly ITestOutputHelper _output;
+        private PinnedProcess? _originalNode;
         private int? _helperPid;
 
-        public OutboundFixture(string node, string helper, string hostSource)
+        public OutboundFixture(string node, string helper, string hostSource, ITestOutputHelper output)
         {
+            _output = output;
             Paths = new AppPaths(Path.Combine(_directory.Path, "含空格 & 网络环境"), Path.Combine(_directory.Path, "settings"));
             Directory.CreateDirectory(Paths.NodeProjectDirectory);
             Node = Path.Combine(Paths.RuntimeDirectory, "node.exe");
@@ -236,15 +303,48 @@ public sealed class OutboundSupervisorIntegrationTests(ITestOutputHelper output)
                 root.GetProperty("runtimeIdentity").GetString()!, new Uri(root.GetProperty("endpoint").GetString()!).Port);
         }
 
+        public void PinNode(int pid)
+        {
+            _originalNode = PinnedProcess.Capture(pid);
+            ObserveNode("beforeStop");
+        }
+
+        public string ObserveNode(string phase)
+        {
+            var node = _originalNode;
+            string exited;
+            try { exited = node is null ? "notCaptured" : node.Process.HasExited.ToString(); }
+            catch (Exception error) { exited = $"queryFailed={error.GetType().Name} HResult=0x{error.HResult:X8}"; }
+            var evidence = $"phase={phase} observedUtc={DateTime.UtcNow:O} nodePid={node?.Pid} nodeName={node?.Name} "
+                + $"nodeStartedUtc={node?.StartedUtc:O} originalNodeExited={exited} fixturePath={_directory.Path} nodePath={Node}";
+            _output.WriteLine(evidence);
+            return evidence;
+        }
+
         public void Dispose()
         {
+            using var originalNode = _originalNode;
             if (_helperPid is { } pid && IsAlive(pid))
             {
                 using var process = Process.GetProcessById(pid);
                 process.Kill(entireProcessTree: true);
                 process.WaitForExit(5000);
             }
-            _directory.Dispose();
+            var nodeEvidence = ObserveNode("beforeCleanup");
+            // 先记录原始句柄状态再释放，避免诊断句柄本身成为删除时的额外引用；失败后不按 PID 重新查询。
+            originalNode?.Dispose();
+            try { _directory.Dispose(); }
+            catch (Exception error)
+            {
+                _output.WriteLine($"phase=cleanupFailure observedUtc={DateTime.UtcNow:O} error={error.GetType().Name} "
+                    + $"HResult=0x{error.HResult:X8} diagnosticNodeHandleReleased=True nodeIdentitySnapshot=[{nodeEvidence}]");
+                try { _output.WriteLine(ReadNodeFileEvidence(Node)); }
+                catch (Exception diagnosticError)
+                {
+                    _output.WriteLine($"nodeFileQueryFailed={diagnosticError.GetType().Name} HResult=0x{diagnosticError.HResult:X8}");
+                }
+                throw;
+            }
         }
     }
 

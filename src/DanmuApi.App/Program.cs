@@ -33,8 +33,13 @@ sealed class Program
             Environment.ExitCode = ReleaseSelfTest.Run(System.IO.Path.GetFullPath(args[1]));
             return;
         }
-        // Packaged installer relay: no Avalonia initialization, no settings loading and
-        // no user-provided executable. Reject elevated tokens before probing any profile.
+        if (args.Length >= 1 && args[0] == Services.InstallerUpdateLease.Argument)
+        {
+            Environment.ExitCode = Services.InstallerUpdateLease.Run(args);
+            return;
+        }
+        // Manual installer relay: no Avalonia initialization or user-provided executable.
+        // The update lease validates and impersonates the pinned original application's token.
         if (args.Length >= 1 && args[0] is Services.RunningInstanceExitRequester.InstallerProbeArgument
             or Services.RunningInstanceExitRequester.InstallerExitArgument)
         {

@@ -15,9 +15,18 @@ internal static class ApplicationUpdateHelper
     private static extern int MessageBox(IntPtr owner, string text, string title, uint type);
     public static string JobRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DanmuApi", "app-updates");
 
+    internal static RegistryView InstallationRegistryView => RegistryViewForArchitecture(System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture);
+
+    internal static RegistryView RegistryViewForArchitecture(System.Runtime.InteropServices.Architecture architecture) => architecture switch
+    {
+        System.Runtime.InteropServices.Architecture.X86 => RegistryView.Registry32,
+        System.Runtime.InteropServices.Architecture.X64 or System.Runtime.InteropServices.Architecture.Arm64 => RegistryView.Registry64,
+        _ => throw new PlatformNotSupportedException("应用更新不支持当前进程架构")
+    };
+
     public static bool IsInstalled(string executable)
     {
-        using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+        using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, InstallationRegistryView);
         using var key = baseKey.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall\{D6F1E4DB-9C73-4DE2-B985-9DAF96B8E9B4}_is1");
         return key?.GetValue("InstallLocation") is string directory &&
             string.Equals(Path.GetFullPath(Path.Combine(directory, "DanmuApi.App.exe")), Path.GetFullPath(executable), StringComparison.OrdinalIgnoreCase);
@@ -86,13 +95,12 @@ internal static class ApplicationUpdateHelper
             {
                 if (!IsInstalled(targetExe)) throw new IOException("便携副本不能使用安装器更新");
                 AppUpdateTrust.VerifyExecutable(package);
-                var start = new ProcessStartInfo(package) { UseShellExecute = true, Verb = "runas" };
-                start.Arguments = $"/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /UPDATEPARENT={job.ParentPid} /UPDATEREADY=\"{Path.Combine(directory, "installer.ready")}\" /DIR=\"{job.TargetDirectory}\" /LOG=\"{Path.Combine(directory,"installer.log")}\"";
-                installer = Process.Start(start) ?? throw new IOException("安装器未启动");
+                installer = Process.Start(CreateInstallerStartInfo(package, job, directory))
+                    ?? throw new IOException("安装器未启动");
                 var watch = Stopwatch.StartNew();
                 while (!File.Exists(Path.Combine(directory, "installer.ready")))
                 {
-                    if (installer.HasExited) throw new IOException($"安装器初始化失败：exit={installer.ExitCode}");
+                    if (installer.HasExited) throw CreateInstallerFailure(directory, installer.ExitCode, initializing: true);
                     if (File.Exists(Path.Combine(directory, "cancel")) || watch.Elapsed > TimeSpan.FromMinutes(2)) throw new IOException("安装器准备超时或已取消");
                     Thread.Sleep(100);
                 }
@@ -110,7 +118,7 @@ internal static class ApplicationUpdateHelper
             if (installer is not null)
             {
                 if (!installer.WaitForExit(10 * 60 * 1000)) throw new TimeoutException("安装器尚未结束，请检查安装日志");
-                if (installer.ExitCode != 0) throw new IOException($"安装器失败：exit={installer.ExitCode}，应用未自动重启");
+                if (installer.ExitCode != 0) throw CreateInstallerFailure(directory, installer.ExitCode, initializing: false);
             }
             else PortableApplicationUpdate.Replace(job.TargetDirectory, stage, backup, files!);
             try
@@ -164,6 +172,115 @@ internal static class ApplicationUpdateHelper
             return 1;
         }
         finally { installer?.Dispose(); }
+    }
+
+    internal static ProcessStartInfo CreateInstallerStartInfo(string package, ApplicationUpdateJob job, string directory)
+    {
+        // Setup's manifest performs elevation while preserving Inno's original-user context.
+        var start = new ProcessStartInfo(package) { UseShellExecute = true };
+        start.Arguments = $"/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /UPDATEPARENT={job.ParentPid} /UPDATEREADY=\"{Path.Combine(directory, "installer.ready")}\" /DIR=\"{job.TargetDirectory}\" /LOG=\"{Path.Combine(directory, "installer.log")}\"";
+        return start;
+    }
+
+    internal const int InstallerDiagnosticTailBytes = 64 * 1024;
+    internal const int InstallerDiagnosticLimit = 8;
+
+    private static readonly HashSet<string> InstallerDiagnosticPhases = new(StringComparer.Ordinal)
+    {
+        "arguments", "verify", "probe", "ready", "parent-wait", "acquire", "prepared", "finish-wait",
+        "release", "released", "cleanup", "owner-monitor", "finish-monitor", "delay-monitor", "diagnostic", "marker-cleanup"
+    };
+    private static readonly HashSet<string> InstallerDiagnosticReasons = new(StringComparer.Ordinal)
+    {
+        "operationfailed", "argumentsinvalid", "platformunsupported", "parentidentity", "parentdead", "installidentity",
+        "installertrust", "targetinvalid", "tokenmissing", "tokenidentity", "knownfolderinvalid", "pathinvalid",
+        "leaseinvalid", "readyinvalid", "jobinvalid", "joboversize", "probefailed", "instanceheld", "acquirefailed",
+        "parenttimeout", "installdead", "cancelled", "finishtimeout", "lockreleasefail", "cleanupfailed",
+        "diagnosticwritefail", "markercleanupfailed"
+    };
+    private static readonly HashSet<string> InstallerDiagnosticTypes = new(StringComparer.Ordinal)
+    {
+        "LeaseException", "Exception", "IOException", "FileNotFoundException", "DirectoryNotFoundException",
+        "EndOfStreamException", "InvalidDataException", "PathTooLongException", "UnauthorizedAccessException",
+        "Win32Exception", "SecurityException", "ArgumentException", "ArgumentNullException", "ArgumentOutOfRangeException",
+        "InvalidOperationException", "ObjectDisposedException", "TimeoutException", "OperationCanceledException",
+        "NotSupportedException", "PlatformNotSupportedException", "JsonException", "CryptographicException",
+        "FormatException", "OverflowException", "AggregateException"
+    };
+    private static readonly System.Text.RegularExpressions.Regex InstallerDiagnosticLine = new(
+        @"\A(?:(?:[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3} +)?Update lease failure: )?" +
+        @"(?<code>installer-update-lease phase=(?<phase>[a-z-]+) reason=(?<reason>[a-z]+) " +
+        @"type=(?<type>[A-Za-z0-9]+) HRESULT=0x(?<hr>[0-9A-F]{8})); (?<explanation>[\x20-\x7E]+)\z",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant | System.Text.RegularExpressions.RegexOptions.NonBacktracking);
+
+    // Never attach the raw read exception or log text: both can contain credentials and user paths.
+    internal static IOException CreateInstallerFailure(string directory, int exitCode, bool initializing)
+    {
+        var failure = initializing
+            ? $"安装器初始化失败：exit={exitCode}；stage=初始化"
+            : $"安装器失败：exit={exitCode}；stage=安装，应用未自动重启";
+        const string logHint = "请检查更新任务目录中的 installer.log";
+        string detail;
+        try
+        {
+            var (codes, limited) = ReadInstallerDiagnostics(Path.Combine(directory, "installer.log"));
+            detail = codes.Count == 0
+                ? $"日志尾部未找到已验证的结构化诊断；{logHint}"
+                : "安装器结构化诊断：" + string.Join(" | ", codes) +
+                  (limited ? $"；诊断超过上限，仅显示最近 {InstallerDiagnosticLimit} 条；{logHint}" : "");
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.SecurityException or ArgumentException or NotSupportedException)
+        {
+            var status = error is FileNotFoundException or DirectoryNotFoundException ? "尚不存在" : "读取失败";
+            detail = $"installer.log {status}：type={error.GetType().Name} HRESULT=0x{error.HResult:X8}；未获得结构化诊断；{logHint}";
+        }
+        return new IOException($"{failure}；{detail}");
+    }
+
+    private static (List<string> Codes, bool Limited) ReadInstallerDiagnostics(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        var length = stream.Length;
+        var start = Math.Max(0, length - InstallerDiagnosticTailBytes);
+        stream.Seek(start, SeekOrigin.Begin);
+        var tail = new byte[(int)(length - start)];
+        stream.ReadExactly(tail); // A concurrent truncation is an explicit read failure, not an empty diagnostic.
+        // One-to-one byte decoding: only the ASCII protocol is recognized, never replacement-decoded log text.
+        var text = System.Text.Encoding.Latin1.GetString(tail);
+        if (start > 0)
+        {
+            var boundary = text.IndexOf('\n');
+            if (boundary < 0) return ([], false);
+            text = text[(boundary + 1)..]; // Do not interpret a fragment of a line cut by the byte bound.
+        }
+        else if (tail.Length >= 3 && tail[0] == 0xEF && tail[1] == 0xBB && tail[2] == 0xBF) text = text[3..];
+
+        var lines = text.Split('\n');
+        var codes = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var limited = false;
+        for (var index = lines.Length - 1; index >= 0; index--)
+        {
+            var line = lines[index].TrimEnd('\r');
+            // Bound input before matching; whitelists and the producer's fixed text bound accepted fields.
+            // Avoid bounded variable repeats that expand the NonBacktracking automaton at type initialization.
+            if (line.Length > 1024) continue;
+            var match = InstallerDiagnosticLine.Match(line);
+            if (!match.Success) continue;
+            var phase = match.Groups["phase"].Value;
+            var reason = match.Groups["reason"].Value;
+            var type = match.Groups["type"].Value;
+            if (!InstallerDiagnosticPhases.Contains(phase) || !InstallerDiagnosticReasons.Contains(reason) || !InstallerDiagnosticTypes.Contains(type)) continue;
+            var hresult = unchecked((int)uint.Parse(match.Groups["hr"].Value, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture));
+            var code = match.Groups["code"].Value;
+            // Compare the fixed explanation against the producer, but expose only validated codes to the UI.
+            if (!string.Equals(code + "; " + match.Groups["explanation"].Value,
+                new InstallerUpdateLease.Diagnostic(phase, reason, type, hresult).Format(), StringComparison.Ordinal) || !seen.Add(code)) continue;
+            if (codes.Count == InstallerDiagnosticLimit) { limited = true; break; }
+            codes.Add(code);
+        }
+        codes.Reverse();
+        return (codes, limited);
     }
 
     private static string SafeFailure(Exception error) => System.Text.RegularExpressions.Regex.Replace(
