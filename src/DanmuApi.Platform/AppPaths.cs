@@ -18,10 +18,19 @@ public sealed class AppPaths
     public string NodeProjectDirectory => Path.Combine(RuntimeDirectory, "nodejs-project");
     public string HostLogsDirectory => Path.Combine(Root, "logs");
     public string CoreCacheDirectory => Path.Combine(Root, "core-cache");
+
+    /// <summary>内网穿透（frp）的全部落盘位置：二进制、生成的配置、进程日志、下载缓存。</summary>
+    public string FrpDirectory => Path.Combine(Root, "frp");
+    public string FrpBinaryDirectory => Path.Combine(FrpDirectory, "bin");
+    public string FrpConfigDirectory => Path.Combine(FrpDirectory, "config");
+    public string FrpLogsDirectory => Path.Combine(FrpDirectory, "logs");
+    public string FrpCacheDirectory => Path.Combine(Root, "frp-cache");
     public string SettingsDirectory { get; }
     public string SettingsFile => Path.Combine(SettingsDirectory, "settings.properties");
     public string GithubTokenFile => Path.Combine(SettingsDirectory, "github-token.dat");
     public string AdminSessionFile => Path.Combine(SettingsDirectory, "admin-session.dat");
+    public string FrpTokenFile => Path.Combine(SettingsDirectory, "frp-token.dat");
+    public string FrpAdminPasswordFile => Path.Combine(SettingsDirectory, "frp-admin-password.dat");
     public string IdentityFile => Path.Combine(SettingsDirectory, "instance-id");
     public string InstanceLockFile => Path.Combine(SettingsDirectory, "instance.lock");
     public string InstanceEndpointFile => Path.Combine(SettingsDirectory, "instance.endpoint");

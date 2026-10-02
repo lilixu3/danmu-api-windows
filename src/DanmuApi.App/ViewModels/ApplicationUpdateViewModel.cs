@@ -7,6 +7,7 @@ using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DanmuApi.App.Services;
+using DanmuApi.Core;
 using DanmuApi.Core.ApplicationUpdates;
 using DanmuApi.Platform;
 
@@ -63,10 +64,14 @@ public sealed partial class ApplicationUpdateViewModel : ViewModelBase, IDisposa
         IDesktopNotificationService notifications,
         IAppDiagnostics diagnostics,
         ApplicationUpdateService? remote = null,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        IGithubTokenProvider? tokenProvider = null)
     {
         _settings = settings; _dialogs = dialogs; _notifications = notifications; _diagnostics = diagnostics;
-        _remote = remote ?? new ApplicationUpdateService(AppUpdateTrust.PublicKey());
+        // 软件更新走的是 api.github.com，会消耗每小时配额；已配置 Token 时必须用上，
+        // 否则就是"存了 Token、核心检查额度刷新了，软件更新仍报超限"。
+        // Token 只会挂到 api.github.com（GithubTokenPolicy），资产 CDN 与重定向都不带。
+        _remote = remote ?? new ApplicationUpdateService(AppUpdateTrust.PublicKey(), tokenProvider: tokenProvider);
         _clock = clock ?? TimeProvider.System;
         _loading = true;
         var values = settings.Read();
@@ -365,7 +370,12 @@ public sealed partial class ApplicationUpdateViewModel : ViewModelBase, IDisposa
     private static string Describe(Exception error, string operation) => error switch
     {
         HttpRequestException { StatusCode: HttpStatusCode.NotFound } => "更新仓库尚未公开或发行版不存在（HTTP 404）。",
-        HttpRequestException { StatusCode: HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests } => "GitHub 限制了请求，请稍后手动检查。",
+        // 这条以前只写"稍后手动检查"，用户看不出为什么"存了 Token 也照样超限"：
+        // GitHub 的匿名额度与 Token 额度是两个独立配额桶，而更新检查以前从不带 Token。
+        // 现在已配置 Token 时会带上，这条提示改为明确说明两种情形与出路。
+        HttpRequestException { StatusCode: HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests } =>
+            "GitHub 限制了请求（每小时 60 次的匿名额度已用尽，与 Token 额度是两套独立配额）。"
+            + "可稍后重试，或在「设置 → 网络与 GitHub」配置 Token 后立即重试；配置后本检查也会使用该 Token。",
         OperationCanceledException => $"{operation}已取消或达到请求期限。",
         CryptographicException => "更新签名或文件校验失败，已阻止安装。",
         _ => $"{operation}失败：{error.Message}",

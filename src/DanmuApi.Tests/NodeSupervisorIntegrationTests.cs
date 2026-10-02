@@ -1,11 +1,13 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using Xunit.Abstractions;
 using DanmuApi.Platform;
 using DanmuApi.Runtime;
 
 namespace DanmuApi.Tests;
 
-public sealed class NodeSupervisorIntegrationTests
+public sealed class NodeSupervisorIntegrationTests(ITestOutputHelper output)
 {
     [SkippableFact]
     public async Task StartsAndStopsRealNodeWithStrictHealthIdentity()
@@ -58,21 +60,90 @@ public sealed class NodeSupervisorIntegrationTests
             "设置 DANMU_TEST_LONG_SMOKE=1 才执行 20 次真实 Node 长冒烟；跳过不算 W-0003 Gate 通过。");
         var node = RequireNode();
         using var fixture = new NodeFixture(node);
-        var pids = new List<long>();
-
-        for (var iteration = 0; iteration < 20; iteration++)
+        var originals = new List<PinnedNodeIdentity>();
+        try
         {
-            await using var supervisor = fixture.CreateSupervisor();
-            var running = await supervisor.StartAsync(fixture.CreateConfig());
-            Assert.Equal(DesktopRuntimeState.Running, running.State);
-            Assert.NotNull(running.Pid);
-            pids.Add(running.Pid!.Value);
-            var stopped = await supervisor.StopAsync($"cycle-{iteration + 1}");
-            Assert.Equal(DesktopRuntimeState.Stopped, stopped.State);
-            Assert.True(IsPortFree(fixture.Port));
-        }
+            for (var iteration = 0; iteration < 20; iteration++)
+            {
+                await using var supervisor = fixture.CreateSupervisor();
+                var running = await supervisor.StartAsync(fixture.CreateConfig());
+                Assert.Equal(DesktopRuntimeState.Running, running.State);
+                Assert.NotNull(running.Pid);
+                // 仍在 Running 时固定独立 native handle，记录原始身份；不能等 Stop 释放后再用 PID 重找。
+                // 保留所有 20 个句柄到最终 Gate，避免期间 PID 复用污染原始进程的存活证据。
+                var original = PinnedNodeIdentity.Capture(checked((int)running.Pid!.Value));
+                originals.Add(original);
+                output.WriteLine($"cycle={iteration + 1} original pid={original.Pid} name={original.Name} startedUtc={original.StartedUtc:O} exited={original.Process.HasExited}");
+                var stopped = await supervisor.StopAsync($"cycle-{iteration + 1}");
+                Assert.Equal(DesktopRuntimeState.Stopped, stopped.State);
+                Assert.True(IsPortFree(fixture.Port));
+                output.WriteLine($"cycle={iteration + 1} afterStop pid={original.Pid} originalExited={original.Process.HasExited} state={stopped.State}");
+                Assert.True(original.Process.HasExited,
+                    $"cycle={iteration + 1} 已报告 Stopped，但原始受管进程未退出：pid={original.Pid}, name={original.Name}, startedUtc={original.StartedUtc:O}");
+            }
 
-        Assert.All(pids, pid => Assert.False(IsProcessAlive(pid)));
+            Assert.All(originals, original =>
+            {
+                // 同时保留原 PID-only 断言，不靠删除旧 Gate 来宣称根因已解决。
+                // 新的身份日志只包含 PID/name/创建时间，不查询或记录命令行、用户参数或配置。
+                var currentAlive = ObserveCurrentPid(original);
+                Assert.True(original.Process.HasExited,
+                    $"最终 Gate 原始进程仍存活：pid={original.Pid}, name={original.Name}, startedUtc={original.StartedUtc:O}");
+                Assert.False(currentAlive, $"最终 Gate PID={original.Pid} 当前存在活进程；见原始/当前身份取证日志");
+            });
+        }
+        finally
+        {
+            // Supervisor Dispose 清理每例自有进程；这里仅释放观察句柄，不按 PID 杀任何其它进程。
+            foreach (var original in originals) original.Dispose();
+        }
+    }
+
+    private bool ObserveCurrentPid(PinnedNodeIdentity original)
+    {
+        Process current;
+        try { current = Process.GetProcessById(original.Pid); }
+        catch (ArgumentException)
+        {
+            output.WriteLine($"final pid={original.Pid} originalName={original.Name} originalStartedUtc={original.StartedUtc:O} originalExited={original.Process.HasExited} current=notFound");
+            return false;
+        }
+        using (current)
+        {
+            Assert.False(current.SafeHandle.IsInvalid);
+            if (current.HasExited)
+            {
+                output.WriteLine($"final pid={original.Pid} originalName={original.Name} originalStartedUtc={original.StartedUtc:O} originalExited={original.Process.HasExited} currentExited=true");
+                return false;
+            }
+            var currentStartedUtc = current.StartTime.ToUniversalTime();
+            var currentName = current.ProcessName;
+            var alive = !current.HasExited;
+            var sameIdentity = currentStartedUtc == original.StartedUtc
+                && string.Equals(currentName, original.Name, StringComparison.OrdinalIgnoreCase);
+            output.WriteLine($"final pid={original.Pid} originalName={original.Name} originalStartedUtc={original.StartedUtc:O} originalExited={original.Process.HasExited} currentName={currentName} currentStartedUtc={currentStartedUtc:O} currentAlive={alive} sameIdentity={sameIdentity}");
+            return alive;
+        }
+    }
+
+    private sealed record PinnedNodeIdentity(Process Process, int Pid, string Name, DateTime StartedUtc) : IDisposable
+    {
+        public static PinnedNodeIdentity Capture(int pid)
+        {
+            var process = Process.GetProcessById(pid);
+            try
+            {
+                Assert.False(process.SafeHandle.IsInvalid);
+                Assert.False(process.HasExited);
+                return new(process, pid, process.ProcessName, process.StartTime.ToUniversalTime());
+            }
+            catch
+            {
+                process.Dispose();
+                throw;
+            }
+        }
+        public void Dispose() => Process.Dispose();
     }
 
     private static string RequireNode()

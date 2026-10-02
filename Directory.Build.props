@@ -1,9 +1,9 @@
-﻿<Project>
+<Project>
   <PropertyGroup>
     <LangVersion>12.0</LangVersion>
-    <Version>0.5.13</Version>
-    <AssemblyVersion>0.5.13.0</AssemblyVersion>
-    <FileVersion>0.5.13.0</FileVersion>
+    <Version>0.5.23</Version>
+    <AssemblyVersion>0.5.23.0</AssemblyVersion>
+    <FileVersion>0.5.23.0</FileVersion>
     <!-- Single source of truth for the Node.js version stamped into runtime-bundle by
          build/Get-OfficialNodeRuntime.ps1. Compiled into DanmuApi.Core as assembly metadata and
          asserted against the deployed node.exe, so a mismatched bundle fails explicitly. -->

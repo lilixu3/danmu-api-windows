@@ -54,6 +54,15 @@ public sealed record CoreInstallationManifest(
 
     public bool IsLocalPullRequestStack =>
         InstallKind == CoreInstallKind.LocalPullRequestStack || PullRequests.Count > 0;
+
+    /// <summary>完整安装快照相等：包括全部来源字段与有序 PR 内容，不比较列表对象的引用。
+    /// 基线 SHA 相同不能证明是同一次安装，也不能证明 PR 组合未变化。</summary>
+    public static bool SourcesEqual(CoreInstallationManifest? left, CoreInstallationManifest? right) =>
+        left is null || right is null
+            ? left is null && right is null
+            : left with { PullRequests = Array.Empty<CorePullRequestSource>() } ==
+              right with { PullRequests = Array.Empty<CorePullRequestSource>() } &&
+              left.PullRequests.SequenceEqual(right.PullRequests);
 }
 
 public sealed record CorePullRequestSource(
@@ -80,7 +89,11 @@ public sealed record CoreInstallRequest(
     string DisplayName,
     CoreInstallKind Kind,
     string ProxyId,
-    int? PullRequestNumber = null);
+    int? PullRequestNumber = null)
+{
+    /// <summary>更新依据的完整安装快照；安装器在自身变更锁内、替换前再次核验。</summary>
+    public CoreInstallationManifest? ExpectedManifest { get; init; }
+}
 
 /// <summary>隔离 Git 工作区生成的核心目录；停服与替换仍由宿主编排。</summary>
 public sealed record CorePreparedInstallRequest(
@@ -137,6 +150,17 @@ public interface ICorePreparedInstaller
     Task ConfirmPreparedBackupAsync(
         ManagedCoreVariant variant,
         string? backupDirectory,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>普通远端分支候选使用真实 Branch 来源，但和 PR 暂存应用共用备份确认/恢复协议。
+/// 候选健康确认前绝不归档或删除旧核心。</summary>
+public interface ICoreUpdateCandidateInstaller : ICorePreparedInstaller
+{
+    Task<CorePreparedInstallation> InstallUpdateCandidateAsync(
+        CoreInstallRequest request,
+        CoreInstallationManifest expectedManifest,
+        IProgress<CoreInstallProgress>? progress = null,
         CancellationToken cancellationToken = default);
 }
 

@@ -9,6 +9,14 @@ public sealed class RuntimeController : IRuntimeController, IAsyncDisposable
     private readonly Func<string?>? _startBlockedReason;
     private RuntimeSnapshot _snapshot;
     private Task? _disposeTask;
+    private readonly object _shutdownSync = new();
+    private Task? _shutdownTask;
+    private volatile bool _shutdownRequested;
+    private long _startRequestEpoch;
+    private bool _disposed;
+
+    public bool IsShutdownRequested => _shutdownRequested;
+    public bool HasOwnedProcess => _supervisor.HasOwnedProcess;
 
     public RuntimeController(
         INodeSupervisor supervisor,
@@ -51,9 +59,11 @@ public sealed class RuntimeController : IRuntimeController, IAsyncDisposable
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
+        var requestEpoch = CaptureStartRequestEpoch();
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ValidateStartRequestEpoch(requestEpoch);
             if (Snapshot.State is not (DesktopRuntimeState.Stopped or DesktopRuntimeState.Failed or DesktopRuntimeState.CoreSetupRequired))
             {
                 return;
@@ -130,9 +140,11 @@ public sealed class RuntimeController : IRuntimeController, IAsyncDisposable
 
     public async Task<AdoptionResult> AdoptAsync(CancellationToken cancellationToken = default)
     {
+        var requestEpoch = CaptureStartRequestEpoch();
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ValidateStartRequestEpoch(requestEpoch);
             if (Snapshot.State is not (DesktopRuntimeState.Stopped or DesktopRuntimeState.Failed or DesktopRuntimeState.CoreSetupRequired))
             {
                 var result = AdoptionResult.Failure(
@@ -267,9 +279,11 @@ public sealed class RuntimeController : IRuntimeController, IAsyncDisposable
 
     public async Task RestartAsync(CancellationToken cancellationToken = default)
     {
+        var requestEpoch = CaptureStartRequestEpoch();
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ValidateStartRequestEpoch(requestEpoch);
             if (Snapshot.State is not (DesktopRuntimeState.Running or DesktopRuntimeState.Failed))
             {
                 return;
@@ -330,6 +344,10 @@ public sealed class RuntimeController : IRuntimeController, IAsyncDisposable
         {
             throw;
         }
+        catch (InvalidOperationException) when (IsStartRequestInvalid(requestEpoch))
+        {
+            throw;
+        }
         catch (Exception error)
         {
             Publish(new RuntimeSnapshot(DesktopRuntimeState.Failed, FailureReason: $"重启编排失败: {error.Message}"));
@@ -340,7 +358,55 @@ public sealed class RuntimeController : IRuntimeController, IAsyncDisposable
         }
     }
 
-    public async Task ShutdownAsync(CancellationToken cancellationToken = default)
+    public Task ShutdownAsync(CancellationToken cancellationToken = default)
+    {
+        lock (_shutdownSync)
+        {
+            if (!_shutdownRequested) _startRequestEpoch++;
+            _shutdownRequested = true;
+            if (_shutdownTask is null || _shutdownTask.IsCompleted
+                && (Snapshot.State != DesktopRuntimeState.Stopped || Snapshot.Pid is not null || !_shutdownTask.IsCompletedSuccessfully))
+                _shutdownTask = ShutdownCoreAsync(cancellationToken);
+            return _shutdownTask;
+        }
+    }
+
+    public void ResumeAfterFailedShutdown()
+    {
+        lock (_shutdownSync)
+        {
+            if (_shutdownTask is { IsCompleted: false })
+                throw new InvalidOperationException("运行时退出清理尚未完成，不能恢复启动");
+            if (_disposed) throw new ObjectDisposedException(nameof(RuntimeController));
+            _startRequestEpoch++;
+            _shutdownRequested = false;
+            _shutdownTask = null;
+        }
+    }
+
+    // 请求抵达时先决定是否允许排队；仅在拿锁后看 bool 会把暂停期间的旧请求当成恢复后的新请求。
+    private long CaptureStartRequestEpoch()
+    {
+        lock (_shutdownSync)
+        {
+            if (_shutdownRequested) throw new InvalidOperationException("应用退出清理期间拒绝启动、认领或重启运行时");
+            if (_disposed) throw new ObjectDisposedException(nameof(RuntimeController));
+            return _startRequestEpoch;
+        }
+    }
+
+    private bool IsStartRequestInvalid(long requestEpoch)
+    {
+        lock (_shutdownSync) return _shutdownRequested || requestEpoch != _startRequestEpoch;
+    }
+
+    private void ValidateStartRequestEpoch(long requestEpoch)
+    {
+        if (IsStartRequestInvalid(requestEpoch))
+            throw new InvalidOperationException("运行时启动请求已被应用退出屏障失效，请在恢复后重新发起操作");
+    }
+
+    private async Task ShutdownCoreAsync(CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -364,7 +430,7 @@ public sealed class RuntimeController : IRuntimeController, IAsyncDisposable
             }
             catch (Exception error)
             {
-                Publish(new RuntimeSnapshot(DesktopRuntimeState.Failed, FailureReason: $"应用退出清理失败: {error.Message}"));
+                Publish(_supervisor.Snapshot with { State = DesktopRuntimeState.Failed, FailureReason = $"应用退出清理失败: {error.Message}" });
             }
         }
         finally
@@ -394,21 +460,21 @@ public sealed class RuntimeController : IRuntimeController, IAsyncDisposable
     {
         lock (this)
         {
-            _disposeTask ??= DisposeCoreAsync();
+            if (_disposed) return ValueTask.CompletedTask;
+            if (_disposeTask is null || _disposeTask.IsCompleted && !_disposeTask.IsCompletedSuccessfully)
+                _disposeTask = DisposeCoreAsync();
             return new ValueTask(_disposeTask);
         }
     }
 
     private async Task DisposeCoreAsync()
     {
-        try
-        {
-            await ShutdownAsync().ConfigureAwait(false);
-        }
-        finally
-        {
-            _gate.Dispose();
-        }
+        await ShutdownAsync().ConfigureAwait(false);
+        if (Snapshot.State != DesktopRuntimeState.Stopped || Snapshot.Pid is not null
+            || _supervisor.Snapshot.State != DesktopRuntimeState.Stopped || HasOwnedProcess)
+            throw new InvalidOperationException(Snapshot.FailureReason ?? "释放运行时失败：仍有受管进程待清理");
+        _disposed = true;
+        _gate.Dispose();
     }
 
     /// <summary>

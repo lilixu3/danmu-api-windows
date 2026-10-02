@@ -33,6 +33,33 @@ sealed class Program
             Environment.ExitCode = ReleaseSelfTest.Run(System.IO.Path.GetFullPath(args[1]));
             return;
         }
+        // Packaged installer relay: no Avalonia initialization, no settings loading and
+        // no user-provided executable. Reject elevated tokens before probing any profile.
+        if (args.Length >= 1 && args[0] is Services.RunningInstanceExitRequester.InstallerProbeArgument
+            or Services.RunningInstanceExitRequester.InstallerExitArgument)
+        {
+            var probeOnly = args[0] == Services.RunningInstanceExitRequester.InstallerProbeArgument;
+            if ((probeOnly && args.Length != 1) || (!probeOnly && (args.Length != 2 ||
+                !int.TryParse(args[1], out var limit) || limit is <= 0 or > 600)))
+            {
+                Console.Error.WriteLine("安装器中继参数无效");
+                Environment.ExitCode = 1;
+                return;
+            }
+            var timeout = probeOnly ? TimeSpan.Zero : TimeSpan.FromSeconds(int.Parse(args[1], System.Globalization.CultureInfo.InvariantCulture));
+            Environment.ExitCode = Services.RunningInstanceExitRequester.RunInstaller(probeOnly, timeout);
+            return;
+        }
+        // 安装器专用：请正在运行的实例安全退出，并等它真正释放单实例锁。
+        // 必须在 Avalonia 启动之前处理——本进程只是一个"传话并等待"的替身，不建窗口、不拿锁。
+        if (args.Length >= 1 && args[0] == Services.RunningInstanceExitRequester.Argument)
+        {
+            var timeout = args.Length >= 2 && int.TryParse(args[1], out var seconds) && seconds is > 0 and <= 600
+                ? TimeSpan.FromSeconds(seconds)
+                : TimeSpan.FromSeconds(60);
+            Environment.ExitCode = Services.RunningInstanceExitRequester.Run(timeout);
+            return;
+        }
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args, ShutdownMode.OnExplicitShutdown);
     }
 

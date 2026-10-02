@@ -25,6 +25,9 @@ public sealed class AppLifecycleCoordinator
     private readonly ICoreUpdateScheduler _updateScheduler;
     private readonly IClassicDesktopStyleApplicationLifetime _desktop;
     private readonly Func<Window?> _windowProvider;
+    private readonly IFrpTunnelService _frpTunnel;
+    private readonly object _exitSync = new();
+    private Task<bool>? _exitTask;
     private int _closeHandling;
     private int _exitRequested;
     private volatile bool _allowWindowClose;
@@ -36,7 +39,8 @@ public sealed class AppLifecycleCoordinator
         IAppDiagnostics diagnostics,
         ICoreUpdateScheduler updateScheduler,
         IClassicDesktopStyleApplicationLifetime desktop,
-        Func<Window?> windowProvider)
+        Func<Window?> windowProvider,
+        IFrpTunnelService frpTunnel)
     {
         _runtimeController = runtimeController ?? throw new ArgumentNullException(nameof(runtimeController));
         _settingsStore = settingsStore ?? throw new ArgumentNullException(nameof(settingsStore));
@@ -45,6 +49,7 @@ public sealed class AppLifecycleCoordinator
         _updateScheduler = updateScheduler ?? throw new ArgumentNullException(nameof(updateScheduler));
         _desktop = desktop ?? throw new ArgumentNullException(nameof(desktop));
         _windowProvider = windowProvider ?? throw new ArgumentNullException(nameof(windowProvider));
+        _frpTunnel = frpTunnel ?? throw new ArgumentNullException(nameof(frpTunnel));
     }
 
     public bool IsExitRequested => Volatile.Read(ref _exitRequested) != 0;
@@ -57,12 +62,14 @@ public sealed class AppLifecycleCoordinator
         ArgumentNullException.ThrowIfNull(window);
         ArgumentNullException.ThrowIfNull(args);
 
-        if (_allowWindowClose || IsExitRequested)
-        {
-            return;
-        }
+        if (_allowWindowClose) return;
 
         args.Cancel = true;
+        if (IsExitRequested)
+        {
+            await ExitApplicationAsync().ConfigureAwait(true);
+            return;
+        }
         if (Interlocked.Exchange(ref _closeHandling, 1) != 0)
         {
             return;
@@ -122,45 +129,61 @@ public sealed class AppLifecycleCoordinator
 
     public Task<bool> TryExitApplicationAsync() => ExitApplicationCoreAsync();
 
-    public async Task<bool> TryExitForUpdateAsync()
+    public Task<bool> TryExitForUpdateAsync() => ExitApplicationCoreAsync();
+
+    private Task<bool> ExitApplicationCoreAsync()
     {
-        if (IsExitRequested) return false;
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        await _updateScheduler.PauseForApplicationUpdateAsync(timeout.Token);
-        var exited = await ExitApplicationCoreAsync();
-        if (!exited) _updateScheduler.ResumeAfterApplicationUpdate();
-        return exited;
+        lock (_exitSync)
+        {
+            if (_exitTask is { IsCompleted: false } || _exitTask is { IsCompletedSuccessfully: true } && _exitTask.Result)
+                return _exitTask;
+            Volatile.Write(ref _exitRequested, 1);
+            _exitTask = ExecuteExitAsync();
+            return _exitTask;
+        }
     }
 
-    private async Task<bool> ExitApplicationCoreAsync()
+    private async Task<bool> ExecuteExitAsync()
     {
-        if (Interlocked.Exchange(ref _exitRequested, 1) != 0)
-        {
-            return true;
-        }
-
-        _allowWindowClose = true;
+        // 各入口共享同一清理结果。窗口在真正通过门控之前仍拒绝关闭，实例锁不能提前释放。
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         try
         {
-            await _runtimeController.ShutdownAsync().ConfigureAwait(true);
+            // 两个 Shutdown 调用在首个 await 前同步暂停新启动，并排空各自进行中的工作。
+            var runtimeShutdown = InvokeShutdownAsync(() => _runtimeController.ShutdownAsync());
+            var tunnelShutdown = InvokeTunnelShutdownAsync();
+            var pauseUpdates = InvokeShutdownAsync(() => _updateScheduler.PauseForApplicationUpdateAsync(timeout.Token));
+            await Task.WhenAll(runtimeShutdown, tunnelShutdown, pauseUpdates).ConfigureAwait(true);
             var snapshot = _runtimeController.Snapshot;
-            if (snapshot.State != DesktopRuntimeState.Stopped)
-            {
+            if (snapshot.State != DesktopRuntimeState.Stopped || snapshot.Pid is not null || _runtimeController.HasOwnedProcess)
                 throw new InvalidOperationException(
-                    $"应用退出时运行时未进入 Stopped: {snapshot.State}; {snapshot.FailureReason ?? "未提供失败原因"}");
-            }
-
-            _desktop.Shutdown(0);
+                    $"应用退出时运行时未确认停止: {snapshot.State}; {snapshot.FailureReason ?? "仍有受管进程"}");
+            var tunnelResult = await tunnelShutdown.ConfigureAwait(true);
+            if (!tunnelResult.Succeeded || _frpTunnel.Snapshot.State != DanmuApi.Core.Frp.FrpTunnelState.Stopped
+                || _frpTunnel.HasOwnedProcess)
+                throw new InvalidOperationException($"应用退出时穿透未确认停止：{tunnelResult.Message}");
+            _allowWindowClose = true;
+            if (!_desktop.TryShutdown(0))
+                throw new InvalidOperationException("桌面生命周期拒绝关闭，应用保持运行");
             return true;
         }
-        catch (Exception error) when (error is OperationCanceledException or IOException or InvalidOperationException)
+        catch (Exception error)
         {
             _allowWindowClose = false;
-            Volatile.Write(ref _exitRequested, 0);
             _diagnostics.Record("退出应用失败，主窗口保持打开", error);
+            try { _runtimeController.ResumeAfterFailedShutdown(); }
+            catch (Exception resumeError) { _diagnostics.Record("恢复运行时操作失败", resumeError); }
+            try { _frpTunnel.ResumeAfterFailedShutdown(); }
+            catch (Exception resumeError) { _diagnostics.Record("恢复穿透操作失败", resumeError); }
+            try { _updateScheduler.ResumeAfterApplicationUpdate(); }
+            catch (Exception resumeError) { _diagnostics.Record("恢复更新调度失败", resumeError); }
+            Volatile.Write(ref _exitRequested, 0);
             return false;
         }
     }
+
+    private static async Task InvokeShutdownAsync(Func<Task> operation) => await operation().ConfigureAwait(false);
+    private async Task<FrpOperationResult> InvokeTunnelShutdownAsync() => await _frpTunnel.ShutdownAsync().ConfigureAwait(false);
 
     public void HideToTray(Window? window = null)
     {

@@ -2,7 +2,8 @@ using System.Diagnostics;
 
 namespace DanmuApi.Runtime;
 
-public sealed record ProcessTerminationResult(bool Succeeded, string Diagnostic, int? ExitCode = null);
+public sealed record ProcessTerminationResult(bool Succeeded, string Diagnostic, int? ExitCode = null,
+    bool OwnershipVerified = false);
 
 public interface IProcessTerminator
 {
@@ -17,6 +18,7 @@ public interface IProcessTerminator
 public interface INodeSupervisor : IAsyncDisposable
 {
     RuntimeSnapshot Snapshot { get; }
+    bool HasOwnedProcess => Snapshot.Pid is not null;
     Task<RuntimeSnapshot> StartAsync(StartConfig config, CancellationToken cancellationToken = default);
     Task<AdoptionResult> AdoptAsync(
         StartConfig config,
@@ -47,5 +49,10 @@ public interface IRuntimeController
     /// missing core. A no-op in every other state; it never starts the service.</summary>
     Task RefreshCoreSetupRequiredAsync(CancellationToken cancellationToken = default);
     Task RestartAsync(CancellationToken cancellationToken = default);
+    /// <summary>同步暂停新启动，排空已排队操作并停止受管进程；失败不释放清理所有权。</summary>
     Task ShutdownAsync(CancellationToken cancellationToken = default);
+    bool IsShutdownRequested => false;
+    bool HasOwnedProcess => Snapshot.Pid is not null || Snapshot.State == DesktopRuntimeState.Running;
+    /// <summary>退出门控失败后允许用户继续操作；不得在仍在排空时恢复。</summary>
+    void ResumeAfterFailedShutdown() { }
 }

@@ -5,7 +5,7 @@ using System.Text.Json;
 
 namespace DanmuApi.Core;
 
-public sealed class CoreInstaller : ICoreInstaller, ICorePreparedInstaller
+public sealed class CoreInstaller : ICoreInstaller, ICorePreparedInstaller, ICoreUpdateCandidateInstaller
 {
     private const long MinArchiveBytes = 1024;
     private const long MaxExtractedBytes = 512L * 1024L * 1024L;
@@ -130,11 +130,41 @@ public sealed class CoreInstaller : ICoreInstaller, ICorePreparedInstaller
         IProgress<CoreInstallProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
+        var applied = await InstallArchiveAsync(request, null, progress, cancellationToken).ConfigureAwait(false);
+        return applied.Installation;
+    }
+
+    public Task<CorePreparedInstallation> InstallUpdateCandidateAsync(
+        CoreInstallRequest request,
+        CoreInstallationManifest expectedManifest,
+        IProgress<CoreInstallProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(expectedManifest);
+        if (request.Kind != CoreInstallKind.Branch || request.Variant != expectedManifest.Variant ||
+            !string.Equals(request.Repository.FullName, expectedManifest.Repository, StringComparison.Ordinal) ||
+            !string.Equals(request.Branch, expectedManifest.Branch, StringComparison.Ordinal))
+        {
+            throw new ArgumentException("分支更新候选与预期的安装来源不匹配", nameof(request));
+        }
+        return InstallArchiveAsync(request, expectedManifest, progress, cancellationToken);
+    }
+
+    private async Task<CorePreparedInstallation> InstallArchiveAsync(
+        CoreInstallRequest request,
+        CoreInstallationManifest? expectedManifest,
+        IProgress<CoreInstallProgress>? progress,
+        CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(request);
         ValidateRequest(request);
+        var retainBackup = expectedManifest is not null;
+        expectedManifest ??= request.ExpectedManifest;
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            if (expectedManifest is not null) EnsureCurrentManifest(request.Variant, expectedManifest);
             Directory.CreateDirectory(_nodeProjectDirectory);
             Directory.CreateDirectory(_cacheDirectory);
             EnsureSameVolume(_nodeProjectDirectory, _cacheDirectory);
@@ -144,6 +174,13 @@ public sealed class CoreInstaller : ICoreInstaller, ICorePreparedInstaller
             var staging = Path.Combine(_nodeProjectDirectory, $".{request.Variant.ToDirectoryName()}.staging-{operationId}");
             var backup = Path.Combine(_nodeProjectDirectory, $".{request.Variant.ToDirectoryName()}.backup-{operationId}");
             var replacementApplied = false;
+            var cleanupAttempted = false;
+            void CleanupCandidate()
+            {
+                if (cleanupAttempted) return;
+                cleanupAttempted = true;
+                TryCleanup(staging, extractRoot, archive, string.Empty, request.Variant, progress);
+            }
             try
             {
                 Report(progress, CoreInstallStage.Downloading, "正在下载核心压缩包");
@@ -195,9 +232,19 @@ public sealed class CoreInstaller : ICoreInstaller, ICorePreparedInstaller
                 cancellationToken.ThrowIfCancellationRequested();
                 Report(progress, CoreInstallStage.Replacing, "正在替换核心目录");
                 _stageHook?.Invoke(CoreInstallStage.Replacing);
+                if (expectedManifest is not null) EnsureCurrentManifest(request.Variant, expectedManifest);
                 ReplaceWithRollback(request.Variant, staging, backup);
                 replacementApplied = true;
+                var installation = InspectOrThrow(request.Variant);
                 _stageHook?.Invoke(CoreInstallStage.Completed);
+                if (retainBackup)
+                {
+                    Report(progress, CoreInstallStage.Completed, "分支更新候选已应用，等待服务健康确认");
+                    CleanupCandidate(); // 回调和清理仍在交接保护范围内；finally 不得破坏待返回的恢复点句柄。
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!Directory.Exists(backup)) throw new IOException("分支更新候选交接前恢复点已不存在");
+                    return new CorePreparedInstallation(InspectOrThrow(request.Variant), backup);
+                }
                 // 替换已经提交，旧版本历史只是善后：这里失败不能把「已装好的新核心」判成安装失败
                 // （那样 CoreUpdateResultHandler 会保留待更新状态并无限重试通知）。
                 try
@@ -212,19 +259,39 @@ public sealed class CoreInstaller : ICoreInstaller, ICorePreparedInstaller
                         progress);
                 }
                 Report(progress, CoreInstallStage.Completed, "核心安装完成");
-                return InspectOrThrow(request.Variant);
+                return new CorePreparedInstallation(installation, null);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException error)
             {
-                if (!replacementApplied)
+                if (retainBackup)
                 {
-                    RestoreBackupIfNeeded(request.Variant, backup);
+                    RecoverUnreturnedCandidate(error, request.Variant, backup, expectedManifest!,
+                        replacementApplied, CleanupCandidate);
                 }
+                else if (!replacementApplied)
+                {
+                    try
+                    {
+                        RestoreBackupIfNeeded(request.Variant, backup);
+                    }
+                    catch (Exception rollbackError)
+                    {
+                        throw new OperationCanceledException(
+                            $"核心安装已取消：{error.Message}；恢复原核心也失败：{rollbackError.Message}",
+                            new AggregateException(error, rollbackError), error.CancellationToken);
+                    }
+                }
+                throw;
+            }
+            catch (Exception error) when (retainBackup)
+            {
+                RecoverUnreturnedCandidate(error, request.Variant, backup, expectedManifest!,
+                    replacementApplied, CleanupCandidate);
                 throw;
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException or JsonException)
             {
-                if (replacementApplied)
+                if (replacementApplied && !retainBackup)
                 {
                     throw;
                 }
@@ -246,7 +313,8 @@ public sealed class CoreInstaller : ICoreInstaller, ICorePreparedInstaller
             {
                 // finally 里抛异常会替换掉正在传播的那个异常：清理失败只留临时目录，
                 // 绝不让它盖掉安装/回滚的真正原因。
-                TryCleanup(staging, extractRoot, archive, backup, request.Variant, progress);
+                if (!retainBackup)
+                    TryCleanup(staging, extractRoot, archive, backup, request.Variant, progress);
             }
         }
         finally
@@ -281,6 +349,7 @@ public sealed class CoreInstaller : ICoreInstaller, ICorePreparedInstaller
         try
         {
             Report(progress, CoreInstallStage.Validating, "正在校验本地 PR 合并结果");
+            EnsureCurrentManifest(request.Variant, request.ExpectedManifest);
             ValidatePreparedCore(staging);
             ValidateLocalMergeRequest(request);
             var manifest = request.ExpectedManifest with
@@ -300,6 +369,13 @@ public sealed class CoreInstaller : ICoreInstaller, ICorePreparedInstaller
             var operationId = Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
             var backup = Path.Combine(parent, $".{request.Variant.ToDirectoryName()}.backup-{operationId}");
             var replacementApplied = false;
+            var cleanupAttempted = false;
+            void CleanupCandidate()
+            {
+                if (cleanupAttempted) return;
+                cleanupAttempted = true;
+                TryCleanup(staging, string.Empty, string.Empty, string.Empty, request.Variant, progress);
+            }
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -307,38 +383,17 @@ public sealed class CoreInstaller : ICoreInstaller, ICorePreparedInstaller
                 ReplaceWithRollback(request.Variant, staging, backup);
                 replacementApplied = true;
                 Report(progress, CoreInstallStage.Completed, "本地 PR 合并已应用，等待服务健康确认");
-                return new CorePreparedInstallation(
-                    InspectOrThrow(request.Variant),
-                    Directory.Exists(backup) ? backup : null);
+                CleanupCandidate();
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!Directory.Exists(backup)) throw new IOException("本地 PR 候选交接前恢复点已不存在");
+                return new CorePreparedInstallation(InspectOrThrow(request.Variant), backup);
             }
-            catch (OperationCanceledException)
+            catch (Exception error)
             {
-                if (!replacementApplied)
-                {
-                    RestoreBackupIfNeeded(request.Variant, backup);
-                }
+                // 直到成功返回句柄前，包含清理/诊断回调在内的所有代码都由安装器负责恢复。
+                RecoverUnreturnedCandidate(error, request.Variant, backup, request.ExpectedManifest,
+                    replacementApplied, CleanupCandidate);
                 throw;
-            }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException or JsonException)
-            {
-                if (!replacementApplied)
-                {
-                    try
-                    {
-                        RestoreBackupIfNeeded(request.Variant, backup);
-                    }
-                    catch (Exception rollbackError) when (rollbackError is IOException or UnauthorizedAccessException)
-                    {
-                        throw new IOException(
-                            $"本地 PR 应用失败：{error.Message}；恢复原核心也失败：{rollbackError.Message}",
-                            new AggregateException(error, rollbackError));
-                    }
-                }
-                throw;
-            }
-            finally
-            {
-                TryCleanup(staging, string.Empty, string.Empty, string.Empty, request.Variant, progress);
             }
         }
         finally
@@ -610,6 +665,61 @@ public sealed class CoreInstaller : ICoreInstaller, ICorePreparedInstaller
         }
     }
 
+    private void RecoverUnreturnedCandidate(
+        Exception original,
+        ManagedCoreVariant variant,
+        string backup,
+        CoreInstallationManifest expectedManifest,
+        bool replacementApplied,
+        Action cleanup)
+    {
+        var failures = new List<Exception> { original };
+        var diagnostics = new List<string> { $"候选核心应用失败：{original.Message}" };
+        try
+        {
+            RestoreUnreturnedCandidate(variant, backup, expectedManifest, replacementApplied);
+        }
+        catch (Exception rollbackError)
+        {
+            failures.Add(rollbackError);
+            diagnostics.Add($"恢复原核心也失败：{rollbackError.Message}");
+        }
+        try
+        {
+            cleanup();
+        }
+        catch (Exception cleanupError)
+        {
+            failures.Add(cleanupError);
+            diagnostics.Add($"候选清理或诊断也失败：{cleanupError.Message}");
+        }
+        if (failures.Count == 1) return; // 调用方 throw; 保留原异常对象和堆栈。
+        var combined = new AggregateException(failures);
+        var diagnostic = string.Join("；", diagnostics);
+        if (original is OperationCanceledException canceled)
+            throw new OperationCanceledException(diagnostic, combined, canceled.CancellationToken);
+        throw new IOException(diagnostic, combined);
+    }
+
+    private void RestoreUnreturnedCandidate(
+        ManagedCoreVariant variant,
+        string backup,
+        CoreInstallationManifest expectedManifest,
+        bool replacementApplied)
+    {
+        // 替换前被来源预检拒绝时没有归属本事务的磁盘改动；不得把外部新来源当作恢复失败。
+        if (!replacementApplied && !Directory.Exists(backup))
+        {
+            return;
+        }
+        if (replacementApplied && !Directory.Exists(backup))
+        {
+            throw new IOException($"候选核心交接失败，但原核心恢复点已不存在：{backup}");
+        }
+        RestoreBackupIfNeeded(variant, backup);
+        EnsureCurrentManifest(variant, expectedManifest);
+    }
+
     private void RestoreBackupIfNeeded(ManagedCoreVariant variant, string backup)
     {
         if (!Directory.Exists(backup))
@@ -860,6 +970,15 @@ public sealed class CoreInstaller : ICoreInstaller, ICorePreparedInstaller
         }
     }
 
+    private void EnsureCurrentManifest(ManagedCoreVariant variant, CoreInstallationManifest expected)
+    {
+        var current = InspectOrThrow(variant).Manifest;
+        if (expected.Variant != variant || !CoreInstallationManifest.SourcesEqual(current, expected))
+        {
+            throw new InvalidOperationException("当前核心完整来源在准备后已变化，拒绝替换；请重新检查或准备");
+        }
+    }
+
     private CoreInstallationInfo InspectOrThrow(ManagedCoreVariant variant)
     {
         var info = Inspect(variant);
@@ -997,7 +1116,14 @@ public sealed class CoreInstaller : ICoreInstaller, ICorePreparedInstaller
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
-            ReportMaintenance($"安装临时文件清理失败（不影响已安装的核心）：{error.Message}", progress);
+            try
+            {
+                ReportMaintenance($"安装临时文件清理失败（不影响已安装的核心）：{error.Message}", progress);
+            }
+            catch (Exception reportError)
+            {
+                throw new AggregateException("安装临时文件清理失败，且报告清理诊断也失败", error, reportError);
+            }
         }
     }
 

@@ -96,8 +96,15 @@ public sealed class RuntimeMaintenanceTests
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.RepairAsync());
         Assert.Contains("先停止服务", error.Message);
         Assert.Equal(0, supervisor.StopCalls);
+        Assert.Equal(state, supervisor.Snapshot.State);
         Assert.Equal(0, scheduler.Paused);
         Assert.False(Directory.Exists(f.Paths.RuntimeDirectory));
+
+        // 维修拒绝不得停止服务；以上断言落定后，应用级 Dispose 仍必须进行真实的停止清理。
+        await controller.DisposeAsync();
+        Assert.Equal(1, supervisor.StopCalls);
+        Assert.Equal(DesktopRuntimeState.Stopped, supervisor.Snapshot.State);
+        Assert.Equal(DesktopRuntimeState.Stopped, controller.Snapshot.State);
     }
 
     [Fact]
@@ -157,6 +164,42 @@ public sealed class RuntimeMaintenanceTests
         File.AppendAllText(Path.Combine(f.Bundle, "SHA256SUMS.txt"), new string('a', 64) + "  nodejs-project/config/.env\n");
         Assert.Throws<IOException>(() => RuntimeDependencyInspector.Check(f.Bundle, f.Paths));
         Assert.False(Directory.Exists(f.Paths.RuntimeDirectory));
+    }
+
+    [Theory]
+    [InlineData("nodejs-project/outbound/foreign.exe")]
+    [InlineData("nodejs-project/outbound/subdir/danmu-outbound.exe")]
+    [InlineData("nodejs-project/outbound/../danmu-outbound.exe")]
+    [InlineData("nodejs-project/outbound/danmu-outbound.exe:ads")]
+    [InlineData("nodejs-project/app-outbound-foreign.js")]
+    [InlineData("nodejs-project/config/outbound/settings.json")]
+    [InlineData("nodejs-project/node_modules/pkg/../foreign.exe")]
+    [InlineData("nodejs-project/node_modules/CON.exe")]
+    [InlineData("nodejs-project/node_modules-prefix/foreign.exe")]
+    [InlineData("nodejs-project\\outbound\\danmu-outbound.exe")]
+    public void InspectorUsesTheSharedStrictManagedPathBoundary(string relative)
+    {
+        using var fixture = new Fixture();
+        File.AppendAllText(Path.Combine(fixture.Bundle, "SHA256SUMS.txt"), new string('A', 64) + "  " + relative + "\n");
+        Assert.Throws<IOException>(() => RuntimeDependencyInspector.Check(fixture.Bundle, fixture.Paths));
+        Assert.Throws<IOException>(() => BundledRuntimePreparer.Prepare(fixture.Bundle, fixture.Paths));
+        Assert.False(Directory.Exists(fixture.Paths.RuntimeDirectory));
+    }
+
+    [Theory]
+    [InlineData("duplicate")]
+    [InlineData("prefix")]
+    [InlineData("missingEntry")]
+    public void InspectorAndPreparerShareManifestStructuralValidation(string kind)
+    {
+        using var fixture = new Fixture();
+        var manifest = Path.Combine(fixture.Bundle, "SHA256SUMS.txt");
+        if (kind == "duplicate") File.AppendAllText(manifest, File.ReadLines(manifest).First() + "\n");
+        if (kind == "prefix") File.AppendAllText(manifest, new string('A', 64) + "  nodejs-project/node_modules/pkg\n");
+        if (kind == "missingEntry") File.WriteAllLines(manifest, File.ReadAllLines(manifest).Where(line => !line.EndsWith("  nodejs-project/main.js", StringComparison.Ordinal)));
+        Assert.Throws<IOException>(() => RuntimeDependencyInspector.Check(fixture.Bundle, fixture.Paths));
+        Assert.Throws<IOException>(() => BundledRuntimePreparer.Prepare(fixture.Bundle, fixture.Paths));
+        Assert.False(Directory.Exists(fixture.Paths.RuntimeDirectory));
     }
 
     [Fact]
@@ -241,10 +284,16 @@ public sealed class RuntimeMaintenanceTests
     private sealed class Supervisor(DesktopRuntimeState state) : INodeSupervisor
     {
         public int StopCalls;
-        public RuntimeSnapshot Snapshot => new(state);
+        public RuntimeSnapshot Snapshot { get; private set; } = new(state);
         public Task<RuntimeSnapshot> StartAsync(StartConfig config, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AdoptionResult> AdoptAsync(StartConfig config, RuntimeHealthSnapshot? health = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<RuntimeSnapshot> StopAsync(string reason = "user", CancellationToken cancellationToken = default) { StopCalls++; return Task.FromResult(new RuntimeSnapshot(DesktopRuntimeState.Stopped)); }
+        public Task<RuntimeSnapshot> StopAsync(string reason = "user", CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            StopCalls++;
+            Snapshot = new RuntimeSnapshot(DesktopRuntimeState.Stopped);
+            return Task.FromResult(Snapshot);
+        }
         public Task<RuntimeSnapshot> ForceStopAsync(string reason = "application-exit", CancellationToken cancellationToken = default) => StopAsync(reason, cancellationToken);
         public string? LivenessFailure() => null;
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

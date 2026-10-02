@@ -595,6 +595,8 @@ public sealed class BundledRuntimePreparerTests
             var summary = $"readinessMs={string.Join('/', samples.Select(sample => sample.ToString("F1")))} critical={ready.CriticalFilesChecked} metadataMode={metadataEntries} receipt={ready.ReceiptBytesRead}";
             var inspectorClock = System.Diagnostics.Stopwatch.StartNew();
             var inspector = RuntimeDependencyInspector.Check(bundle!, paths);
+            Assert.True(inspector.IsHealthy, $"Real bundle full check: missing={inspector.Missing}; damaged={inspector.Damaged}");
+            Assert.Equal(File.ReadLines(Path.Combine(bundle!, "SHA256SUMS.txt")).Count(), inspector.Total);
             summary += $" fullCheckMs={inspectorClock.Elapsed.TotalMilliseconds:F0} files={inspector.Total}";
             Console.WriteLine(summary);
             File.WriteAllText(Path.Combine(parent!, "readiness-timing-result.txt"), summary);

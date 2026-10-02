@@ -34,6 +34,12 @@ foreach($relative in $gitArchFiles){
   } finally {$stream.Dispose()}
   if($actualMachine -ne $machine){throw ('Portable Git architecture mismatch: {0} is 0x{1:X4} for {2}' -f $relative,$actualMachine,$Arch)}
 }
+# This release requires the complete app-owned outbound runtime. Validate before publish/signing;
+# old bundle fixtures still work with Prepare but cannot silently produce a release without the feature.
+$archName=$Arch.Replace('win-','')
+if($NodeArch -and $NodeArch -cne $archName){throw 'Node architecture must equal the release process RID'}
+if($NodeVersion -and $NodeVersion -cne [string]$props.Project.PropertyGroup.DanmuBundledNodeVersion){throw 'Node version must equal the compiled host contract'}
+& (Join-Path $PSScriptRoot 'New-OutboundRuntimeBundle.ps1') -BaseBundle $RuntimeBundle -Arch $archName -ValidateOnly
 New-Item -ItemType Directory $output | Out-Null
 $publish=Join-Path $output 'publish'
 $env:DANMU_SIGNTOOL=[IO.Path]::GetFullPath($SignTool)
@@ -55,7 +61,30 @@ if(-not $nodeVersion){throw 'DanmuBundledNodeVersion is not declared in Director
 # The runtime identifier decides the architecture of both the host and its bundled Node runtime.
 $archName=$Arch.Replace('win-','')
 $nodeArch=if($NodeArch){$NodeArch}else{$archName}
-Copy-Item -LiteralPath $RuntimeBundle -Destination (Join-Path $publish 'runtime-bundle') -Recurse
+# Project only the previously validated manifests; recursive copying would reopen the
+# unlisted-file channel between validation and packaging. Validate the final tree below.
+$publishedRuntime=Join-Path $publish 'runtime-bundle'
+if(Test-Path -LiteralPath $publishedRuntime){throw 'Published app already contains a runtime bundle; refusing to merge trees'}
+$runtimeFiles=New-Object 'System.Collections.Generic.List[string]'
+foreach($line in [IO.File]::ReadAllLines((Join-Path $RuntimeBundle 'SHA256SUMS.txt'))){
+  if($line -cnotmatch '^[0-9a-fA-F]{64}  (.+)$'){throw 'Invalid verified runtime manifest'}
+  $runtimeFiles.Add($Matches[1])
+}
+$runtimeFiles.Add('SHA256SUMS.txt');$runtimeFiles.Add('runtime-build.json')
+$redisManifest=Join-Path $RuntimeBundle 'redis-payload.SHA256SUMS.txt'
+if(Test-Path -LiteralPath $redisManifest){
+  $runtimeFiles.Add('redis-payload.SHA256SUMS.txt')
+  foreach($line in [IO.File]::ReadAllLines($redisManifest)){
+    if($line -cnotmatch '^[0-9a-fA-F]{64}  (.+)$'){throw 'Invalid verified optional Redis manifest'}
+    $runtimeFiles.Add('nodejs-project/node_modules/'+$Matches[1])
+  }
+}
+foreach($relative in $runtimeFiles){
+  $target=Join-Path $publishedRuntime $relative
+  New-Item -ItemType Directory -Path (Split-Path $target -Parent) -Force | Out-Null
+  [IO.File]::Copy((Join-Path $RuntimeBundle $relative),$target,$false)
+}
+& (Join-Path $PSScriptRoot 'New-OutboundRuntimeBundle.ps1') -BaseBundle $publishedRuntime -Arch $archName -ValidateOnly
 if(Test-Path (Join-Path $publish 'git')){throw 'Published app already contains a git directory; refusing to merge bundles'}
 Copy-Item -LiteralPath $gitRoot -Destination (Join-Path $publish 'git') -Recurse
 # Stamp the published copy from nodejs.org so the runtime's origin is reproducible instead of an
@@ -64,10 +93,13 @@ Copy-Item -LiteralPath $gitRoot -Destination (Join-Path $publish 'git') -Recurse
 if($LASTEXITCODE -ne 0){throw 'Stamping the official Node runtime failed'}
 & (Join-Path $PSScriptRoot 'New-RuntimeBuildIdentity.ps1') -RuntimeBundle (Join-Path $publish 'runtime-bundle') -NodeVersion $nodeVersion -Arch $nodeArch
 if($LASTEXITCODE -ne 0){throw 'Runtime build identity failed'}
+& (Join-Path $PSScriptRoot 'New-OutboundRuntimeBundle.ps1') -BaseBundle (Join-Path $publish 'runtime-bundle') -Arch $archName -ValidateOnly
 $signScript=Join-Path $PSScriptRoot 'Sign-WindowsFile.ps1'
 & $signScript -FilePath (Join-Path $publish 'DanmuApi.App.exe')
 & (Join-Path $PSScriptRoot 'Compile-WindowsInstaller.ps1') -InnoCompiler $InnoCompiler -SourceDirectory $publish -OutputDirectory $output -Version $version -ArchName $archName
 if(-not (Test-Path (Join-Path $output ('DanmuApi-'+$version+'-'+$Arch+'-setup.exe')))){throw 'Compiler returned without a completed installer'}
+# The exact same closed final tree is the input to the portable archive and installer.
+& (Join-Path $PSScriptRoot 'New-OutboundRuntimeBundle.ps1') -BaseBundle $publishedRuntime -Arch $archName -ValidateOnly
 $files=Get-ChildItem $publish -File | Where-Object {$_.Extension -in '.exe','.dll'}
 Compress-Archive -LiteralPath @($files.FullName + (Join-Path $publish 'runtime-bundle') + (Join-Path $publish 'git')) -DestinationPath (Join-Path $output ('DanmuApi-'+$version+'-'+$Arch+'-portable.zip'))
 & (Join-Path $PSScriptRoot 'New-UpdateManifest.ps1') -ReleaseDirectory $output -SigningIdentity $SigningIdentity -Version $version -Architecture $Arch

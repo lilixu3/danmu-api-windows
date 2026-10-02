@@ -328,7 +328,7 @@ public sealed class GithubCoreRemote : IGithubCoreRemote
 
     public async Task<string?> ValidateTokenAsync(string token, CancellationToken cancellationToken = default)
     {
-        var normalized = NormalizeToken(token);
+        var normalized = GithubTokenPolicy.Normalize(token);
         if (normalized.Length == 0)
         {
             throw new ArgumentException("GitHub Token 不能为空", nameof(token));
@@ -352,7 +352,7 @@ public sealed class GithubCoreRemote : IGithubCoreRemote
         }
 
         var officialUri = BuildOfficialUri(relativePath);
-        var token = NormalizeToken(_tokenProvider.GetToken());
+        var token = GithubTokenPolicy.Read(_tokenProvider);
         var routeCandidates = GithubProxyCatalog.BuildDownloadCandidates(preference.ProxyId, officialUri);
         var candidates = token.Length > 0
             ? new[] { officialUri }.Concat(routeCandidates).Distinct().ToArray()
@@ -365,7 +365,7 @@ public sealed class GithubCoreRemote : IGithubCoreRemote
         string? tokenOverride = null,
         CancellationToken cancellationToken = default)
     {
-        var token = NormalizeToken(tokenOverride is null ? _tokenProvider.GetToken() : tokenOverride);
+        var token = GithubTokenPolicy.Normalize(tokenOverride ?? _tokenProvider.GetToken());
         return SendCandidatesAsync([BuildOfficialUri(relativePath)], token, cancellationToken);
     }
 
@@ -582,6 +582,7 @@ public sealed class GithubCoreRemote : IGithubCoreRemote
             OptionalInt(root, "changed_files"))
         {
             BaseSha = OptionalString(@base, "sha"),
+            MergeCommitSha = OptionalString(root, "merge_commit_sha"),
         };
     }
 
@@ -777,19 +778,6 @@ public sealed class GithubCoreRemote : IGithubCoreRemote
     }
 
     private static string Encode(string value) => Uri.EscapeDataString(value.Trim());
-
-    private static string NormalizeToken(string? token)
-    {
-        var value = token?.Trim() ?? string.Empty;
-        if (value.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-        {
-            return value[7..].Trim();
-        }
-
-        return value.StartsWith("token ", StringComparison.OrdinalIgnoreCase)
-            ? value[6..].Trim()
-            : value;
-    }
 
     private static string Sanitize(string value, string token) =>
         token.Length == 0 ? value : value.Replace(token, "***", StringComparison.Ordinal);

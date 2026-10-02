@@ -1,0 +1,64 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:DanmuApi.App.ViewModels"
+        x:Class="DanmuApi.App.Views.OutboundConfigurationWindow"
+        x:DataType="vm:OutboundDirectViewModel"
+        Title="增强直连 · 连接选项" Width="580" Height="480" MinWidth="460" MinHeight="420"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False" CanResize="True">
+  <Window.Styles>
+    <Style Selector="TextBlock.caption">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+  </Window.Styles>
+  <Grid RowDefinitions="Auto,*,Auto" Margin="24" RowSpacing="18">
+    <StackPanel Spacing="6">
+      <TextBlock Text="连接选项" FontSize="20" FontWeight="SemiBold" />
+      <TextBlock Text="调整连接协议、超时与解析服务，保存后统一应用。" Classes="caption" />
+    </StackPanel>
+    <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Spacing="18">
+        <StackPanel x:Name="ConnectionForm" Spacing="18" IsEnabled="{Binding CanEditConfiguration}">
+          <Border Background="{DynamicResource SurfaceMutedBrush}" CornerRadius="6" Padding="12,10">
+            <StackPanel Spacing="5">
+              <TextBlock Text="{Binding SourceSummary}" FontWeight="SemiBold" TextWrapping="Wrap" />
+              <TextBlock Text="来源可在主页面直接勾选。" Classes="caption" />
+            </StackPanel>
+          </Border>
+          <Grid ColumnDefinitions="*,*" ColumnSpacing="18">
+            <StackPanel Spacing="6">
+              <TextBlock Text="连接协议" FontWeight="SemiBold" />
+              <ComboBox x:Name="HttpMode" ItemsSource="{Binding HttpOptions}" SelectedItem="{Binding SelectedHttpOption, Mode=TwoWay}"
+                        HorizontalAlignment="Stretch" AutomationProperties.Name="连接协议" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Spacing="6">
+              <TextBlock Text="连接超时（毫秒）" FontWeight="SemiBold" />
+              <TextBox x:Name="ConnectTimeout" Text="{Binding ConnectTimeoutText, Mode=TwoWay}" Watermark="1–60000"
+                       AutomationProperties.Name="连接超时毫秒" />
+            </StackPanel>
+          </Grid>
+          <TextBlock Text="自动模式按网络情况选择协议。强制 HTTP/3 时，无法建立连接会报告失败。" Classes="caption" />
+          <StackPanel Spacing="6">
+            <TextBlock Text="DNS over HTTPS（DoH）" FontWeight="SemiBold" />
+            <TextBox x:Name="DohAddress" Text="{Binding DohUrl, Mode=TwoWay}" Watermark="留空使用内置解析服务"
+                     AutomationProperties.Name="DoH 地址" />
+            <TextBlock Text="自定义地址必须使用 HTTPS。ECH 是否启用由各源的域名策略决定。" Classes="caption" />
+          </StackPanel>
+        </StackPanel>
+        <SelectableTextBlock x:Name="ValidationReasons" Text="{Binding ValidationText}" IsVisible="{Binding HasProblems}"
+                             TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}" />
+        <TextBlock Text="{Binding ConfigurationMessage}" TextWrapping="Wrap" />
+        <SelectableTextBlock Text="{Binding Diagnostic}" IsVisible="{Binding HasDiagnostic}"
+                             TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}" />
+      </StackPanel>
+    </ScrollViewer>
+    <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="16">
+      <TextBlock Text="保存不会自动启动或停止核心服务。" Classes="caption" VerticalAlignment="Center" />
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
+        <Button x:Name="CancelConfiguration" Content="取消" Click="CancelEdit" IsEnabled="{Binding CanRefresh}" Classes="secondary" />
+        <Button x:Name="SaveConfiguration" Content="保存" Click="SaveEdit" IsEnabled="{Binding CanApply}" Classes="primary" />
+      </StackPanel>
+    </Grid>
+  </Grid>
+</Window>

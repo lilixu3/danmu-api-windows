@@ -1,5 +1,4 @@
 using System.Security.Cryptography;
-using System.Text.RegularExpressions;
 using DanmuApi.Core;
 using DanmuApi.Platform;
 using DanmuApi.Runtime;
@@ -97,14 +96,6 @@ public sealed class RuntimeMaintenanceService(string bundleDirectory, AppPaths p
 /// <summary>Read-only full payload verification, deliberately independent of startup metadata shortcuts.</summary>
 public static class RuntimeDependencyInspector
 {
-    private static readonly HashSet<string> Hosts = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "node.exe", "NODE-LICENSE.txt", "nodejs-project/main.js", "nodejs-project/android-server.js",
-        "nodejs-project/favorite-scheduler-host.js", "nodejs-project/package-lock.json", "nodejs-project/package.json",
-        "nodejs-project/runtime-polyfills.js", "nodejs-project/runtime_asset_layout.txt",
-        "nodejs-project/startup-failure.js", "nodejs-project/worker-proxy.js"
-    };
-
     public static RuntimeDependencyCheckResult Check(string bundleDirectory, AppPaths paths,
         IProgress<BundledRuntimeProgress>? progress = null, CancellationToken cancellationToken = default)
     {
@@ -112,36 +103,20 @@ public static class RuntimeDependencyInspector
         progress?.Report(new("ReadingManifest", 0, 0));
         var manifest = Path.Combine(bundleDirectory, "SHA256SUMS.txt");
         CheckPath(manifest);
-        var entries = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var line in File.ReadLines(manifest))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (line.Length < 67 || line.Substring(64, 2) != "  " || !Regex.IsMatch(line[..64], "\\A[0-9a-fA-F]{64}\\z"))
-                throw new IOException("随包运行依赖清单格式无效。");
-            var relative = line[66..];
-            if (relative.Contains('\\') || relative.Contains(':') || relative.Split('/').Any(p =>
-                p.Length == 0 || p is "." or ".." || p.EndsWith('.') || p.EndsWith(' ') ||
-                p.Any(c => c < 32 || "<>\"|?*".Contains(c)) || Regex.IsMatch(p, "\\A(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\\.|$)", RegexOptions.IgnoreCase)) ||
-                (!Hosts.Contains(relative) && !relative.StartsWith("nodejs-project/node_modules/", StringComparison.OrdinalIgnoreCase)))
-                throw new IOException("随包运行依赖清单包含非法或非受管路径。");
-            if (!entries.TryAdd(relative, line[..64])) throw new IOException("随包运行依赖清单包含重复路径。");
-        }
-        if (!entries.ContainsKey("node.exe") || !entries.ContainsKey("nodejs-project/main.js"))
-            throw new IOException("随包运行依赖清单缺少 Node 或启动入口。");
-        foreach (var relative in entries.Keys)
-        {
-            var segments = relative.Split('/');
-            for (var i = 1; i < segments.Length; i++)
-                if (entries.ContainsKey(string.Join('/', segments.Take(i)))) throw new IOException("随包运行依赖清单存在文件与目录冲突。");
-        }
+        // Preparation and maintenance share one exact managed-path and manifest contract.
+        // This check still hashes every target independently of startup metadata shortcuts.
+        var entries = BundledRuntimePreparer.ParseManagedManifest(File.ReadAllText(manifest));
+        cancellationToken.ThrowIfCancellationRequested();
         var missing = 0;
         var damaged = 0;
         var completed = 0;
         progress?.Report(new("VerifyingTarget", 0, entries.Count));
         var buffer = new byte[128 * 1024];
-        foreach (var (relative, hash) in entries)
+        foreach (var entry in entries)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var relative = entry.Path;
+            var hash = entry.Hash;
             var target = Path.Combine(paths.RuntimeDirectory, relative.Replace('/', Path.DirectorySeparatorChar));
             CheckPath(target);
             if (Directory.Exists(target)) damaged++;

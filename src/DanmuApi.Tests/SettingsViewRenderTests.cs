@@ -155,8 +155,10 @@ public sealed partial class SettingsPageViewModelTests
         try
         {
             Dispatcher.UIThread.RunJobs();
-            var list = view.GetVisualDescendants().OfType<ListBox>()
-                .Single(box => box.Classes.Contains("rail-list"));
+            // Each page owns a CategoryList; nested workspaces can also use rail-list for tabs.
+            var list = view.FindControl<ListBox>("CategoryList");
+            Assert.NotNull(list);
+            Assert.Contains("rail-list", list!.Classes);
             list.ItemsSource = new[] { item };
             window.UpdateLayout();
             Dispatcher.UIThread.RunJobs();

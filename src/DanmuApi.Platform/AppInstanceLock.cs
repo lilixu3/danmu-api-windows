@@ -14,6 +14,8 @@ public enum InstanceCommand
     SHOW_SETTINGS,
     APPLY_CORE_UPDATE,
     SHOW_APP_UPDATE,
+    /// <summary>安装器在用：请求正在运行的实例安全停止服务并退出，以便替换程序文件。</summary>
+    REQUEST_EXIT,
 }
 
 public sealed record AppInstanceLockResult(bool Succeeded, string Diagnostic, bool AlreadyOwned = false)
@@ -151,8 +153,7 @@ public sealed class AppInstanceLock : IDisposable
                 _token = token;
                 _serverTask = RunServerAsync(listener, token, onCommand, cancellation.Token);
                 return AppInstanceLockResult.Success();
-            }
-            catch (Exception error)
+            }            catch (Exception error)
             {
                 listener?.Stop();
                 cancellation?.Dispose();
@@ -530,7 +531,11 @@ public sealed class AppInstanceLock : IDisposable
         var temporary = Path.Combine(directory, $".{Path.GetFileName(endpointFile)}.tmp-{Guid.NewGuid():N}");
         try
         {
-            var content = $"port={port.ToString(CultureInfo.InvariantCulture)}\ntoken={token}\n";
+            // exe 记录「当前正在运行的是哪个可执行文件」：安装器要请这个实例退出时，
+            // 靠它拿到准确路径（比注册表更可靠——便携副本不写卸载键，协议注册也要等首次通知）。
+            var executable = Environment.ProcessPath;
+            var content = $"port={port.ToString(CultureInfo.InvariantCulture)}\ntoken={token}\n"
+                + (string.IsNullOrWhiteSpace(executable) ? string.Empty : $"exe={executable}\n");
             File.WriteAllText(temporary, content, new UTF8Encoding(false));
             File.Move(temporary, endpointFile, overwrite: true);
         }
@@ -540,6 +545,49 @@ public sealed class AppInstanceLock : IDisposable
             {
                 File.Delete(temporary);
             }
+        }
+    }
+
+    /// <summary>
+    /// 读取「当前运行实例的可执行文件路径」，供安装器在替换文件前请它退出。
+    /// 读不到或内容不合法时返回 false，不猜路径——安装器会退回注册表来源或让用户手动退出。
+    /// </summary>
+    public static bool TryReadRunningExecutable(string endpointFile, out string? executable)
+    {
+        executable = null;
+        try
+        {
+            if (!File.Exists(endpointFile))
+            {
+                return false;
+            }
+
+            var values = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var rawLine in File.ReadAllLines(endpointFile, new UTF8Encoding(false, true)))
+            {
+                var line = rawLine.Trim();
+                var separator = line.IndexOf('=');
+                if (separator <= 0 || separator == line.Length - 1)
+                {
+                    continue;
+                }
+
+                values[line[..separator]] = line[(separator + 1)..];
+            }
+
+            if (!values.TryGetValue("exe", out var path) || string.IsNullOrWhiteSpace(path))
+            {
+                return false;
+            }
+
+            var full = Path.GetFullPath(path);
+            executable = full;
+            return true;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or FormatException or ArgumentException or NotSupportedException)
+        {
+            executable = null;
+            return false;
         }
     }
 

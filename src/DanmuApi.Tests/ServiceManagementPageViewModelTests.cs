@@ -135,7 +135,20 @@ public sealed class ServiceManagementPageViewModelTests
             var download = firstBackup.DownloadCommand.ExecuteAsync(null);
             await downloadHandler.Entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
             settings.SelectedCategory = settings.Categories[0];
-            await download.WaitAsync(TimeSpan.FromSeconds(2));
+            try
+            {
+                await download.WaitAsync(TimeSpan.FromSeconds(2));
+            }
+            catch (TimeoutException error)
+            {
+                throw new TimeoutException(
+                    $"Backup cancellation timed out: dark={dark}, width={width}, task={download.Status}, " +
+                    $"busy={firstBackup.IsBusy}, failure={firstBackup.LastFailure?.GetType().Name ?? "none"}, " +
+                    $"backupReleased={settings.Backup is null}, passwordCleared={firstBackup.Password.Length == 0}, " +
+                    $"uiAccess={Avalonia.Threading.Dispatcher.UIThread.CheckAccess()}, " +
+                    $"context={SynchronizationContext.Current?.GetType().Name ?? "none"}; " +
+                    string.Join("; ", downloadHandler.Stages), error);
+            }
             Assert.IsAssignableFrom<OperationCanceledException>(firstBackup.LastFailure);
             Assert.False(firstBackup.IsBusy);
             Assert.Null(settings.Backup);
@@ -168,12 +181,27 @@ public sealed class ServiceManagementPageViewModelTests
     }
     private sealed class PendingDownloadHandler : HttpMessageHandler
     {
+        private readonly System.Diagnostics.Stopwatch _clock = System.Diagnostics.Stopwatch.StartNew();
+        public System.Collections.Concurrent.ConcurrentQueue<string> Stages { get; } = new();
         public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private void Record(string stage) => Stages.Enqueue(
+            $"{stage}@{_clock.ElapsedMilliseconds}ms/thread={Environment.CurrentManagedThreadId}");
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            Record("handler-entered");
+            using var registration = cancellationToken.Register(() => Record("token-cancelled"));
             Entered.TrySetResult();
-            await Task.Delay(Timeout.Infinite, cancellationToken);
-            throw new InvalidOperationException("Pending download must end through cancellation");
+            try
+            {
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+                throw new InvalidOperationException("Pending download must end through cancellation");
+            }
+            catch (OperationCanceledException)
+            {
+                Record("delay-cancelled");
+                throw;
+            }
+            finally { Record("handler-finished"); }
         }
     }
     private sealed class Autostart : IAutostartService

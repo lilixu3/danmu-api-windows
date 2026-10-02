@@ -209,6 +209,22 @@ internal sealed class RecordingDialogService : IUiDialogService
         return Task.FromResult(PromptText);
     }
 
+    /// <summary>多行文本弹窗（内网穿透的 JSON 导入/导出）：记录每次请求，返回页设置的文本。</summary>
+    public List<(string Title, string Initial, bool ReadOnly)> MultilineTextPrompts { get; } = [];
+
+    public string? MultilineTextResult { get; set; }
+
+    public Task<string?> PromptMultilineTextAsync(
+        string title,
+        string description,
+        string initial,
+        string confirmLabel,
+        bool readOnly = false)
+    {
+        MultilineTextPrompts.Add((title, initial, readOnly));
+        return Task.FromResult(MultilineTextResult ?? (readOnly ? initial : null));
+    }
+
     public Task<DanmuFavoriteSchedule?> PromptFavoriteScheduleAsync(DanmuFavoriteSchedule? current) =>
         Task.FromResult(FavoriteScheduleResult);
 
@@ -276,6 +292,24 @@ internal sealed class RecordingDialogService : IUiDialogService
         return Task.FromResult(BuildConfirmed
             ? new PullRequestBuildConfirmation(true, BuildActivateAfterInstall)
             : PullRequestBuildConfirmation.Canceled);
+    }
+
+    public PullRequestStackUpdatePrompt? LastStackUpdatePrompt { get; private set; }
+
+    /// <summary>核对框的选择；默认取消（"什么都没选"必须等于不动核心）。</summary>
+    public PullRequestStackUpdateChoice StackUpdateChoice { get; set; } = PullRequestStackUpdateChoice.Cancel;
+
+    public Task<PullRequestStackUpdateDecision> ConfirmPullRequestStackUpdateAsync(PullRequestStackUpdatePrompt prompt)
+    {
+        LastStackUpdatePrompt = prompt;
+        return Task.FromResult(StackUpdateChoice switch
+        {
+            PullRequestStackUpdateChoice.UpdateAndReMerge => new PullRequestStackUpdateDecision(
+                PullRequestStackUpdateChoice.UpdateAndReMerge, prompt.ReMergeableNumbers),
+            PullRequestStackUpdateChoice.UpdateOnly => new PullRequestStackUpdateDecision(
+                PullRequestStackUpdateChoice.UpdateOnly, []),
+            _ => PullRequestStackUpdateDecision.Canceled,
+        });
     }
 
     public Task<bool> ShowUpdateDetailsAsync(GithubCompareResult comparison, string localDisplay, string remoteDisplay)

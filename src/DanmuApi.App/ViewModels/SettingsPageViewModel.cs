@@ -3,12 +3,108 @@ using CommunityToolkit.Mvvm.Input;
 using DanmuApi.App.Services;
 using DanmuApi.Platform;
 using DanmuApi.Core;
+using DanmuApi.Core.Frp;
+using DanmuApi.Runtime.Frp;
 
 namespace DanmuApi.App.ViewModels;
 
 public sealed partial class SettingsPageViewModel : ViewModelBase, IAsyncDisposable
 {
     private readonly ThemeService? _themeService;
+    private readonly IFrpTunnelService? _frpTunnel;
+    private readonly SynchronizationContext? _uiContext = SynchronizationContext.Current;
+
+    /// <summary>
+    /// 内网穿透「随弹幕服务启动而启动」。这是穿透页监控开关的同一个值，
+    /// 两处都能改、改完立即生效（停止方向不看这个开关：服务一停穿透必然跟着停）。
+    /// </summary>
+    [ObservableProperty]
+    private bool _frpFollowService;
+
+    [ObservableProperty]
+    private string _frpFollowServiceStatusText = "内网穿透未接入";
+
+    [ObservableProperty]
+    private bool _frpFollowServiceAvailable;
+
+    public string FrpFollowServiceDescription =>
+        "开启后，弹幕服务启动时自动把内网穿透也拉起来；弹幕服务停止时穿透总是跟着停止。"
+        + "穿透的服务器地址与 Token 在 工具 → 内网穿透 → 配置 里填写。";
+
+    /// <summary>
+    /// 开关立即落盘并立即生效——它是行为设置，不跟任何"保存"按钮绑定。
+    /// 命令由 AsyncRelayCommand 执行，异常逃出去会在 UI 线程重抛并把应用弄崩，因此这里自带兜底。
+    /// </summary>
+    [RelayCommand]
+    private async Task ToggleFrpFollowServiceAsync()
+    {
+        if (_frpTunnel is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var target = !FrpFollowService;
+            FrpFollowService = target;
+            var result = await _frpTunnel.SetFollowServiceAsync(target).ConfigureAwait(true);
+            FrpFollowServiceStatusText = result.Message;
+            if (!result.Succeeded)
+            {
+                _diagnostics?.Record($"设置「随服务启动穿透」失败：{result.Message}");
+                FrpFollowService = _frpTunnel.Settings.FollowService;
+            }
+        }
+        catch (Exception error)
+        {
+            _diagnostics?.Record("设置「随服务启动穿透」异常", error);
+            FrpFollowServiceStatusText = $"设置失败：{error.Message}";
+            FrpFollowService = _frpTunnel.Settings.FollowService;
+        }
+        finally
+        {
+            RefreshFrpFollowService();
+        }
+    }
+
+    private void RefreshFrpFollowService()
+    {
+        if (_frpTunnel is null)
+        {
+            FrpFollowServiceAvailable = false;
+            FrpFollowServiceStatusText = "内网穿透未接入";
+            return;
+        }
+
+        FrpFollowServiceAvailable = true;
+        FrpFollowService = _frpTunnel.Settings.FollowService;
+        var installed = _frpTunnel.InstalledVersion;
+        FrpFollowServiceStatusText = installed is null
+            ? "尚未安装 frp；先在 工具 → 内网穿透 里安装。"
+            : _frpTunnel.Snapshot.State switch
+            {
+                FrpTunnelState.Running => $"穿透运行中（frp {installed}）",
+                FrpTunnelState.Failed => $"穿透启动失败：{_frpTunnel.Snapshot.Diagnostic}",
+                FrpTunnelState.Reconnecting => "穿透连接中断，正在重连",
+                _ => $"穿透未运行（frp {installed}）",
+            };
+    }
+
+    private void OnFrpTunnelChanged(object? sender, FrpSnapshot snapshot) => Dispatch(() => RefreshFrpFollowService());
+
+    /// <summary>事件可能来自穿透对账线程；设置页的状态文字必须回 UI 线程更新。</summary>
+    private void Dispatch(Action action)
+    {
+        if (_uiContext is null || SynchronizationContext.Current == _uiContext)
+        {
+            action();
+        }
+        else
+        {
+            _uiContext.Post(_ => action(), null);
+        }
+    }
+
     public sealed record ThemeOption(string Value, string Label)
     {
         public override string ToString() => Label;
@@ -111,6 +207,7 @@ public sealed partial class SettingsPageViewModel : ViewModelBase, IAsyncDisposa
 
     public async ValueTask DisposeAsync()
     {
+        Outbound?.EndMonitoring();
         if (_themeService is not null) _themeService.ThemeChanged -= OnExternalThemeChanged;
         // Settings is reused by the shell. Leaving it closes the transient backup session.
         if (IsBackupCategory) SelectedCategory = Categories[0];
@@ -126,6 +223,13 @@ public sealed partial class SettingsPageViewModel : ViewModelBase, IAsyncDisposa
 
     public event EventHandler? SettingsChanged;
     [ObservableProperty] private ApplicationUpdateViewModel? _applicationUpdates;
+    [ObservableProperty] private OutboundDirectViewModel? _outbound;
+
+    partial void OnOutboundChanged(OutboundDirectViewModel? oldValue, OutboundDirectViewModel? newValue)
+    {
+        oldValue?.EndMonitoring();
+        if (IsOutboundCategory) newValue?.BeginMonitoring();
+    }
 
     [ObservableProperty]
     private string _notificationStatusText = "尚未发送测试通知";
@@ -259,7 +363,8 @@ public sealed partial class SettingsPageViewModel : ViewModelBase, IAsyncDisposa
         IGithubTokenConfigurationService? githubTokenConfiguration = null,
         IAppDiagnostics? diagnostics = null,
         Func<BackupPageViewModel>? backupFactory = null,
-        ThemeService? themeService = null)
+        ThemeService? themeService = null,
+        IFrpTunnelService? frpTunnel = null)
     {
         _settingsStore = settingsStore ?? throw new ArgumentNullException(nameof(settingsStore));
         _autostartService = autostartService ?? throw new ArgumentNullException(nameof(autostartService));
@@ -275,7 +380,13 @@ public sealed partial class SettingsPageViewModel : ViewModelBase, IAsyncDisposa
         _diagnostics = diagnostics;
         _themeService = themeService;
         _backupFactory = backupFactory;
+        _frpTunnel = frpTunnel;
         if (_themeService is not null) _themeService.ThemeChanged += OnExternalThemeChanged;
+        if (_frpTunnel is not null)
+        {
+            _frpFollowService = _frpTunnel.Settings.FollowService;
+            _frpTunnel.Changed += OnFrpTunnelChanged;
+        }
         var values = _settingsStore.Read();
         _selectedNotificationLevelOption = NotificationLevelOptions.Single(option => option.Value == DesktopNotificationPolicy.Read(values));
         _closeAction = CloseActionParser.Parse(values.TryGetValue("close_action", out var value) ? value : null);
@@ -295,6 +406,7 @@ public sealed partial class SettingsPageViewModel : ViewModelBase, IAsyncDisposa
         _updateAction = policy.UpdateAction;
         RefreshGithubTokenStatus();
         RefreshAutostartStatus();
+        RefreshFrpFollowService();
     }
 
     public IReadOnlyList<CloseActionOption> CloseActionOptions { get; }
@@ -307,6 +419,7 @@ public sealed partial class SettingsPageViewModel : ViewModelBase, IAsyncDisposa
         new("storage", "运行目录与存储", "运行数据、日志和下载缓存"),
         new("backup", "备份与恢复", "本地备份、迁移和 WebDAV"),
         new("network", "网络与 GitHub", "代理线路和联网设置"),
+        new("outbound", "增强直连", "源站连接与测速"),
         new("security", "安全", "Token 和访问控制"),
         new("diagnostics", "诊断", "运行诊断和日志入口"),
         new("about", "关于与更新", "版本和更新信息"),
@@ -342,6 +455,7 @@ public sealed partial class SettingsPageViewModel : ViewModelBase, IAsyncDisposa
     public bool IsStorageCategory => SelectedCategory?.Key == "storage";
     public bool IsBackupCategory => SelectedCategory?.Key == "backup";
     public bool IsNetworkCategory => SelectedCategory?.Key == "network";
+    public bool IsOutboundCategory => SelectedCategory?.Key == "outbound";
     public bool IsSecurityCategory => SelectedCategory?.Key == "security";
     public bool IsDiagnosticsCategory => SelectedCategory?.Key == "diagnostics";
     public bool IsAboutCategory => SelectedCategory?.Key == "about";
@@ -866,6 +980,9 @@ public sealed partial class SettingsPageViewModel : ViewModelBase, IAsyncDisposa
         OnPropertyChanged(nameof(IsServiceCategory));
         OnPropertyChanged(nameof(IsStorageCategory));
         OnPropertyChanged(nameof(IsNetworkCategory));
+        OnPropertyChanged(nameof(IsOutboundCategory));
+        if (IsOutboundCategory) Outbound?.BeginMonitoring();
+        else Outbound?.EndMonitoring();
         OnPropertyChanged(nameof(IsSecurityCategory));
         OnPropertyChanged(nameof(IsDiagnosticsCategory));
         OnPropertyChanged(nameof(IsAboutCategory));

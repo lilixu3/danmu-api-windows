@@ -1,0 +1,38 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:DanmuApi.App.ViewModels"
+             x:Class="DanmuApi.App.Views.FrpTunnelView"
+             x:DataType="vm:FrpTunnelPageViewModel">
+  <!-- 内网穿透分三个页签：监控 / 配置 / 日志。
+       页签横排复用 rail-list 的选中态与 rail-title/rail-caption 两行排版（与弹幕测试页同一写法），
+       容器用 card 而不是 flat，三段才读得出是一个整体控件。 -->
+  <Grid RowDefinitions="Auto,*" RowSpacing="12">
+    <Border Classes="card" Padding="4">
+      <ListBox x:Name="FrpTunnelTabSelector"
+               Classes="rail-list"
+               ItemsSource="{Binding TabOptions}"
+               SelectedItem="{Binding SelectedTabOption, Mode=TwoWay}"
+               Background="Transparent"
+               BorderThickness="0"
+               ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+        <ListBox.ItemsPanel>
+          <ItemsPanelTemplate>
+            <UniformGrid Columns="3" />
+          </ItemsPanelTemplate>
+        </ListBox.ItemsPanel>
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:FrpTunnelTabOption">
+            <!-- 页签头只占两行、说明限一行：三个页签横排时，两行说明会把整条头栏撑到 60px 以上，
+                 而它下面才是真正要读的内容。 -->
+            <StackPanel Spacing="2" Margin="10,6">
+              <TextBlock Text="{Binding Title}" Classes="rail-title" />
+              <TextBlock Text="{Binding Description}" Classes="rail-caption" MaxLines="1" />
+            </StackPanel>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </Border>
+
+    <ContentControl x:Name="FrpTunnelTabContent" Grid.Row="1" Content="{Binding CurrentTab}" />
+  </Grid>
+</UserControl>

@@ -1,0 +1,224 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:DanmuApi.App.ViewModels"
+             x:Class="DanmuApi.App.Views.FrpTunnelMonitorView"
+             x:DataType="vm:FrpTunnelMonitorViewModel">
+  <!-- 监控页只回答四件事：通没通、外网地址是什么、这条链路长什么样、能按哪些按钮。
+       版式：状态卡（状态 → 外网地址 → 链路 → 代理 → 诊断）+ 操作卡 + 行为卡，
+       一个表单字段都不放，每件事只说一遍（旧版把公网入口在「地址」「详细状态」「代理状态」
+       里说了三遍，是"看着很乱"的主要来源）。 -->
+  <UserControl.Styles>
+    <!-- 链路节点：上面一行小标签，下面一行等宽数值。 -->
+    <Style Selector="TextBlock.node-label">
+      <Setter Property="FontSize" Value="10.5" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
+    </Style>
+    <Style Selector="TextBlock.node-value">
+      <Setter Property="FontFamily" Value="Cascadia Mono,Consolas" />
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="Path.chain-arrow">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="Stretch" Value="Uniform" />
+      <Setter Property="Stroke" Value="{DynamicResource TextFaintBrush}" />
+      <Setter Property="StrokeThickness" Value="1.5" />
+      <Setter Property="StrokeLineCap" Value="Round" />
+      <Setter Property="StrokeJoin" Value="Round" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <!-- 诊断块：frp 自己的话（含 exitCode 与 stderr 尾部），用警示底色而不是普通说明。 -->
+    <Style Selector="Border.diagnostic">
+      <Setter Property="Background" Value="{DynamicResource DangerSoftBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource DangerBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="12,10" />
+    </Style>
+    <!-- 失败原因是这一页最该被读清的一段话：给正文色与 12px，不用 11px 的次要灰。 -->
+    <Style Selector="SelectableTextBlock.diagnostic-text">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <!-- 禁用态不画实心灰块。Fluent 默认给禁用按钮刷一层灰底，而这一页有一半按钮在特定状态下是禁用的
+         （穿透运行中不能安装、弹幕服务没跑时不能启动），一列灰块看起来像坏掉的控件。
+         实心按钮保留形状（灰底 + 灰字），描边与三线按钮退回"只有文字"的形态。 -->
+    <Style Selector="Button.primary:disabled /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource SurfaceMutedBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Button.secondary:disabled /template/ ContentPresenter,
+                     Button.ghost:disabled /template/ ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+  </UserControl.Styles>
+  <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Margin="0" Spacing="14" HorizontalAlignment="Stretch">
+      <Border Classes="card" IsVisible="{Binding HasPlatformNotice}">
+        <StackPanel Spacing="6">
+          <TextBlock Text="当前平台无法使用内网穿透" Classes="section" />
+          <TextBlock Text="{Binding PlatformNotice}" Classes="cap" TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+
+      <!-- ① 状态与地址 -->
+      <Border Classes="card" Padding="16,14">
+        <StackPanel Spacing="14">
+          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+            <Ellipse Width="10" Height="10" Fill="{Binding StatusBrush}" VerticalAlignment="Center" />
+            <StackPanel Grid.Column="1" Spacing="5">
+              <StackPanel Orientation="Horizontal" Spacing="9">
+                <TextBlock Text="{Binding StatusText}" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
+                <!-- 「穿透正常但弹幕服务没跑」是最容易"看着正常其实访问不了"的组合，状态行里当场点出来。 -->
+                <Border Classes="chip warn" IsVisible="{Binding ShowServiceWarning}" ToolTip.Tip="穿透通着，但本机弹幕服务没运行，外网访问会失败">
+                  <TextBlock Text="弹幕服务未运行" />
+                </Border>
+              </StackPanel>
+              <TextBlock Text="{Binding RoleText}" Classes="cap" TextWrapping="Wrap" />
+            </StackPanel>
+            <!-- 右侧只回答"这份状态有多新"：frp 版本属于「操作」卡里的维护对象，不在这里说第二遍。 -->
+            <TextBlock Grid.Column="2" Text="{Binding LastUpdatedText}" Classes="cap" VerticalAlignment="Center"
+                       IsVisible="{Binding HasLastUpdated}" />
+          </Grid>
+
+          <Border Classes="rule" />
+
+          <StackPanel Spacing="8">
+            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+              <StackPanel Spacing="5">
+                <TextBlock Text="外网访问地址" Classes="overline" />
+                <SelectableTextBlock Text="{Binding PublicEndpoint.DisplayAddress}" Classes="mono" FontSize="14"
+                                     TextWrapping="Wrap" IsVisible="{Binding HasPublicAddress}" />
+                <TextBlock Text="{Binding PublicEndpoint.Hint}" Classes="cap" TextWrapping="Wrap" IsVisible="{Binding ShowAddressHint}" />
+              </StackPanel>
+              <!-- 没有地址时这两颗按钮直接不出现：两颗点不动的按钮不提供任何信息，
+                   "穿透运行后在此显示…"那句话已经说明了现在该期待什么。 -->
+              <Button Grid.Column="1" Content="复制地址" Classes="secondary" VerticalAlignment="Center"
+                      Command="{Binding CopyAddressCommand}" IsVisible="{Binding HasPublicAddress}"
+                      ToolTip.Tip="复制含 Token 的完整 API 地址" />
+              <Button Grid.Column="2" Content="{Binding TokenVisibilityActionText}" Classes="ghost" VerticalAlignment="Center"
+                      Command="{Binding ToggleTokenVisibilityCommand}" IsVisible="{Binding HasPublicAddress}" />
+            </Grid>
+            <TextBlock Text="{Binding PublicEndpoint.Hint}" Classes="cap" TextWrapping="Wrap" IsVisible="{Binding HasPublicAddress}" />
+          </StackPanel>
+
+          <!-- 链路：本机服务 → frps 服务器 → 公网入口。三节并排，一眼看出"谁把谁送到哪"。 -->
+          <Border Classes="inset">
+            <Grid ColumnDefinitions="*,Auto,*,Auto,*" ColumnSpacing="10">
+              <StackPanel Spacing="4">
+                <TextBlock Text="本机被穿透的服务" Classes="node-label" />
+                <TextBlock Text="{Binding ServiceAddressText}" Classes="node-value" />
+              </StackPanel>
+              <Path Grid.Column="1" Classes="chain-arrow" Data="M4 10 h10 M10.6 6.4 L14.2 10 L10.6 13.6" />
+              <StackPanel Grid.Column="2" Spacing="4">
+                <TextBlock Text="{Binding ServerLabel}" Classes="node-label" />
+                <TextBlock Text="{Binding ServerText}" Classes="node-value" />
+              </StackPanel>
+              <Path Grid.Column="3" Classes="chain-arrow" Data="M4 10 h10 M10.6 6.4 L14.2 10 L10.6 13.6" />
+              <StackPanel Grid.Column="4" Spacing="4">
+                <TextBlock Text="{Binding PublicEntryLabel}" Classes="node-label" />
+                <TextBlock Text="{Binding PublicEntryText}" Classes="node-value" />
+              </StackPanel>
+            </Grid>
+          </Border>
+
+          <StackPanel Spacing="8" IsVisible="{Binding HasProxies}">
+            <TextBlock Text="代理状态" Classes="overline" />
+            <ItemsControl ItemsSource="{Binding ProxyItems}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:FrpProxyLine">
+                  <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8" Margin="0,0,0,5">
+                    <TextBlock Text="{Binding Caption}" Classes="mono" FontSize="12" VerticalAlignment="Center" />
+                    <Border Grid.Column="1" Classes="chip" Classes.ok="{Binding IsRunning}" Classes.bad="{Binding IsFailed}"
+                            ToolTip.Tip="{Binding StateText}">
+                      <TextBlock Text="{Binding StateText}" />
+                    </Border>
+                    <TextBlock Grid.Column="2" Text="{Binding Detail}" Classes="cap" TextWrapping="Wrap"
+                               VerticalAlignment="Center" IsVisible="{Binding HasDetail}" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+
+          <Border Classes="diagnostic" IsVisible="{Binding HasDiagnostic}">
+            <StackPanel Spacing="5">
+              <TextBlock Text="frp 报告的问题" Classes="overline" Foreground="{DynamicResource DangerBrush}" />
+              <SelectableTextBlock Text="{Binding DiagnosticText}" Classes="diagnostic-text" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </Border>
+
+      <!-- ② 操作：启停（随状态出现）与 frp 程序维护（安装/更新/目录）分成两段。 -->
+      <Border Classes="card" Padding="16,14">
+        <StackPanel Spacing="12">
+          <TextBlock Text="操作" Classes="section" />
+          <WrapPanel>
+            <Button Content="启动穿透" Classes="primary" Margin="0,0,10,8" Command="{Binding StartTunnelCommand}" IsVisible="{Binding ShowStart}" />
+            <Button Content="停止穿透" Classes="secondary" Margin="0,0,10,8" Command="{Binding StopTunnelCommand}" IsVisible="{Binding ShowStop}" />
+            <Button Content="重启穿透" Classes="secondary" Margin="0,0,10,8" Command="{Binding RestartTunnelCommand}" IsVisible="{Binding ShowRestart}" />
+          </WrapPanel>
+          <Border Classes="rule" />
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel Spacing="3" VerticalAlignment="Center">
+              <TextBlock Text="frp 程序" Classes="overline" />
+              <TextBlock Text="{Binding BinaryText}" Classes="cap" TextWrapping="Wrap" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+              <Button Content="安装 frp" Classes="secondary" Command="{Binding InstallFrpCommand}" IsVisible="{Binding ShowInstall}" />
+              <Button Content="更新 frp" Classes="secondary" Command="{Binding UpdateFrpCommand}" IsVisible="{Binding ShowUpdate}" />
+              <Button Content="打开穿透目录" Classes="ghost" Command="{Binding OpenDirectoryCommand}" />
+            </StackPanel>
+          </Grid>
+          <Border Classes="inset" IsVisible="{Binding HasStartBlockedReason}">
+            <TextBlock Text="{Binding StartBlockedReason}" Classes="cap" TextWrapping="Wrap" />
+          </Border>
+          <StackPanel Spacing="6" IsVisible="{Binding ShowProgress}">
+            <ProgressBar IsIndeterminate="True" Height="3" />
+            <TextBlock Text="{Binding InstallProgressText}" Classes="cap" TextWrapping="Wrap" IsVisible="{Binding IsInstalling}" />
+          </StackPanel>
+          <TextBlock Text="{Binding OperationMessage}" Classes="cap" TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+
+      <!-- ③ 行为与凭据：开关立即生效，凭据在配置页，按钮直接送过去。 -->
+      <Border Classes="card">
+        <StackPanel Spacing="0">
+          <TextBlock Text="行为与凭据" Classes="section" Margin="0,0,0,4" />
+          <Border Classes="setting-row">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="24">
+              <StackPanel Spacing="4">
+                <TextBlock Text="随弹幕服务启动而启动" Classes="setting-title" />
+                <TextBlock Classes="setting-description"
+                           Text="开启后，弹幕服务启动时自动把穿透也拉起来；弹幕服务停止时穿透总会跟着停止——隧道指向一个已关闭的本地端口没有意义，界面上的地址也会是假的。" />
+              </StackPanel>
+              <ToggleSwitch Grid.Column="1" Classes="setting-control" VerticalAlignment="Center"
+                            IsChecked="{Binding IsFollowServiceEnabled, Mode=OneWay}"
+                            Command="{Binding ToggleFollowServiceCommand}" />
+            </Grid>
+          </Border>
+          <Border Classes="setting-row">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="24">
+              <StackPanel Spacing="4">
+                <TextBlock Text="穿透 Token" Classes="setting-title" />
+                <TextBlock Text="{Binding TokenStateText}" Classes="setting-description" />
+              </StackPanel>
+              <Button Grid.Column="1" Content="去配置" Classes="secondary" VerticalAlignment="Center"
+                      Command="{Binding OpenConfigurationCommand}"
+                      ToolTip.Tip="打开「配置」页签修改服务器地址与 Token" />
+            </Grid>
+          </Border>
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text.Json;
 
@@ -30,7 +31,8 @@ public sealed class ApplicationUpdate
 
 /// <summary>Public preview feed. Signature asset is raw RSA signature over exact manifest bytes.
 /// DER key is SubjectPublicKeyInfo. Injected handlers must disable automatic redirects (intended for tests).
-/// Owns the handler. No credentials, cookies, token, or ambient HttpClient headers are used.</summary>
+/// Owns the handler. Only api.github.com requests may carry the user's saved token
+/// (<see cref="GithubTokenPolicy"/>); no cookies or ambient HttpClient headers are used.</summary>
 public sealed class ApplicationUpdateService : IDisposable
 {
     /// <summary>Release asset names of the signed manifest. x64 keeps the original unsuffixed names so
@@ -46,11 +48,16 @@ public sealed class ApplicationUpdateService : IDisposable
     private readonly HttpClient client;
     private readonly byte[] key;
     private readonly TimeSpan timeout;
+    private readonly IGithubTokenProvider? tokenProvider;
     private readonly SemaphoreSlim gate = new(1);
     private readonly Dictionary<string, (string? ETag, byte[] Body)> cache = new();
     private static readonly HashSet<string> Hosts = new(StringComparer.OrdinalIgnoreCase) { "api.github.com", "github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com" };
 
-    public ApplicationUpdateService(byte[] publicKeyDer, HttpMessageHandler? handler = null, TimeSpan? operationTimeout = null)
+    public ApplicationUpdateService(
+        byte[] publicKeyDer,
+        HttpMessageHandler? handler = null,
+        TimeSpan? operationTimeout = null,
+        IGithubTokenProvider? tokenProvider = null)
     {
         ArgumentNullException.ThrowIfNull(publicKeyDer);
         key = publicKeyDer.ToArray();
@@ -61,6 +68,7 @@ public sealed class ApplicationUpdateService : IDisposable
         if (timeout <= TimeSpan.Zero || timeout.TotalMilliseconds > uint.MaxValue - 1) throw new ArgumentOutOfRangeException(nameof(operationTimeout));
         if (handler is HttpClientHandler http && http.AllowAutoRedirect) throw new ArgumentException("Automatic redirects must be disabled.", nameof(handler));
         if (handler is SocketsHttpHandler sockets && sockets.AllowAutoRedirect) throw new ArgumentException("Automatic redirects must be disabled.", nameof(handler));
+        this.tokenProvider = tokenProvider;
         client = new HttpClient(handler ?? new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false, Credentials = null }) { Timeout = Timeout.InfiniteTimeSpan };
     }
 
@@ -213,12 +221,19 @@ public sealed class ApplicationUpdateService : IDisposable
     }
     private async Task<HttpResponseMessage> SendAsync(Uri uri, string? etag, CancellationToken ct)
     {
+        // The token is read once per call so saving it takes effect immediately; it is only ever
+        // attached to api.github.com (see GithubTokenPolicy), never to asset hosts or redirects.
+        var token = GithubTokenPolicy.Read(tokenProvider);
         for (var hop = 0; hop <= 5; hop++)
         {
             ValidateUri(uri);
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
             request.Headers.UserAgent.ParseAdd("DanmuApi.Windows/1.0");
             if (etag is not null) request.Headers.IfNoneMatch.ParseAdd(etag);
+            if (token.Length > 0 && GithubTokenPolicy.CanAttach(uri))
+            {
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            }
             var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
             if ((int)response.StatusCode is 301 or 302 or 303 or 307 or 308)
             {

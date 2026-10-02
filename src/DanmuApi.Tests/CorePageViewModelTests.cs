@@ -585,6 +585,326 @@ public sealed partial class CorePageViewModelTests
         Assert.Contains(dialogs.Messages, message => message.Title == "操作完成");
     }
 
+    /// <summary>
+    /// 本地 PR 组合发现远端新提交时，必须先核对"远端到底包不包含已并入的 PR"，
+    /// 再把核对结果（每个 PR 的结论 + 证据）交给用户选：更新并重新并入 / 仅更新 / 取消。
+    /// </summary>
+    [Fact]
+    public async Task StackUpdateAsksForConfirmationWithPerPullRequestEvidence()
+    {
+        var update = StackPendingUpdate([12]);
+        var management = new RecordingManagementService { Installation = InstalledStack([12]) };
+        var merge = new RecordingPullRequestMergeService
+        {
+            PresenceResult = new CorePullRequestPresenceReport(
+                "huangxd-/danmu_api", "main", update.Remote!.Sha,
+                [
+                    new CorePullRequestPresenceEntry(12, new string('c', 40), null, "open", false, true, true,
+                        CorePullRequestPresence.Missing, "PR #12 仍是 open：改动还没进远端 main"),
+                ],
+                []),
+        };
+        var dialogs = new RecordingDialogService
+        {
+            Confirmation = true,
+            StackUpdateChoice = PullRequestStackUpdateChoice.UpdateAndReMerge,
+        };
+        var viewModel = CreateViewModel(management, new RecordingRoutePreferenceStore(true), dialogs,
+            new CompareStubRemote(update.Remote), new StubScheduler(update), merge: merge);
+
+        await viewModel.ApplyUpdateAsync(update);
+
+        var prompt = Assert.IsType<PullRequestStackUpdatePrompt>(dialogs.LastStackUpdatePrompt);
+        Assert.Equal(update.Remote.Sha, prompt.RemoteSha);
+        Assert.Equal(InstalledStack([12]).Manifest!.BaseCommitSha, prompt.BaseCommitSha);
+        Assert.Equal([12], prompt.ReMergeableNumbers);
+        Assert.Contains(prompt.Entries, entry => entry.Evidence.Contains("仍是 open", StringComparison.Ordinal));
+        // 用户选了"更新并重新并入" → 走的是组合更新通道，编号原样带过去。
+        Assert.Equal([12], merge.StackUpdateNumbers);
+        Assert.Equal(1, merge.PresenceCalls);
+        Assert.Equal(update.Remote.Sha, merge.PresenceRemoteSha);
+        Assert.Equal(0, management.InstallCalls);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AuditQuickPrUpdateUsesPendingVariantForInspectionEvidenceAndPrompt(bool selectedIsStack)
+    {
+        var target = InstalledStack([15]) with
+        {
+            Variant = ManagedCoreVariant.Dev,
+            Manifest = InstalledStack([15]).Manifest! with
+            {
+                Variant = ManagedCoreVariant.Dev,
+                Repository = "lilixu3/danmu_api",
+                Branch = "develop",
+                DisplayName = "dev target stack",
+                CommitSha = new string('d', 40),
+                BaseCommitSha = new string('d', 40),
+            },
+        };
+        var update = StackPendingUpdate([15]) with { Variant = ManagedCoreVariant.Dev, Local = target.Manifest };
+        var management = new RecordingManagementService { Installation = selectedIsStack ? InstalledStack([12]) : Installed() };
+        management.VariantInstallations[ManagedCoreVariant.Dev] = target;
+        var merge = new RecordingPullRequestMergeService
+        {
+            PresenceResult = new CorePullRequestPresenceReport("lilixu3/danmu_api", "develop", update.Remote!.Sha,
+                [new CorePullRequestPresenceEntry(15, new string('c', 40), null, "open", false, true, true,
+                    CorePullRequestPresence.Missing, "dev PR #15 evidence")], []),
+        };
+        var dialogs = new RecordingDialogService { StackUpdateChoice = PullRequestStackUpdateChoice.UpdateOnly };
+        var model = CreateViewModel(management, new RecordingRoutePreferenceStore(true), dialogs,
+            new CompareStubRemote(update.Remote), new StubScheduler(update), merge: merge);
+        Assert.Equal(ManagedCoreVariant.Stable, model.SelectedVariant);
+
+        await model.ApplyUpdateAsync(update);
+
+        Assert.Equal(ManagedCoreVariant.Dev, merge.PresenceVariant);
+        Assert.Same(update, merge.AppliedStackUpdate);
+        var prompt = Assert.IsType<PullRequestStackUpdatePrompt>(dialogs.LastStackUpdatePrompt);
+        Assert.Equal(ManagedCoreVariant.Dev.ToLabel(), prompt.VariantLabel);
+        Assert.Equal(target.Manifest!.DisplayName, prompt.DisplayName);
+        Assert.Equal(target.Manifest.Repository, prompt.Repository);
+        Assert.Equal(target.Manifest.Branch, prompt.Branch);
+        Assert.Equal(target.Manifest.BaseCommitSha, prompt.BaseCommitSha);
+        Assert.Equal(15, Assert.Single(prompt.Entries).Number);
+        Assert.Equal(ManagedCoreVariant.Stable, model.SelectedVariant); // Updating does not change page selection.
+        Assert.Equal(0, management.InstallCalls);
+    }
+
+    private static CoreInstallationInfo DevStack() => InstalledStack([15]) with
+    {
+        Variant = ManagedCoreVariant.Dev,
+        Manifest = InstalledStack([15]).Manifest! with
+        {
+            Variant = ManagedCoreVariant.Dev,
+            Repository = "lilixu3/danmu_api",
+            DisplayName = "dev stack",
+        },
+    };
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AuditQuickPrUpdateVerifiesActualDevTargetEvenWhenSelectedStableIsNotInstalled(bool stableInstalled)
+    {
+        var target = DevStack();
+        var update = StackPendingUpdate([15]) with { Variant = ManagedCoreVariant.Dev, Local = target.Manifest };
+        var management = new RecordingManagementService { Installation = stableInstalled ? Installed() :
+            new CoreInstallationInfo(ManagedCoreVariant.Stable, "missing", false, false, null, null, "missing") };
+        management.VariantInstallations[ManagedCoreVariant.Dev] = target;
+        var merge = new RecordingPullRequestMergeService
+        {
+            ApplyResult = new CoreManagementOperationResult(true, true, true, target, "dev applied"),
+        };
+        var checkedVariants = new List<ManagedCoreVariant>();
+        var dialogs = new RecordingDialogService { StackUpdateChoice = PullRequestStackUpdateChoice.UpdateOnly };
+        var model = CreateViewModel(management, new RecordingRoutePreferenceStore(true), dialogs,
+            merge: merge, verifyDependencies: (variant, _) =>
+            {
+                checkedVariants.Add(variant);
+                return Task.FromResult(new CoreDependencyHealth(true, false, 7));
+            });
+
+        var result = await model.ApplyUpdateAsync(update);
+
+        Assert.True(result!.Succeeded);
+        Assert.Equal([ManagedCoreVariant.Dev], checkedVariants);
+        Assert.Equal(ManagedCoreVariant.Stable, model.SelectedVariant);
+        Assert.Equal(stableInstalled, model.IsInstalled);
+        Assert.Equal("尚未核对", model.CoreDependencyStatusText);
+        Assert.False(model.IsCoreDependencyFailed); // Dev's missing dependencies must not become Stable's health.
+    }
+
+    [Theory]
+    [InlineData("mutation", false)]
+    [InlineData("verification", false)]
+    [InlineData("verification", true)]
+    [InlineData("awayAndBack", false)]
+    public async Task AuditQuickPrUpdateKeepsTargetAndDoesNotPublishHealthAcrossAsyncPageChanges(
+        string changePhase, bool verificationFails)
+    {
+        var target = DevStack();
+        var update = StackPendingUpdate([15]) with { Variant = ManagedCoreVariant.Dev, Local = target.Manifest };
+        var management = new RecordingManagementService { Installation = Installed() };
+        management.VariantInstallations[ManagedCoreVariant.Dev] = target;
+        management.VariantInstallations[ManagedCoreVariant.Custom] = InstalledCustom();
+        var mutationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseMutation = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var verifyEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseVerify = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var merge = new RecordingPullRequestMergeService
+        {
+            StackUpdateOperation = async () =>
+            {
+                mutationEntered.SetResult();
+                await releaseMutation.Task;
+                return new CoreManagementOperationResult(true, true, true, target, "dev applied");
+            },
+        };
+        var checkedVariants = new List<ManagedCoreVariant>();
+        var diagnostics = new StubDiagnostics();
+        var original = new IOException("AUDIT_EXTERNAL_PAYLOAD_DO_NOT_LOG");
+        var model = CreateViewModel(management, new RecordingRoutePreferenceStore(true),
+            new RecordingDialogService { StackUpdateChoice = PullRequestStackUpdateChoice.UpdateOnly },
+            diagnostics: diagnostics, merge: merge, verifyDependencies: async (variant, _) =>
+            {
+                checkedVariants.Add(variant);
+                verifyEntered.SetResult();
+                await releaseVerify.Task;
+                if (verificationFails) throw original;
+                return new CoreDependencyHealth(true, true, 0);
+            });
+        var applying = model.ApplyUpdateAsync(update);
+        try
+        {
+            await mutationEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            model.SelectedVariant = changePhase == "mutation" ? ManagedCoreVariant.Custom : ManagedCoreVariant.Dev;
+            releaseMutation.SetResult();
+            await verifyEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal([ManagedCoreVariant.Dev], checkedVariants);
+            if (changePhase != "mutation")
+            {
+                model.SelectedVariant = ManagedCoreVariant.Stable;
+                if (changePhase == "awayAndBack") model.SelectedVariant = ManagedCoreVariant.Dev;
+            }
+        }
+        finally
+        {
+            releaseMutation.TrySetResult();
+            releaseVerify.TrySetResult();
+        }
+        var result = await applying;
+        Assert.True(result!.Succeeded); // Dependency diagnostics do not turn a committed mutation into failure.
+        Assert.Same(update, merge.AppliedStackUpdate);
+        Assert.Equal("尚未核对", model.CoreDependencyStatusText);
+        Assert.False(model.IsCoreDependencyHealthy);
+        Assert.False(model.IsCoreDependencyFailed);
+        Assert.Equal(ManagedCoreVariant.Dev, model.DependencyVerificationVariant);
+        if (verificationFails)
+        {
+            Assert.Equal($"开发核心依赖核对失败：IOException / {DependencyMaintenanceDiagnostics.Describe(original)}", diagnostics.LastDiagnostic);
+            Assert.DoesNotContain(original.Message, diagnostics.LastDiagnostic!);
+            Assert.Same(original, model.DependencyVerificationError);
+        }
+        else Assert.Null(model.DependencyVerificationError);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AuditPagePendingRefreshesCompleteSameBaseIdentityWithoutAnotherCheck(bool becomesStack)
+    {
+        var update = PendingUpdate();
+        var management = new RecordingManagementService
+        {
+            Installation = Installed(),
+            InstallResult = new CoreManagementOperationResult(true, true, true, InstalledApplied(update), "applied"),
+        };
+        var merge = new RecordingPullRequestMergeService();
+        var scheduler = new StubScheduler(update);
+        var dialogs = new RecordingDialogService
+        {
+            Confirmation = false, // Keep the first discovery pending instead of applying it immediately.
+            StackUpdateChoice = PullRequestStackUpdateChoice.UpdateOnly,
+        };
+        var remote = System.Reflection.DispatchProxy.Create<IGithubCoreRemote, NoNetworkRemote>();
+        var model = CreateViewModel(management, new RecordingRoutePreferenceStore(true), dialogs,
+            remote: remote, scheduler: scheduler, merge: merge);
+        await model.CheckUpdateCommand.ExecuteAsync(null);
+        Assert.True(model.HasUpdate);
+        var discoveryPrompts = dialogs.Confirmations.Count;
+        var changed = becomesStack ? InstalledStack([15]) : Installed() with
+        {
+            Manifest = Installed().Manifest! with { DisplayName = "renamed pending source" },
+        };
+
+        management.ReplaceInstallationOutOfBand(changed, ManagedCoreVariant.Stable);
+        Assert.True(model.HasUpdate);
+        Assert.True(model.CanApplyUpdate);
+        await model.ApplyUpdateCommand.ExecuteAsync(null);
+
+        var appliedUpdate = becomesStack ? merge.AppliedStackUpdate : management.LastAppliedUpdate;
+        Assert.NotNull(appliedUpdate);
+        Assert.True(CoreInstallationManifest.SourcesEqual(changed.Manifest, appliedUpdate.Local));
+        Assert.Equal(1, scheduler.ManualCalls);
+        Assert.Equal(0, ((NoNetworkRemote)remote).UnexpectedReads);
+        Assert.Equal(discoveryPrompts, dialogs.Confirmations.Count);
+        if (becomesStack)
+        {
+            Assert.Equal(0, management.InstallCalls);
+            Assert.NotNull(dialogs.LastStackUpdatePrompt);
+            Assert.Equal(1, merge.PresenceCalls);
+        }
+        else
+        {
+            Assert.Equal(1, management.InstallCalls);
+            Assert.Null(dialogs.LastStackUpdatePrompt);
+            Assert.Equal(0, merge.PresenceCalls);
+        }
+    }
+
+    /// <summary>用户选「仅更新」：远端已包含全部 PR，或明确放弃那些改动 → 不重新并入。</summary>
+    [Fact]
+    public async Task StackUpdateWithUpdateOnlyCarriesNoReMergeNumbers()
+    {
+        var update = StackPendingUpdate([12]);
+        var management = new RecordingManagementService { Installation = InstalledStack([12]) };
+        var merge = new RecordingPullRequestMergeService();
+        var dialogs = new RecordingDialogService { StackUpdateChoice = PullRequestStackUpdateChoice.UpdateOnly };
+        var viewModel = CreateViewModel(management, new RecordingRoutePreferenceStore(true), dialogs,
+            new CompareStubRemote(update.Remote), new StubScheduler(update), merge: merge);
+
+        await viewModel.ApplyUpdateAsync(update);
+
+        Assert.NotNull(dialogs.LastStackUpdatePrompt);
+        Assert.Empty(merge.StackUpdateNumbers);
+        Assert.Equal(1, merge.PresenceCalls);
+    }
+
+    /// <summary>取消核对框：什么都不做 —— 绝不能默认把本地改动丢掉。</summary>
+    [Fact]
+    public async Task CanceledStackUpdateChangesNothing()
+    {
+        var update = StackPendingUpdate([12]);
+        var management = new RecordingManagementService { Installation = InstalledStack([12]) };
+        var merge = new RecordingPullRequestMergeService();
+        var dialogs = new RecordingDialogService { StackUpdateChoice = PullRequestStackUpdateChoice.Cancel };
+        var viewModel = CreateViewModel(management, new RecordingRoutePreferenceStore(true), dialogs,
+            new CompareStubRemote(update.Remote), new StubScheduler(update), merge: merge);
+
+        var result = await viewModel.ApplyUpdateAsync(update);
+
+        Assert.Null(result);
+        Assert.Equal(1, merge.PresenceCalls);
+        Assert.Empty(merge.StackUpdateNumbers);
+        Assert.Equal(0, management.InstallCalls);
+    }
+
+    /// <summary>普通（非组合）核心不受影响：不弹核对框，直接走原来的分支更新。</summary>
+    [Fact]
+    public async Task PlainBranchUpdateNeverAsksForPullRequestConfirmation()
+    {
+        var update = PendingUpdate();
+        var management = new RecordingManagementService
+        {
+            Installation = Installed(),
+            AppliedInstallation = InstalledApplied(update),
+            InstallResult = new CoreManagementOperationResult(true, true, true, InstalledApplied(update), "核心操作已完成"),
+        };
+        var merge = new RecordingPullRequestMergeService();
+        var dialogs = new RecordingDialogService { Confirmation = true };
+        var viewModel = CreateViewModel(management, new RecordingRoutePreferenceStore(true), dialogs,
+            new CompareStubRemote(update.Remote), new StubScheduler(update), merge: merge);
+
+        await viewModel.ApplyUpdateAsync(update);
+
+        Assert.Null(dialogs.LastStackUpdatePrompt);
+        Assert.Equal(0, merge.PresenceCalls);
+        Assert.Equal(1, management.InstallCalls);
+    }
+
     [Fact]
     public async Task CheckUpdateWithNoUpdateReportsLatest()
     {
@@ -765,6 +1085,12 @@ public sealed partial class CorePageViewModelTests
     /// <summary>模拟"这次更新已经装完"：安装后的 manifest 提交就是更新目标提交。</summary>
     private static CoreInstallationInfo InstalledApplied(CoreUpdateCheckResult update) =>
         Installed() with { Manifest = Installed().Manifest! with { CommitSha = update.Remote!.Sha } };
+
+    /// <summary>本地 PR 组合上的更新结论：Local 必须是那份组合 manifest，界面据此走核对流程。</summary>
+    private static CoreUpdateCheckResult StackPendingUpdate(IReadOnlyList<int> numbers) => PendingUpdate() with
+    {
+        Local = InstalledStack(numbers).Manifest,
+    };
 
     [Fact]
     public async Task RenameCoreUsesPromptAndPersistsThroughManagement()
@@ -1031,7 +1357,8 @@ public sealed partial class CorePageViewModelTests
         StubDiagnostics? diagnostics = null,
         ICorePullRequestManagementService? merge = null,
         IActiveCoreVariantStore? activeVariant = null,
-        Func<ManagedCoreVariant, CancellationToken, Task<RuntimeVariantSwitchResult>>? variantSwitch = null) =>
+        Func<ManagedCoreVariant, CancellationToken, Task<RuntimeVariantSwitchResult>>? variantSwitch = null,
+        Func<ManagedCoreVariant, CancellationToken, Task<CoreDependencyHealth>>? verifyDependencies = null) =>
         new(
             management,
             remote ?? new StubRemote(),
@@ -1041,6 +1368,7 @@ public sealed partial class CorePageViewModelTests
             dialogs,
             diagnostics ?? new StubDiagnostics(),
             new GithubTokenConfigurationService(new StubGithubTokenStore(), remote ?? new StubRemote(), diagnostics ?? new StubDiagnostics()),
+            verifyDependencies: verifyDependencies,
             pullRequestManagement: merge,
             activeVariant: activeVariant,
             runtimeVariantSwitch: variantSwitch);
@@ -1109,9 +1437,16 @@ public sealed partial class CorePageViewModelTests
         public int ApplyCalls { get; private set; }
         public int DiscardCalls { get; private set; }
         public int[] PreparedNumbers { get; private set; } = [];
+        public int PresenceCalls { get; private set; }
+        public string? PresenceRemoteSha { get; private set; }
+        public ManagedCoreVariant? PresenceVariant { get; private set; }
+        public CoreUpdateCheckResult? AppliedStackUpdate { get; private set; }
+        public int[] StackUpdateNumbers { get; private set; } = [];
+        public CorePullRequestPresenceReport? PresenceResult { get; set; }
         public CoreManagementOperationResult? ApplyResult { get; set; }
         public Exception? ApplyFailure { get; set; }
         public Exception? DiscardFailure { get; set; }
+        public Func<Task<CoreManagementOperationResult>>? StackUpdateOperation { get; set; }
 
         public Task<CorePreparedInstallRequest> PreparePullRequestMergeAsync(
             ManagedCoreVariant variant, IReadOnlyList<GithubPullRequest> pullRequests, string proxyId,
@@ -1137,6 +1472,28 @@ public sealed partial class CorePageViewModelTests
         {
             DiscardCalls++;
             if (DiscardFailure is not null) throw DiscardFailure;
+        }
+
+        public Task<CorePullRequestPresenceReport> AnalyzePullRequestPresenceAsync(
+            ManagedCoreVariant variant, string remoteSha, CancellationToken cancellationToken = default)
+        {
+            PresenceCalls++;
+            PresenceVariant = variant;
+            PresenceRemoteSha = remoteSha;
+            return Task.FromResult(PresenceResult ?? new CorePullRequestPresenceReport(
+                "huangxd-/danmu_api", "main", remoteSha, [], []));
+        }
+
+        public Task<CoreManagementOperationResult> ApplyPullRequestStackUpdateAsync(
+            CoreUpdateCheckResult update, IReadOnlyList<int> remergeNumbers, string proxyId,
+            IProgress<CoreInstallProgress>? progress = null, CancellationToken cancellationToken = default)
+        {
+            AppliedStackUpdate = update;
+            StackUpdateNumbers = remergeNumbers.ToArray();
+            if (StackUpdateOperation is not null) return StackUpdateOperation();
+            return ApplyFailure is not null
+                ? Task.FromException<CoreManagementOperationResult>(ApplyFailure)
+                : Task.FromResult(ApplyResult ?? new CoreManagementOperationResult(true, true, true, Installed(), "已更新"));
         }
     }
 
@@ -1231,6 +1588,7 @@ public sealed partial class CorePageViewModelTests
         public CoreInstallationInfo? AppliedInstallation { get; init; }
         public int InstallCalls { get; private set; }
         public ManagedCoreVariant? LastInstallVariant { get; private set; }
+        public CoreUpdateCheckResult? LastAppliedUpdate { get; private set; }
         public GithubRepositoryReference? LastInstallRepository { get; private set; }
         public string? LastInstallDisplayName { get; private set; }
         public string? LastInstallProxyId { get; private set; }
@@ -1239,7 +1597,9 @@ public sealed partial class CorePageViewModelTests
 
         // 真实实现里 Inspect 读的是磁盘：安装完成后必须看到新提交，否则"更新后仍显示有新版本"
         // 这类状态在测试里永远复现不出来。
+        public Dictionary<ManagedCoreVariant, CoreInstallationInfo> VariantInstallations { get; } = [];
         public CoreInstallationInfo Inspect(ManagedCoreVariant variant) =>
+            VariantInstallations.TryGetValue(variant, out var installed) ? installed :
             InstallCalls > 0 && AppliedInstallation is not null ? AppliedInstallation : Installation;
         public IReadOnlyList<CoreVersionRecord> LocalHistory { get; set; } = [];
         public string? RestoredHistoryId { get; private set; }
@@ -1281,8 +1641,11 @@ public sealed partial class CorePageViewModelTests
             CoreUpdateCheckResult update,
             string proxyId,
             IProgress<CoreInstallProgress>? progress = null,
-            CancellationToken cancellationToken = default) =>
-            InstallBranchAsync(update.Variant, GithubRepositoryReference.Official("main"), "官方核心", proxyId, progress, cancellationToken);
+            CancellationToken cancellationToken = default)
+        {
+            LastAppliedUpdate = update;
+            return InstallBranchAsync(update.Variant, GithubRepositoryReference.Official("main"), "官方核心", proxyId, progress, cancellationToken);
+        }
 
         public Task<CoreManagementOperationResult> ReinstallAsync(
             ManagedCoreVariant variant,
@@ -1371,6 +1734,17 @@ public sealed partial class CorePageViewModelTests
         public Task<string?> ValidateTokenAsync(string token, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
+    public class NoNetworkRemote : System.Reflection.DispatchProxy
+    {
+        public int UnexpectedReads { get; private set; }
+        protected override object? Invoke(System.Reflection.MethodInfo? method, object?[]? args)
+        {
+            if (method?.Name == "get_LastRateLimit") return null;
+            UnexpectedReads++;
+            throw new InvalidOperationException($"Reconciliation must not read GitHub: {method?.Name}");
+        }
+    }
+
     private sealed class CompareStubRemote(GithubCommit? remote) : StubRemoteWithCompare(
         remote is null
             ? null
@@ -1423,6 +1797,7 @@ public sealed partial class CorePageViewModelTests
     private sealed class StubScheduler(CoreUpdateCheckResult? manualResult) : ICoreUpdateScheduler
     {
         public Func<CancellationToken, Task<CoreUpdateCheckResult>>? ManualOperation { get; init; }
+        public int ManualCalls { get; private set; }
         public event EventHandler<CoreUpdateCheckResult>? CheckCompleted;
         public event EventHandler<string>? DiagnosticChanged;
         public void Start() { }
@@ -1435,8 +1810,11 @@ public sealed partial class CorePageViewModelTests
         public Task<CoreUpdateCheckResult?> CheckBackgroundAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<CoreUpdateCheckResult?>(null);
 
-        public Task<CoreUpdateCheckResult> CheckManualAsync(ManagedCoreVariant variant, CancellationToken cancellationToken = default) =>
-            ManualOperation?.Invoke(cancellationToken) ?? Task.FromResult(manualResult ?? Checked());
+        public Task<CoreUpdateCheckResult> CheckManualAsync(ManagedCoreVariant variant, CancellationToken cancellationToken = default)
+        {
+            ManualCalls++;
+            return ManualOperation?.Invoke(cancellationToken) ?? Task.FromResult(manualResult ?? Checked());
+        }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 

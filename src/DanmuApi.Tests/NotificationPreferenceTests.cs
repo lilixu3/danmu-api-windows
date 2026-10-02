@@ -169,6 +169,64 @@ public sealed class NotificationPreferenceTests
         Assert.Null(handler.PendingUpdate);
     }
 
+    /// <summary>
+    /// 本地 PR 组合**不能**自动更新：远端是否已包含并进来的那些 PR 要先核对，
+    /// 自动装上去可能悄悄丢掉用户的改动。所以自动模式下只通知、不动手，待更新项保持挂着。
+    /// </summary>
+    [Fact]
+    public async Task AutomaticUpdateNeverSilentlyReplacesALocalPullRequestStack()
+    {
+        var management = DispatchProxy.Create<ICoreManagementService, UnusedManagement>();
+        var recorder = (UnusedManagement)(object)management;
+        recorder.ApplyResult = new(true, true, true, null, "done");
+        var transport = new RecordingTransport();
+        var handler = new CoreUpdateResultHandler(management, new FixedCoordinator(FixedUpdate()), new Routes(), new PreferenceDesktopNotificationService(transport, new MemorySettings { Level = "updates" }), new RecordingDiagnostics());
+        var update = new CoreUpdateCheckResult(ManagedCoreVariant.Stable, CoreUpdateCheckStatus.Checked, true,
+            InstalledStackManifest(),
+            new GithubCommit("123456789", "title", "message", null, null, []), null, DateTimeOffset.UtcNow, "available");
+
+        await handler.HandleAsync(CoreUpdateTrigger.Background, update, CoreUpdateAction.Automatic);
+
+        Assert.Equal(0, recorder.ApplyCalls);
+        Assert.Same(update, handler.PendingUpdate);
+        Assert.Equal(1, transport.Calls);
+        Assert.Contains("发现核心更新", transport.LastTitle ?? string.Empty, StringComparison.Ordinal);
+
+        // 用户从托盘/通知点「立即更新」也不能绕过核对：明确拒绝并说明去处。
+        var result = await handler.ApplyPendingAsync();
+        Assert.NotNull(result);
+        Assert.False(result!.Succeeded);
+        Assert.Contains("PR 实验室", result.Diagnostic, StringComparison.Ordinal);
+        Assert.Equal(0, recorder.ApplyCalls);
+        Assert.Same(update, handler.PendingUpdate);
+    }
+
+    /// <summary>普通分支核心照旧自动更新（这条路径不受上面那条限制影响）。</summary>
+    [Fact]
+    public async Task AutomaticUpdateStillAppliesForPlainBranchCores()
+    {
+        var management = DispatchProxy.Create<ICoreManagementService, UnusedManagement>();
+        var recorder = (UnusedManagement)(object)management;
+        recorder.ApplyResult = new(true, true, true, null, "done");
+        var handler = new CoreUpdateResultHandler(management, new FixedCoordinator(FixedUpdate()), new Routes(), new PreferenceDesktopNotificationService(new RecordingTransport(), new MemorySettings { Level = "off" }), new RecordingDiagnostics());
+        var update = new CoreUpdateCheckResult(ManagedCoreVariant.Stable, CoreUpdateCheckStatus.Checked, true, null,
+            new GithubCommit("123456789", "title", "message", null, null, []), null, DateTimeOffset.UtcNow, "available");
+
+        await handler.HandleAsync(CoreUpdateTrigger.Background, update, CoreUpdateAction.Automatic);
+
+        Assert.Equal(1, recorder.ApplyCalls);
+        Assert.Null(handler.PendingUpdate);
+    }
+
+    private static CoreInstallationManifest InstalledStackManifest() =>
+        new(2, ManagedCoreVariant.Stable, "huangxd-/danmu_api", "main",
+            new string('a', 40), "1.0.0", "核心", CoreInstallKind.LocalPullRequestStack, null, DateTimeOffset.UtcNow)
+        {
+            BaseCommitSha = new string('a', 40),
+            LocalMergeSha = new string('b', 40),
+            PullRequests = [new CorePullRequestSource(12, "fork/core", "feature", new string('c', 40), null)],
+        };
+
     private sealed class FixedPolicy(CoreUpdateAction action = CoreUpdateAction.Notify) : ICoreUpdatePolicyStore
     {
         public CoreUpdateScheduleOptions Read() => CoreUpdateScheduleOptions.Default with { UpdateAction = action };
@@ -306,8 +364,9 @@ public sealed class NotificationPreferenceTests
     private sealed class RecordingTransport : IDesktopNotificationService
     {
         public int Calls { get; private set; }
+        public string? LastTitle { get; private set; }
         public DesktopNotificationResult Result { get; set; } = new(true, "submitted");
         public Task<DesktopNotificationResult> ShowAsync(string title, string message, CancellationToken cancellationToken = default)
-        { Calls++; return Task.FromResult(Result); }
+        { Calls++; LastTitle = title; return Task.FromResult(Result); }
     }
 }

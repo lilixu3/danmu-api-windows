@@ -54,6 +54,7 @@ internal static class ReleaseSelfTest
             if (!string.Equals(nodeVersion, "v" + bundle.NodeVersion, StringComparison.Ordinal))
                 throw new IOException($"node.exe 实际版本 {nodeVersion} 与运行环境记录 {bundle.NodeVersion} 不一致");
             messages.Add($"运行环境记录 Node {bundle.NodeVersion}/{bundle.Arch}，实际 {nodeVersion}/{machine} 一致");
+            VerifyOutboundRuntime(paths, messages);
             var config = Path.Combine(paths.NodeProjectDirectory, "config");
             Directory.CreateDirectory(config);
             File.WriteAllText(Path.Combine(config, ".env"), "USER_SENTINEL=preserve");
@@ -113,6 +114,76 @@ internal static class ReleaseSelfTest
             File.WriteAllLines(reportPath, messages);
         }
         return code;
+    }
+
+    private static void VerifyOutboundRuntime(AppPaths paths, List<string> messages)
+    {
+        var settings = new OutboundSettingsStore(paths);
+        settings.Write(OutboundSettings.Default with { Enabled = true });
+        var start = new ProcessStartInfo(Path.Combine(paths.RuntimeDirectory, "node.exe"))
+        {
+            WorkingDirectory = paths.NodeProjectDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        start.Environment["DANMU_API_RUNTIME_IDENTITY"] = "release-outbound-" + Guid.NewGuid().ToString("N");
+        start.ArgumentList.Add("-e");
+        start.ArgumentList.Add("""
+            const fs=require('node:fs');
+            const path=require('node:path');
+            const {createAppOutboundRuntime}=require('./app-outbound-runtime.js');
+            const dir=path.join(process.cwd(),'config','outbound');
+            const runtime=createAppOutboundRuntime({
+              configPath:path.join(dir,'settings.json'),
+              helperPath:path.join(process.cwd(),'outbound','danmu-outbound.exe'),
+              log:(...args)=>console.error(...args)
+            });
+            (async()=>{
+              let result;
+              try {
+                await runtime.start();
+                const state=runtime.safeSnapshot();
+                if(state.status!=='ready'||!Number.isInteger(state.helperPid)||state.helperPid<=0||state.protocolVersion!==1||!state.helperVersion)
+                  throw new Error('Outbound helper was not ready: '+state.reason);
+                const session=JSON.parse(fs.readFileSync(path.join(dir,'session.json'),'utf8'));
+                if(session.helperPid!==state.helperPid||session.nodePid!==process.pid||session.runtimeIdentity!==process.env.DANMU_API_RUNTIME_IDENTITY)
+                  throw new Error('Outbound session ownership mismatch');
+                result={helperPid:state.helperPid,version:state.helperVersion,protocolVersion:state.protocolVersion};
+              } finally { await runtime.stop(); }
+              if(fs.existsSync(path.join(dir,'session.json')))throw new Error('Outbound session was not removed');
+              const status=JSON.parse(fs.readFileSync(path.join(dir,'status.json'),'utf8'));
+              if(status.status!=='off'||status.helperPid!==null)throw new Error('Outbound helper did not stop');
+              try { process.kill(result.helperPid,0); throw new Error('Outbound helper process remained alive'); }
+              catch(error){if(error.code!=='ESRCH')throw error;}
+              console.log(JSON.stringify(result));
+            })().catch(error=>{console.error(error.stack||error.message);process.exitCode=1;});
+            """);
+        using var node = Process.Start(start) ?? throw new IOException("增强直连隔离探针未启动");
+        var stdout = node.StandardOutput.ReadToEndAsync();
+        var stderr = node.StandardError.ReadToEndAsync();
+        if (!node.WaitForExit(30000))
+        {
+            node.Kill(entireProcessTree: true);
+            node.WaitForExit(5000);
+            throw new TimeoutException("增强直连隔离探针超时，已终止探针进程树");
+        }
+        var output = stdout.GetAwaiter().GetResult().Trim();
+        var diagnostic = stderr.GetAwaiter().GetResult().Trim();
+        if (node.ExitCode != 0) throw new IOException($"增强直连隔离探针失败（exit {node.ExitCode}）：{diagnostic}");
+        using var report = JsonDocument.Parse(output);
+        var version = report.RootElement.GetProperty("version").GetString();
+        if (report.RootElement.GetProperty("protocolVersion").GetInt32() != 1 || string.IsNullOrWhiteSpace(version))
+            throw new IOException("增强直连隔离探针返回未知协议或版本");
+        var helperPath = Path.Combine(paths.NodeProjectDirectory, "outbound", "danmu-outbound.exe");
+        var machine = ExecutableImage.ArchitectureName(ExecutableImage.Machine(helperPath));
+        if (machine != BundledRuntimePreparer.HostArchitecture()) throw new IOException("增强直连组件实际架构与宿主不一致");
+        messages.Add($"增强直连随包组件实际启动/鉴权握手/协议1/退出清理通过：{version}/{machine}；未发公网请求");
+        var before = File.ReadAllText(settings.SettingsPath);
+        BundledRuntimePreparer.Prepare(Path.Combine(AppContext.BaseDirectory, "runtime-bundle"), paths);
+        if (File.ReadAllText(settings.SettingsPath) != before) throw new IOException("重复准备覆盖了增强直连用户配置");
+        messages.Add("重复准备保留增强直连配置通过");
     }
 
     private sealed record RuntimeBuildIdentity(string Version, string NodeVersion, string Arch);

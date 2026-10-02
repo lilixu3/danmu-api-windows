@@ -55,7 +55,7 @@ public sealed class CoreUpdateResultHandler : ICoreUpdateResultHandler, IPending
 
     private void OnCoordinatorResultChanged(object? sender, CoreUpdateCheckResult? result)
     {
-        var cleared = false;
+        var changed = false;
         lock (_sync)
         {
             if (_pendingUpdate is null)
@@ -66,21 +66,24 @@ public sealed class CoreUpdateResultHandler : ICoreUpdateResultHandler, IPending
             if (result is { UpdateAvailable: true })
             {
                 // 仍有更新：换成协调器那份最新的（本地 manifest 可能已经刷新）。
+                changed = _pendingUpdate.Variant != result.Variant ||
+                    !CoreInstallationManifest.SourcesEqual(_pendingUpdate.Local, result.Local) ||
+                    !string.Equals(_pendingUpdate.Remote?.Sha, result.Remote?.Sha, StringComparison.OrdinalIgnoreCase);
                 _pendingUpdate = result;
-                return;
             }
-
-            // result 为 null（结论作废）或已无更新；都是同一个变体的事，直接撤掉待更新项。
-            if (result is { } checkedResult && checkedResult.Variant != _pendingUpdate.Variant)
+            else
             {
-                return;
+                // result 为 null（结论作废）或已无更新；只撤掉对应变体的待更新项。
+                if (result is { } checkedResult && checkedResult.Variant != _pendingUpdate.Variant)
+                {
+                    return;
+                }
+                _pendingUpdate = null;
+                changed = true;
             }
-
-            _pendingUpdate = null;
-            cleared = true;
         }
 
-        if (cleared) StateChanged?.Invoke(this, EventArgs.Empty);
+        if (changed) StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
     public CoreUpdateCheckResult? PendingUpdate
@@ -93,6 +96,13 @@ public sealed class CoreUpdateResultHandler : ICoreUpdateResultHandler, IPending
             }
         }
     }
+
+    /// <summary>
+    /// 这条更新能不能"直接装"。本地 PR 组合不行：远端到底包不包含用户并进来的那些 PR
+    /// 需要先核对，装错了会把用户的改动悄悄丢掉。
+    /// </summary>
+    private static bool RequiresUserConfirmation(CoreUpdateCheckResult result) =>
+        result.Local?.IsLocalPullRequestStack == true;
 
     public bool IsApplying
     {
@@ -149,7 +159,10 @@ public sealed class CoreUpdateResultHandler : ICoreUpdateResultHandler, IPending
         }
         StateChanged?.Invoke(this, EventArgs.Empty);
 
-        if (action == CoreUpdateAction.Automatic)
+        // 本地 PR 组合不能自动更新：远端是否已经包含并进来的那些 PR，只有核对过才知道，
+        // 自动装上去可能悄悄丢掉用户并进来的改动。这种情况下按"发现更新"通知用户，
+        // 由用户在核心页确认后再更新（托盘那一项也会写明需要确认）。
+        if (action == CoreUpdateAction.Automatic && !RequiresUserConfirmation(result))
         {
             await ApplyPendingAsync(cancellationToken).ConfigureAwait(false);
             // The automatic operation ran even if its completion notification was suppressed.
@@ -188,6 +201,18 @@ public sealed class CoreUpdateResultHandler : ICoreUpdateResultHandler, IPending
                 if (pending is null)
                 {
                     return null;
+                }
+
+                if (RequiresUserConfirmation(pending))
+                {
+                    // 明确拒绝，而不是"什么都不做"：调用方（托盘、通知动作）会把这句话记进诊断，
+                    // 界面上的待更新项也保持不动，用户仍可在核心页完成这次更新。
+                    return new CoreManagementOperationResult(
+                        false,
+                        false,
+                        false,
+                        null,
+                        "本地 PR 组合需要先核对远端是否已包含已并入的 PR；请在核心页「PR 实验室」确认后再更新。");
                 }
 
                 _isApplying = true;

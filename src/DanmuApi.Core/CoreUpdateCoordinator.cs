@@ -128,7 +128,7 @@ public sealed class CoreUpdateCoordinator : ICoreUpdateCoordinator, IDisposable
     /// ② 安装被改动后（装完更新、回退、重装、删核心）把已经作废的结论撤掉，
     /// 让侧栏卡片与托盘菜单立刻跟上，而不是等下一次联网检查。
     ///
-    /// 结论仍然成立时不广播（改名只改 manifest、不动提交，不该打扰订阅方）；
+    /// 完整安装快照未变时不广播；来源字段或有序 PR 身份改变时必须广播新 Local，
     /// 作废时广播 <c>null</c>。读不出磁盘状态则保留现状并记诊断 —— 读不到不等于没有更新。
     /// </summary>
     public void ReconcileDiscovery(ManagedCoreVariant variant)
@@ -170,6 +170,15 @@ public sealed class CoreUpdateCoordinator : ICoreUpdateCoordinator, IDisposable
         {
             // 内存里就有结论，直接拿它跟磁盘对账，不必再读落盘记录。
             if (!TryInspect(variant, out var installed)) { reconciled = null; return false; }
+            if (current.Local is { } checkedSource && installed.Manifest is { } actualSource &&
+                (checkedSource.Variant != actualSource.Variant ||
+                 !string.Equals(checkedSource.Repository, actualSource.Repository, StringComparison.Ordinal) ||
+                 !string.Equals(checkedSource.Branch, actualSource.Branch, StringComparison.Ordinal)))
+            {
+                ClearDiscovery(variant, "仓库、分支或变体已变化，原远端结论不适用于新来源");
+                reconciled = null;
+                return true;
+            }
             if (IsConclusionVoid(installed, current.Local?.CommitSha, remote.Sha, out var reason))
             {
                 ClearDiscovery(variant, reason);
@@ -208,6 +217,10 @@ public sealed class CoreUpdateCoordinator : ICoreUpdateCoordinator, IDisposable
     /// <summary>
     /// 这条结论还成不成立。远端提交已经装上说明更新已被应用；本地提交对不上说明安装被换过
     /// （回退、重装、换分支）；核心不可用则谈不上更新。三种情况结论都作废，必须显式清除。
+    ///
+    /// 本地 PR 组合**不再**单独作废结论：组合的 <c>CommitSha</c> 就是它的基线提交
+    /// （见 <c>CoreInstaller.InstallPreparedAsync</c>），基线对不上远端提交，这条"有新提交"的结论
+    /// 依旧成立——更新的方式（先核对 PR 再决定怎么并）由界面负责，不是"没有更新"。
     /// </summary>
     private static bool IsConclusionVoid(
         CoreInstallationInfo installed,
@@ -221,16 +234,24 @@ public sealed class CoreUpdateCoordinator : ICoreUpdateCoordinator, IDisposable
             return true;
         }
 
-        if (installed.Manifest.IsLocalPullRequestStack)
-        {
-            reason = "当前核心是本地 PR 组合，普通分支更新结论不适用";
-            return true;
-        }
-
         if (CommitShasEquivalent(installed.Manifest.CommitSha, conclusionRemoteSha))
         {
             reason = "记录里的那个新提交已经装上";
             return true;
+        }
+
+        if (installed.Manifest.IsLocalPullRequestStack)
+        {
+            // 组合的本地提交是合成提交，永远不可能等于远端提交；基线没变就说明这条结论仍然成立。
+            if (conclusionLocalSha is null ||
+                !CommitShasEquivalent(installed.Manifest.BaseCommitSha ?? installed.Manifest.CommitSha, conclusionLocalSha))
+            {
+                reason = "PR 组合已在新基线上重建，原结论不再成立";
+                return true;
+            }
+
+            reason = string.Empty;
+            return false;
         }
 
         if (conclusionLocalSha is null || !CommitShasEquivalent(installed.Manifest.CommitSha, conclusionLocalSha))
@@ -282,8 +303,10 @@ public sealed class CoreUpdateCoordinator : ICoreUpdateCoordinator, IDisposable
             return left is null && right is null;
         }
 
-        return left.Status == right.Status &&
+        return left.Variant == right.Variant &&
+               left.Status == right.Status &&
                left.UpdateAvailable == right.UpdateAvailable &&
+               CoreInstallationManifest.SourcesEqual(left.Local, right.Local) &&
                string.Equals(left.Remote?.Sha, right.Remote?.Sha, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -542,14 +565,17 @@ public sealed class CoreUpdateCoordinator : ICoreUpdateCoordinator, IDisposable
                 result = new CoreUpdateCheckResult(
                     variant,
                     CoreUpdateCheckStatus.Checked,
-                    localStack ? false : available,
+                    // 本地 PR 组合也照常报"有更新"：远端基线前进就是有更新。
+                    // 组合能不能直接吃下这个更新（远端是否已包含并进来的 PR）由界面在应用前核对，
+                    // 不能因为"不能悄悄覆盖"就把结论改成"已是最新"——那正是用户看到的假象。
+                    available,
                     installed.Manifest,
                     remote,
                     _remote.LastRateLimit,
                     checkedAt,
                     localStack
                         ? available
-                            ? $"本地 PR 组合的基线有新提交 {remote.ShortSha}；请在 PR 实验室重新构建，不会自动覆盖组合"
+                            ? $"本地 PR 组合的基线有新提交 {remote.ShortSha}；应用更新前会先核对远端是否已包含已并入的 PR"
                             : "本地 PR 组合的基线未变化；如需检测 PR head 更新，请在 PR 实验室刷新"
                         : available ? $"发现新提交 {remote.ShortSha}" : "当前核心已是所选分支最新提交");
             }

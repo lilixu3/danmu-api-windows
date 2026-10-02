@@ -290,6 +290,40 @@
     <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
   </Style>
 
+  <!-- ── 设置行 ────────────────────────────────────────────────────────
+       一行一件事：标题 + 说明，行间 1px 分隔线，最后一行不带线。
+       这一组原先只定义在 SettingsView 的页面作用域里，而「内网穿透」监控页也写了同样的
+       类名（`setting-row` / `setting-title` / `setting-description` / `setting-control`），
+       于是那里的开关与说明退化成裸文本（0.5.x 实机截图可证）。
+       与 `rail-title` / `rail-caption` 同样的处置：**只加不改**地提到全局词汇表，
+       数值逐项照抄 SettingsView 的页面私有定义（13/12px、Padding 0,14、Hairline 底边线）。
+       SettingsView 的页面级同名 selector 依旧后定义、优先级更高。
+       零漂移已实测：加与不加这一组，`settings-*` / `notification-settings-*` 帧逐张 SHA256 一致。 -->
+  <Style Selector="Border.setting-row">
+    <Setter Property="Padding" Value="0,14" />
+    <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+  </Style>
+  <Style Selector="Border.setting-row:last-child">
+    <Setter Property="BorderThickness" Value="0" />
+  </Style>
+  <Style Selector="TextBlock.setting-title">
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="FontSize" Value="13" />
+  </Style>
+  <Style Selector="TextBlock.setting-description">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <!-- 右侧开关统一宽度与文案，避免每个页面各写一套「开启/关闭」。 -->
+  <Style Selector="ToggleSwitch.setting-control">
+    <Setter Property="MinWidth" Value="104" />
+    <Setter Property="HorizontalAlignment" Value="Right" />
+    <Setter Property="OnContent" Value="开启" />
+    <Setter Property="OffContent" Value="关闭" />
+  </Style>
+
   <!-- ── 侧栏列表 ──────────────────────────────────────────────────────
        分类项用 ListBoxItem 实现选中态（保留 ListBox + SelectedItem 双向绑定，
        不换成 Button —— 绑定形态是测试契约）。rail-list 与旧 settings-list 数值一致。 -->

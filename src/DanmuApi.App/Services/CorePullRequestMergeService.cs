@@ -18,6 +18,15 @@ public sealed class PullRequestMergeConflictException : IOException
 
 public interface ICorePullRequestMergeService
 {
+    /// <param name="baseShaOverride">
+    /// 用指定的提交当基线，而不是已安装核心记录的那一个。
+    /// 「先把基线更新到远端最新、再把远端没有的 PR 并回来」走的正是这条：
+    /// 新组合的基线必须是远端新提交，不能还是旧基线。
+    /// </param>
+    /// <param name="inheritExistingStack">
+    /// 是否把已安装组合里其余的 PR 一起带进来重建（默认 true，与"在现有组合上继续加 PR"的语义一致）。
+    /// 更新流程要显式传 false：远端已经包含的 PR 不该再并一遍。
+    /// </param>
     Task<CorePreparedInstallRequest> PrepareAsync(
         ManagedCoreVariant variant,
         CoreInstallationInfo installed,
@@ -26,7 +35,9 @@ public interface ICorePullRequestMergeService
         string proxyId,
         string displayName,
         IProgress<CoreInstallProgress>? progress = null,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? baseShaOverride = null,
+        bool inheritExistingStack = true);
 }
 
 /// <summary>
@@ -90,7 +101,9 @@ public sealed class CorePullRequestMergeService : ICorePullRequestMergeService
         string proxyId,
         string displayName,
         IProgress<CoreInstallProgress>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? baseShaOverride = null,
+        bool inheritExistingStack = true)
     {
         await Task.Yield();
         ArgumentNullException.ThrowIfNull(installed);
@@ -114,6 +127,10 @@ public sealed class CorePullRequestMergeService : ICorePullRequestMergeService
         }
 
         ValidatePullRequests(repository, pullRequests);
+        if (!string.IsNullOrWhiteSpace(baseShaOverride))
+        {
+            ValidateShortOrFullSha(baseShaOverride.Trim(), "更新基线提交");
+        }
         var git = ResolveGitExecutable();
         var operationId = Guid.NewGuid().ToString("N");
         var workRoot = Path.Combine(_cacheDirectory, "pull-request-lab");
@@ -129,9 +146,12 @@ public sealed class CorePullRequestMergeService : ICorePullRequestMergeService
             var clonedRemote = CloneBase(git, remoteCandidates, repository.Branch, workTree, progress, cancellationToken);
             ConfigureRepository(git, workTree);
 
-            var preferredBase = installed.Manifest.IsLocalPullRequestStack
-                ? installed.Manifest.BaseCommitSha
-                : installed.Manifest.CommitSha;
+            // 显式指定基线（更新流程）优先；否则组合沿用记录的基线，普通安装用已装提交。
+            var preferredBase = !string.IsNullOrWhiteSpace(baseShaOverride)
+                ? baseShaOverride.Trim()
+                : installed.Manifest.IsLocalPullRequestStack
+                    ? installed.Manifest.BaseCommitSha
+                    : installed.Manifest.CommitSha;
             Report(progress, CoreInstallStage.Extracting, "正在定位当前核心基线");
             var baseCommit = CheckoutBase(
                 git,
@@ -142,7 +162,9 @@ public sealed class CorePullRequestMergeService : ICorePullRequestMergeService
                 progress,
                 cancellationToken);
 
-            var effectivePullRequests = InheritExistingStack(installed.Manifest, repository, pullRequests);
+            var effectivePullRequests = inheritExistingStack
+                ? InheritExistingStack(installed.Manifest, repository, pullRequests)
+                : pullRequests;
             var sources = new List<CorePullRequestSource>(effectivePullRequests.Count);
             for (var index = 0; index < effectivePullRequests.Count; index++)
             {

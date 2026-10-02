@@ -555,6 +555,138 @@ public sealed class CoreUpdateCoordinatorTests
         Assert.Contains("45", result.Diagnostic);
     }
 
+    /// <summary>
+    /// 回归（用户报的缺陷）：本地 PR 组合以前被强制判成"没有更新"，
+    /// 于是并了 PR 之后更新检查就永远显示"当前已是最新提交"。
+    /// 现在照常报"有更新"，并且结论要落盘、跨重启还在。
+    /// </summary>
+    [Fact]
+    public async Task LocalPullRequestStackStillReportsTheRemoteUpdate()
+    {
+        var discoveries = new MemoryCoreUpdateDiscoveryStore();
+        var installer = new FixedInstaller(InstalledStack(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "cccccccccccccccccccccccccccccccccccccccc"));
+        var first = new CoreUpdateCoordinator(
+            installer,
+            new RecordingRemote(RemoteCommit("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")),
+            new MemoryTimestampStore(),
+            discoveries);
+
+        var result = await first.CheckAsync(ManagedCoreVariant.Stable, force: true);
+
+        Assert.Equal(CoreUpdateCheckStatus.Checked, result.Status);
+        Assert.True(result.UpdateAvailable);
+        Assert.Equal("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", result.Remote!.Sha);
+        // 组合的"本地提交"是基线：结论里必须带上它，否则下次对账无从判断。
+        Assert.Equal("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", result.Local!.CommitSha);
+        Assert.Contains("核对", result.Diagnostic, StringComparison.Ordinal);
+        Assert.NotNull(discoveries.Read(ManagedCoreVariant.Stable));
+
+        // 新进程只靠落盘结论就要能接回「核心可更新」，不再发请求。
+        var restartedRemote = new RecordingRemote(Task.FromException<GithubCommit>(
+            new GithubRemoteException(GithubFailureKind.Network, "offline")));
+        var restarted = new CoreUpdateCoordinator(
+            installer, restartedRemote, new MemoryTimestampStore(), discoveries);
+        restarted.ReconcileDiscovery(ManagedCoreVariant.Stable);
+
+        Assert.Equal(0, restartedRemote.GetCommitCalls);
+        var restored = Assert.IsType<CoreUpdateCheckResult>(restarted.LastResult);
+        Assert.True(restored.UpdateAvailable);
+        Assert.True(restored.Local!.IsLocalPullRequestStack);
+    }
+
+    /// <summary>
+    /// 组合在新基线上重建之后（更新+重新并入走完），原结论必须作废：
+    /// 记录里的那个远端提交已经成为组合的基线。
+    /// </summary>
+    [Fact]
+    public async Task RebuildingTheStackOnTheRecordedRemoteCommitVoidsTheConclusion()
+    {
+        var installer = new MutableInstaller(InstalledStack(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "cccccccccccccccccccccccccccccccccccccccc"));
+        var discoveries = new MemoryCoreUpdateDiscoveryStore();
+        var coordinator = new CoreUpdateCoordinator(
+            installer,
+            new RecordingRemote(RemoteCommit("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")),
+            new MemoryTimestampStore(),
+            discoveries);
+        Assert.True((await coordinator.CheckAsync(ManagedCoreVariant.Stable, force: true)).UpdateAvailable);
+
+        var broadcasts = new List<CoreUpdateCheckResult?>();
+        coordinator.ResultChanged += (_, result) => broadcasts.Add(result);
+        installer.Current = InstalledStack(
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "dddddddddddddddddddddddddddddddddddddddd");
+        coordinator.ReconcileDiscovery(ManagedCoreVariant.Stable);
+
+        Assert.Null(coordinator.LastResult);
+        Assert.Equal([null], broadcasts);
+        Assert.Null(discoveries.Read(ManagedCoreVariant.Stable));
+    }
+
+    /// <summary>组合的基线没动、结论仍成立时不该撤掉（改名/其它变体操作都不影响它）。</summary>
+    [Fact]
+    public async Task ReconcilingAnUnchangedStackKeepsTheConclusion()
+    {
+        var installer = new FixedInstaller(InstalledStack(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "cccccccccccccccccccccccccccccccccccccccc"));
+        var coordinator = new CoreUpdateCoordinator(
+            installer,
+            new RecordingRemote(RemoteCommit("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")),
+            new MemoryTimestampStore(),
+            new MemoryCoreUpdateDiscoveryStore());
+        await coordinator.CheckAsync(ManagedCoreVariant.Stable, force: true);
+
+        coordinator.ReconcileDiscovery(ManagedCoreVariant.Stable);
+
+        var kept = Assert.IsType<CoreUpdateCheckResult>(coordinator.LastResult);
+        Assert.True(kept.UpdateAvailable);
+    }
+
+    [Theory]
+    [MemberData(nameof(CoreInstallationModelsTests.ChangedSourceFields), MemberType = typeof(CoreInstallationModelsTests))]
+    public async Task AuditReconciliationBroadcastsEveryChangedSourceIdentity(string field)
+    {
+        var source = CoreInstallationModelsTests.Source();
+        var installer = new MutableInstaller(Installed(source.CommitSha) with { Manifest = source });
+        using var coordinator = new CoreUpdateCoordinator(installer,
+            new RecordingRemote(RemoteCommit(new string('f', 40))), new MemoryTimestampStore(),
+            new MemoryCoreUpdateDiscoveryStore());
+        await coordinator.CheckAsync(ManagedCoreVariant.Stable, force: true);
+        var broadcasts = new List<CoreUpdateCheckResult?>();
+        coordinator.ResultChanged += (_, result) => broadcasts.Add(result);
+        installer.Current = installer.Current with { Manifest = CoreInstallationModelsTests.Change(source, field) };
+
+        coordinator.ReconcileDiscovery(ManagedCoreVariant.Stable);
+
+        var broadcast = Assert.Single(broadcasts);
+        if (coordinator.LastResult is not null)
+        {
+            Assert.NotNull(broadcast);
+            Assert.True(CoreInstallationManifest.SourcesEqual(installer.Current.Manifest, broadcast.Local));
+        }
+        else Assert.Null(broadcast); // A changed baseline invalidates the discovery rather than refreshing it.
+    }
+
+    [Fact]
+    public async Task AuditEquivalentReparsedPrListDoesNotCauseSpuriousBroadcasts()
+    {
+        var source = CoreInstallationModelsTests.Source();
+        var installer = new MutableInstaller(Installed(source.CommitSha) with { Manifest = source });
+        using var coordinator = new CoreUpdateCoordinator(installer,
+            new RecordingRemote(RemoteCommit(new string('f', 40))), new MemoryTimestampStore(),
+            new MemoryCoreUpdateDiscoveryStore());
+        await coordinator.CheckAsync(ManagedCoreVariant.Stable, force: true);
+        var broadcasts = new List<CoreUpdateCheckResult?>();
+        coordinator.ResultChanged += (_, result) => broadcasts.Add(result);
+        installer.Current = installer.Current with { Manifest = source with { PullRequests = source.PullRequests.ToArray() } };
+        coordinator.ReconcileDiscovery(ManagedCoreVariant.Stable);
+        Assert.Empty(broadcasts);
+    }
+
     private static CoreInstallationInfo Installed(
         string sha,
         ManagedCoreVariant variant = ManagedCoreVariant.Stable)
@@ -572,6 +704,24 @@ public sealed class CoreUpdateCoordinatorTests
             DateTimeOffset.Parse("2026-09-01T00:00:00Z"));
         return new CoreInstallationInfo(variant, "test", true, true, "1.0.0", manifest, null);
     }
+
+    /// <summary>本地 PR 组合：CommitSha 是基线提交，另有本地合并提交与有序 PR 来源。</summary>
+    private static CoreInstallationInfo InstalledStack(string baseSha, string localMergeSha) =>
+        Installed(baseSha) with
+        {
+            Manifest = Installed(baseSha).Manifest! with
+            {
+                SchemaVersion = CoreInstallationManifest.CurrentSchemaVersion,
+                InstallKind = CoreInstallKind.LocalPullRequestStack,
+                BaseCommitSha = baseSha,
+                LocalMergeSha = localMergeSha,
+                PullRequests =
+                [
+                    new CorePullRequestSource(12, "contributor/danmu_api", "feature",
+                        "dddddddddddddddddddddddddddddddddddddddd", null),
+                ],
+            },
+        };
 
     private static GithubCommit RemoteCommit(string sha) =>
         new(sha, "title", "title", "dev", DateTimeOffset.UtcNow, []);

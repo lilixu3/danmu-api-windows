@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
 using DanmuApi.Runtime;
 
 namespace DanmuApi.Tests;
@@ -135,6 +137,29 @@ public sealed class NodeSupervisorPreflightTests
 
         Assert.Equal(DesktopRuntimeState.Stopped, stopped.State);
         Assert.Contains(diagnostics, line => line.Contains("从未运行 Node 子进程", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("::1")]
+    [InlineData("::")]
+    public async Task IPv6OnlyListenerDoesNotFailIPv4Preflight(string ipv6Address)
+    {
+        using var directory = new TemporaryDirectory();
+        using var listener = new TcpListener(IPAddress.Parse(ipv6Address), 0);
+        listener.Server.DualMode = false;
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var health = new StubHealthClient();
+        var terminator = new NeverCalledTerminator();
+        await using var supervisor = new NodeSupervisor(health, terminator);
+
+        var snapshot = await supervisor.StartAsync(CreateConfig(directory, port) with { ListenHost = "0.0.0.0" });
+
+        Assert.Equal(DesktopRuntimeState.Failed, snapshot.State);
+        Assert.Contains("node.exe 启动失败", snapshot.FailureReason, StringComparison.Ordinal);
+        Assert.DoesNotContain("其他实例", snapshot.FailureReason, StringComparison.Ordinal);
+        Assert.Equal(0, health.Calls);
+        Assert.Equal(0, terminator.Calls);
     }
 
     private static StartConfig CreateConfig(TemporaryDirectory directory, int port, string? identity = null)

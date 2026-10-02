@@ -24,15 +24,32 @@ public static partial class BundledRuntimePreparer
     private const string Transaction = ".bundled-runtime-transaction";
     private const string HashMode = "hash";
     private const string MetadataMode = "metadata";
-    private const int MaxCriticalEntries = 64;
+    private const int MaxCriticalEntries = 64; // Legacy identities retain their existing bound; outbound uses 56.
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = false };
     private static readonly HashSet<string> Hosts = new(StringComparer.OrdinalIgnoreCase)
     {
         "node.exe", "NODE-LICENSE.txt", "nodejs-project/main.js", "nodejs-project/android-server.js",
         "nodejs-project/favorite-scheduler-host.js", "nodejs-project/package-lock.json", "nodejs-project/package.json",
         "nodejs-project/runtime-polyfills.js", "nodejs-project/runtime_asset_layout.txt",
-        "nodejs-project/startup-failure.js", "nodejs-project/worker-proxy.js"
+        "nodejs-project/startup-failure.js", "nodejs-project/worker-proxy.js",
+        "nodejs-project/app-outbound-bridge.js", "nodejs-project/app-outbound-runtime.js",
+        "nodejs-project/app-outbound-diagnostics.js", "nodejs-project/app-outbound-errors.js",
+        "nodejs-project/outbound/danmu-outbound.exe", "nodejs-project/outbound/outbound-build.json",
+        "nodejs-project/outbound/OUTBOUND-LICENSE.txt", "nodejs-project/outbound/OUTBOUND-UPSTREAM.txt",
+        "nodejs-project/outbound/outbound-source.zip", "nodejs-project/outbound/OUTBOUND-NOTICES.txt",
+        "nodejs-project/outbound/OUTBOUND-SHA256SUMS.txt"
     };
+    private const string OutboundPrefix = "nodejs-project/outbound/";
+    private const string OutboundVersion = "1.0.1+6004732";
+    private const string OutboundSourceCommit = "600473250a07d0f78502262d141e0f3faf4a9a36";
+    private static readonly string[] OutboundFiles =
+    [
+        "danmu-outbound.exe", "outbound-build.json", "OUTBOUND-LICENSE.txt", "OUTBOUND-UPSTREAM.txt",
+        "outbound-source.zip", "OUTBOUND-NOTICES.txt", "OUTBOUND-SHA256SUMS.txt"
+    ];
+    private static bool HasOutbound(IEnumerable<Entry> entries) => entries.Any(e =>
+        e.Path.StartsWith(OutboundPrefix, StringComparison.OrdinalIgnoreCase) ||
+        e.Path.StartsWith("nodejs-project/app-outbound-", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Mode selects the startup fast-check rule for a critical entry. "hash" (the default)
     /// verifies content on every launch; "metadata" compares size and timestamps and only hashes when
@@ -78,6 +95,9 @@ public static partial class BundledRuntimePreparer
                 entries.Where(e => Critical(e.Path)).Any(e => !build.Files.Any(s => s.Path == e.Path && s.Hash == e.Hash)))
                 throw new IOException("安装包版本记录与完整清单不一致。");
         }
+        // Validate native source identity before creating or mutating the runtime, even on a repeat.
+        // Full payload hashing remains in VerifySources; this gate only reads PE headers and manifests.
+        if (HasOutbound(entries)) ValidateOutbound(bundle, entries, HostArchitecture());
         Report("ReadingManifest", 1, 1);
         cancellationToken.ThrowIfCancellationRequested();
         // Source validation precedes creating a fresh runtime directory.
@@ -394,6 +414,7 @@ public static partial class BundledRuntimePreparer
                 cancellationToken.ThrowIfCancellationRequested();
                 Report("VerifyingSource", end, entries.Count);
             }
+            if (HasOutbound(entries)) ValidateOutboundSourceArchive(bundle);
         }
         void EnsureSafe()
         {
@@ -401,6 +422,11 @@ public static partial class BundledRuntimePreparer
             EnsureNodeStopped(root);
         }
     }
+
+    /// <summary>Shared managed manifest contract for preparation and read-only maintenance checks.
+    /// Enforces exact app-owned host/helper paths, dependency boundaries, hashes, duplicate/prefix
+    /// conflicts and complete outbound payloads. Parsing does not read or write runtime payloads.</summary>
+    public static IReadOnlyList<Entry> ParseManagedManifest(string text) => ParseManifest(text).AsReadOnly();
 
     private static List<Entry> ParseManifest(string text)
     {
@@ -431,6 +457,12 @@ public static partial class BundledRuntimePreparer
                 if (names.Contains(string.Join('/', segments.Take(i)))) throw new IOException("依赖路径发生文件/目录冲突。");
         }
         if (!names.Contains("node.exe") || !names.Contains("nodejs-project/main.js")) throw new IOException("运行环境清单缺少 Node 或启动入口。");
+        if (HasOutbound(entries))
+        {
+            // Outbound is one app-owned payload, never an arbitrary executable directory.
+            foreach (var required in Hosts)
+                if (!names.Contains(required)) throw new IOException($"出站运行环境清单缺少受管文件：{required}");
+        }
     }
 
     private static void ValidateState(State state)

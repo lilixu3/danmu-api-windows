@@ -4,16 +4,34 @@ using DanmuApi.Runtime;
 
 namespace DanmuApi.Platform;
 
-public sealed class WindowsProcessTerminator : IProcessTerminator
+public sealed class WindowsProcessTerminator : IProcessTerminator, IVerifiedProcessTerminator
 {
-    public async Task<ProcessTerminationResult> TerminateAsync(
+    public Task<ProcessTerminationResult> TerminateAsync(
         Process process,
         string expectedNodeExe,
         string expectedMainScript,
         TimeSpan timeout,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        TerminateVerifiedAsync(
+            process,
+            expectedNodeExe,
+            expectedMainScript,
+            "node.exe",
+            timeout,
+            cancellationToken,
+            expectedArgumentLabel: "入口 main.js");
+
+    public async Task<ProcessTerminationResult> TerminateVerifiedAsync(
+        Process process,
+        string expectedExecutablePath,
+        string expectedArgumentFragment,
+        string expectedExecutableLabel,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default,
+        string? expectedArgumentLabel = null)
     {
         ArgumentNullException.ThrowIfNull(process);
+        ArgumentException.ThrowIfNullOrWhiteSpace(expectedExecutableLabel);
         if (!OperatingSystem.IsWindows())
         {
             return new(false, "进程树终止器仅支持 Windows");
@@ -29,9 +47,9 @@ public sealed class WindowsProcessTerminator : IProcessTerminator
             return new(false, "拒绝终止当前 Desktop 进程");
         }
 
-        if (string.IsNullOrWhiteSpace(expectedNodeExe) || string.IsNullOrWhiteSpace(expectedMainScript))
+        if (string.IsNullOrWhiteSpace(expectedExecutablePath) || string.IsNullOrWhiteSpace(expectedArgumentFragment))
         {
-            return new(false, "拒绝终止：缺少预期 node.exe 或 main.js 路径");
+            return new(false, $"拒绝终止：缺少预期 {expectedExecutableLabel} 或参数片段");
         }
 
         if (timeout <= TimeSpan.Zero)
@@ -45,27 +63,43 @@ public sealed class WindowsProcessTerminator : IProcessTerminator
         }
 
         ProcessMetadata metadata;
+        DateTime startedUtc;
         try
         {
+            // 持有句柄并记录创建时间，避免元数据查询期间 PID 被复用后误杀另一个进程。
+            _ = process.SafeHandle;
+            startedUtc = process.StartTime.ToUniversalTime();
             metadata = await ReadMetadataAsync(process.Id, timeout, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             return new(false, $"拒绝终止：查询 PID={process.Id} 的进程信息超时");
         }
-        catch (Exception error) when (error is InvalidOperationException or IOException or JsonException)
+        catch (Exception error) when (error is InvalidOperationException or IOException or JsonException or System.ComponentModel.Win32Exception)
         {
-            return new(false, $"拒绝终止：无法验证 PID={process.Id} 的进程信息: {error.Message}");
+            // 元数据/PowerShell 输出可能含手工进程的认证参数，绝不回显原始异常或输出。
+            return new(false, $"拒绝终止：无法验证 PID={process.Id} 的进程信息（{error.GetType().Name}, HResult=0x{error.HResult:X8}）");
         }
 
-        if (!PathsEqual(metadata.ExecutablePath, expectedNodeExe))
+        if (Math.Abs((metadata.StartedUtc - startedUtc).Ticks) >= TimeSpan.TicksPerMillisecond)
         {
-            return new(false, $"拒绝终止：PID={process.Id} 可执行文件不是预期 node.exe（实际={metadata.ExecutablePath ?? "未知"}）");
+            return new(false, $"拒绝终止：PID={process.Id} 创建时间与受管进程句柄不一致");
         }
 
-        if (!CommandLineContainsScript(metadata.CommandLine, expectedMainScript))
+        if (!PathsEqual(metadata.ExecutablePath, expectedExecutablePath))
         {
-            return new(false, $"拒绝终止：PID={process.Id} 命令行不包含预期入口 main.js（实际={metadata.CommandLine ?? "未知"}）");
+            return new(false, $"拒绝终止：PID={process.Id} 可执行文件不是预期 {expectedExecutableLabel}");
+        }
+
+        var argumentMatches = string.Equals(expectedExecutableLabel, "node.exe", StringComparison.OrdinalIgnoreCase)
+            ? WindowsProcessArguments.MatchesNodeEntryPoint(metadata.CommandLine, expectedArgumentFragment)
+            : expectedExecutableLabel is "frpc.exe" or "frps.exe"
+                && WindowsProcessArguments.MatchesFrpConfig(metadata.CommandLine, expectedArgumentFragment);
+        if (!argumentMatches)
+        {
+            var label = string.Equals(expectedExecutableLabel, "node.exe", StringComparison.OrdinalIgnoreCase)
+                ? "位置入口 main.js" : "-c/--config 配置参数";
+            return new(false, $"拒绝终止：PID={process.Id} 命令行不匹配预期{label}");
         }
 
         if (process.HasExited)
@@ -75,7 +109,7 @@ public sealed class WindowsProcessTerminator : IProcessTerminator
 
         if (ResolveSystemTool("taskkill.exe") is not { } taskkillPath)
         {
-            return new(false, "无法定位原生系统目录里的 taskkill.exe（SystemRoot 未设置或文件缺失），拒绝按 PATH 猜测工具");
+            return new(false, "无法定位原生系统目录里的 taskkill.exe（SystemRoot 未设置或文件缺失），拒绝按 PATH 猜测工具", OwnershipVerified: true);
         }
 
         using var killer = new Process
@@ -97,7 +131,7 @@ public sealed class WindowsProcessTerminator : IProcessTerminator
         {
             if (!killer.Start())
             {
-                return new(false, "taskkill.exe 启动失败");
+                return new(false, "taskkill.exe 启动失败", OwnershipVerified: true);
             }
 
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -110,7 +144,7 @@ public sealed class WindowsProcessTerminator : IProcessTerminator
             var error = errorTask.Result.Trim();
             if (killer.ExitCode != 0)
             {
-                return new(false, $"taskkill 失败，exitCode={killer.ExitCode}; {Truncate(string.Join(" ", output, error))}", killer.ExitCode);
+                return new(false, $"taskkill 失败，exitCode={killer.ExitCode}; {Truncate(string.Join(" ", output, error))}", killer.ExitCode, OwnershipVerified: true);
             }
 
             var exitDeadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5);
@@ -120,8 +154,8 @@ public sealed class WindowsProcessTerminator : IProcessTerminator
             }
 
             return process.HasExited
-                ? new(true, Truncate(output), process.ExitCode)
-                : new(false, $"taskkill 已返回但 PID={process.Id} 仍存活");
+                ? new(true, Truncate(output), process.ExitCode, OwnershipVerified: true)
+                : new(false, $"taskkill 已返回但 PID={process.Id} 仍存活", OwnershipVerified: true);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -137,11 +171,11 @@ public sealed class WindowsProcessTerminator : IProcessTerminator
                 // The taskkill process exited while the timeout cleanup raced with it.
             }
 
-            return new(false, $"taskkill 超时，PID={process.Id}");
+            return new(false, $"taskkill 超时，PID={process.Id}", OwnershipVerified: true);
         }
-        catch (Exception error) when (error is IOException or InvalidOperationException)
+        catch (Exception error) when (error is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
-            return new(false, $"执行 taskkill 异常: {error.Message}");
+            return new(false, $"执行 taskkill 异常: {error.Message}", OwnershipVerified: true);
         }
     }
 
@@ -158,7 +192,7 @@ public sealed class WindowsProcessTerminator : IProcessTerminator
                 "无法定位原生系统目录里的 powershell.exe（SystemRoot 未设置或文件缺失），拒绝按 PATH 猜测工具");
         }
 
-        const string query = "$OutputEncoding = [Text.UTF8Encoding]::new($false); [Console]::OutputEncoding = $OutputEncoding; $p = Get-CimInstance -ClassName Win32_Process -Filter 'ProcessId = PID_PLACEHOLDER' | Select-Object -First 1 ExecutablePath, CommandLine; if ($null -eq $p) { exit 2 }; $p | ConvertTo-Json -Compress";
+        const string query = "$ErrorActionPreference = 'Stop'; $OutputEncoding = [Text.UTF8Encoding]::new($false); [Console]::OutputEncoding = $OutputEncoding; $p = Get-CimInstance -ClassName Win32_Process -Filter 'ProcessId = PID_PLACEHOLDER' | Select-Object -First 1; if ($null -eq $p) { exit 2 }; [pscustomobject]@{ ExecutablePath = $p.ExecutablePath; CommandLine = $p.CommandLine; StartedUtc = $p.CreationDate.ToUniversalTime().ToString('o') } | ConvertTo-Json -Compress";
         using var queryProcess = new Process
         {
             StartInfo = new ProcessStartInfo
@@ -192,7 +226,7 @@ public sealed class WindowsProcessTerminator : IProcessTerminator
         var error = errorTask.Result.Trim();
         if (queryProcess.ExitCode != 0)
         {
-            throw new InvalidOperationException($"PowerShell 元数据查询失败，exitCode={queryProcess.ExitCode}; {Truncate(string.Join(" ", output, error))}");
+            throw new InvalidOperationException($"PowerShell 元数据查询失败，exitCode={queryProcess.ExitCode}");
         }
 
         if (output.Length == 0)
@@ -204,12 +238,15 @@ public sealed class WindowsProcessTerminator : IProcessTerminator
         var root = document.RootElement;
         if (root.ValueKind != JsonValueKind.Object ||
             !root.TryGetProperty("ExecutablePath", out var executable) || executable.ValueKind != JsonValueKind.String ||
-            !root.TryGetProperty("CommandLine", out var commandLine) || commandLine.ValueKind != JsonValueKind.String)
+            !root.TryGetProperty("CommandLine", out var commandLine) || commandLine.ValueKind != JsonValueKind.String ||
+            !root.TryGetProperty("StartedUtc", out var started) || started.ValueKind != JsonValueKind.String ||
+            !DateTime.TryParse(started.GetString(), System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind, out var startedUtc))
         {
-            throw new InvalidOperationException($"PowerShell 元数据查询返回格式无效: {Truncate(output)}");
+            throw new InvalidOperationException("PowerShell 元数据查询返回格式无效");
         }
 
-        return new(executable.GetString(), commandLine.GetString());
+        return new(executable.GetString(), commandLine.GetString(), startedUtc.ToUniversalTime());
     }
 
     private static bool PathsEqual(string? actual, string expected)
@@ -230,18 +267,6 @@ public sealed class WindowsProcessTerminator : IProcessTerminator
         {
             return false;
         }
-    }
-
-    private static bool CommandLineContainsScript(string? commandLine, string expectedMainScript)
-    {
-        if (string.IsNullOrWhiteSpace(commandLine))
-        {
-            return false;
-        }
-
-        var normalizedCommandLine = commandLine.Replace('/', '\\');
-        var normalizedExpected = RuntimeValidation.CanonicalPath(expectedMainScript).Replace('/', '\\');
-        return normalizedCommandLine.Contains(normalizedExpected, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -271,5 +296,5 @@ public sealed class WindowsProcessTerminator : IProcessTerminator
 
     private static string Truncate(string value) => value.Length <= 2_000 ? value : value[..2_000] + "…";
 
-    private sealed record ProcessMetadata(string? ExecutablePath, string? CommandLine);
+    private sealed record ProcessMetadata(string? ExecutablePath, string? CommandLine, DateTime StartedUtc);
 }

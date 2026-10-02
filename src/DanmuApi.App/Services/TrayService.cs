@@ -13,6 +13,7 @@ public sealed class TrayService : IDisposable
     private readonly IPendingCoreUpdateService _pendingCoreUpdate;
     private readonly IAppDiagnostics _diagnostics;
     private readonly Action _openConsole;
+    private readonly Action<ManagedCoreVariant> _openCorePage;
     private readonly Action _openCoreConfiguration;
     private readonly Action _openSettings;
     private readonly Func<Task> _exitApplication;
@@ -32,6 +33,7 @@ public sealed class TrayService : IDisposable
         IPendingCoreUpdateService pendingCoreUpdate,
         IAppDiagnostics diagnostics,
         Action openConsole,
+        Action<ManagedCoreVariant> openCorePage,
         Action openCoreConfiguration,
         Action openSettings,
         Func<Task> exitApplication)
@@ -40,6 +42,7 @@ public sealed class TrayService : IDisposable
         _pendingCoreUpdate = pendingCoreUpdate ?? throw new ArgumentNullException(nameof(pendingCoreUpdate));
         _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
         _openConsole = openConsole ?? throw new ArgumentNullException(nameof(openConsole));
+        _openCorePage = openCorePage ?? throw new ArgumentNullException(nameof(openCorePage));
         _openCoreConfiguration = openCoreConfiguration ?? throw new ArgumentNullException(nameof(openCoreConfiguration));
         _openSettings = openSettings ?? throw new ArgumentNullException(nameof(openSettings));
         _exitApplication = exitApplication ?? throw new ArgumentNullException(nameof(exitApplication));
@@ -138,8 +141,15 @@ public sealed class TrayService : IDisposable
         }
     }
 
-    private async Task ApplyPendingUpdateAsync()
+    internal async Task ApplyPendingUpdateAsync()
     {
+        // PR 组合的更新必须先在核心页核对再决定：这里只把窗口打开，不替用户做决定。
+        if (_pendingCoreUpdate.PendingUpdate is { Local.IsLocalPullRequestStack: true } pending)
+        {
+            _openCorePage(pending.Variant);
+            return;
+        }
+
         var result = await _pendingCoreUpdate.ApplyPendingAsync().ConfigureAwait(true);
         if (result is { Succeeded: false })
         {
@@ -202,8 +212,15 @@ public sealed class TrayService : IDisposable
         _applyUpdateItem.IsVisible = updateVisible;
         if (pending is not null)
         {
-            _updateStatusItem.Header = $"核心更新：{FormatVariant(pending.Variant)} {pending.Remote?.ShortSha ?? "未知版本"}";
-            _applyUpdateItem.Header = _pendingCoreUpdate.IsApplying ? "正在更新核心…" : "立即更新核心";
+            // 本地 PR 组合要先在核心页核对远端是否已包含那些 PR：托盘这一项就不能是"一键装上去"，
+            // 点它只负责把控制台打开并落到核心页，避免用户以为点一下就更新好了。
+            var needsConfirmation = pending.Local?.IsLocalPullRequestStack == true;
+            _updateStatusItem.Header = needsConfirmation
+                ? $"核心更新：{FormatVariant(pending.Variant)} {pending.Remote?.ShortSha ?? "未知版本"}（PR 组合需确认）"
+                : $"核心更新：{FormatVariant(pending.Variant)} {pending.Remote?.ShortSha ?? "未知版本"}";
+            _applyUpdateItem.Header = _pendingCoreUpdate.IsApplying
+                ? "正在更新核心…"
+                : needsConfirmation ? "核对 PR 后更新（打开核心页）" : "立即更新核心";
             _applyUpdateItem.IsEnabled = !_pendingCoreUpdate.IsApplying;
         }
         _trayIcon.ToolTipText = $"弹幕 API · {FormatState(snapshot.State)}";

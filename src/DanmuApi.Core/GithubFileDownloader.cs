@@ -26,12 +26,14 @@ public sealed class GithubFileDownloader : IGithubFileDownloader
     private readonly long _maxBytes;
     private readonly TimeSpan _timeout;
     private readonly IGithubRoutePreferenceStore? _routePreferences;
+    private readonly IGithubTokenProvider? _tokenProvider;
 
     public GithubFileDownloader(
         HttpClient httpClient,
         long maxBytes = DefaultMaxBytes,
         TimeSpan? timeout = null,
-        IGithubRoutePreferenceStore? routePreferences = null)
+        IGithubRoutePreferenceStore? routePreferences = null,
+        IGithubTokenProvider? tokenProvider = null)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         if (maxBytes <= 0)
@@ -42,6 +44,7 @@ public sealed class GithubFileDownloader : IGithubFileDownloader
         _maxBytes = maxBytes;
         _timeout = timeout ?? TimeSpan.FromSeconds(150);
         _routePreferences = routePreferences;
+        _tokenProvider = tokenProvider;
     }
 
     public async Task DownloadAsync(
@@ -131,6 +134,15 @@ public sealed class GithubFileDownloader : IGithubFileDownloader
         timeout.CancelAfter(_timeout);
         using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
         request.Headers.UserAgent.ParseAdd("DanmuApiWindows/0.1");
+        // api.github.com/.../zipball 走的是 API 主机、会吃每小时配额，因此已配置 Token 时必须带上
+        // （用户报过"存了 Token 仍然超限"就是这个原因）。代理线路与资产 CDN 主机不带凭据：
+        // 前者会把凭据交给第三方，后者本来不受配额限制。跨主机重定向由 .NET 自行剥掉 Authorization。
+        var token = GithubTokenPolicy.Read(_tokenProvider);
+        if (token.Length > 0 && GithubTokenPolicy.CanAttach(requestUri))
+        {
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        }
+
         HttpResponseMessage response;
         try
         {

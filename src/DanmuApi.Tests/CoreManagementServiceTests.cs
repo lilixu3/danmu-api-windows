@@ -1,5 +1,6 @@
 using DanmuApi.App.Services;
 using DanmuApi.Core;
+using DanmuApi.Platform;
 using DanmuApi.Runtime;
 
 namespace DanmuApi.Tests;
@@ -492,7 +493,8 @@ public sealed class CoreManagementServiceTests
     {
         public Task<CorePreparedInstallRequest> PrepareAsync(ManagedCoreVariant variant, CoreInstallationInfo installed,
             GithubRepositoryReference repository, IReadOnlyList<GithubPullRequest> pullRequests, string proxyId,
-            string displayName, IProgress<CoreInstallProgress>? progress = null, CancellationToken cancellationToken = default) =>
+            string displayName, IProgress<CoreInstallProgress>? progress = null, CancellationToken cancellationToken = default,
+            string? baseShaOverride = null, bool inheritExistingStack = true) =>
             throw new Xunit.Sdk.XunitException("Git preparation must not run for a stale PR");
     }
 
@@ -569,11 +571,445 @@ public sealed class CoreManagementServiceTests
         Assert.Equal(["stop", "prepared-install", "start", "stop", "prepared-restore", "start", "stop", "delete", "start"], calls);
     }
 
+    [Fact]
+    public async Task AuditBuildingSameBaseStackBroadcastsPendingIdentityAndRejectsOldOrdinaryResult()
+    {
+        var calls = new List<string>();
+        var previous = Installed(new string('a', 40));
+        var stack = InstalledStack(new string('a', 40), new string('c', 40));
+        var installer = new RecordingInstaller(previous, calls) { PreparedResult = stack };
+        var runtime = new RecordingRuntimeController(new RuntimeSnapshot(DesktopRuntimeState.Running, 9321, 42), calls);
+        using var coordinator = new CoreUpdateCoordinator(installer, new FixedRemote(), new TestTimestampStore(),
+            new MemoryCoreUpdateDiscoveryStore());
+        CoreUpdateResultHandler? handler = null;
+        var service = new CoreManagementService(installer, new FixedRemote(), runtime, () => ManagedCoreVariant.Stable,
+            conclusionReconciler: () => handler!);
+        handler = new CoreUpdateResultHandler(service, coordinator, new TestRoutes(), new TestNotifications(), new TestDiagnostics());
+        var oldUpdate = await coordinator.CheckAsync(ManagedCoreVariant.Stable, force: true);
+        await handler.HandleAsync(CoreUpdateTrigger.Background, oldUpdate, CoreUpdateAction.Notify);
+        var broadcasts = new List<CoreUpdateCheckResult?>();
+        var pendingNotifications = 0;
+        coordinator.ResultChanged += (_, result) => broadcasts.Add(result);
+        handler.StateChanged += (_, _) => pendingNotifications++;
+        var request = new CorePreparedInstallRequest(ManagedCoreVariant.Stable, "staging", previous.Manifest!,
+            previous.Manifest!.CommitSha, stack.Manifest!.LocalMergeSha!, stack.Manifest.PullRequests);
+
+        var build = await service.ApplyPreparedPullRequestMergeAsync(request);
+
+        Assert.True(build.Succeeded);
+        Assert.True(Assert.Single(broadcasts)!.Local!.IsLocalPullRequestStack);
+        Assert.True(handler.PendingUpdate!.Local!.IsLocalPullRequestStack);
+        Assert.Equal(1, pendingNotifications);
+        calls.Clear();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ApplyUpdateAsync(oldUpdate, "original"));
+        Assert.Empty(calls);
+        var refused = await handler.ApplyPendingAsync();
+        Assert.False(refused!.Succeeded);
+        Assert.Contains("核对", refused.Diagnostic);
+        Assert.Empty(calls);
+        Assert.True(installer.Inspect(ManagedCoreVariant.Stable).Manifest!.IsLocalPullRequestStack);
+    }
+
+    [Fact]
+    public async Task AuditRenameRefreshesPendingSnapshotWithoutNetworkOrDuplicateDiscoveryNotification()
+    {
+        var calls = new List<string>();
+        var previous = Installed(new string('a', 40));
+        var installer = new RecordingInstaller(previous, calls);
+        var runtime = new RecordingRuntimeController(new RuntimeSnapshot(DesktopRuntimeState.Stopped), calls);
+        var remote = new FixedRemote();
+        using var coordinator = new CoreUpdateCoordinator(installer, remote, new TestTimestampStore(),
+            new MemoryCoreUpdateDiscoveryStore());
+        var service = CreateService(installer, runtime, ManagedCoreVariant.Stable);
+        var notifications = new TestNotifications();
+        var handler = new CoreUpdateResultHandler(service, coordinator, new TestRoutes(), notifications, new TestDiagnostics());
+        var update = await coordinator.CheckAsync(ManagedCoreVariant.Stable, force: true);
+        await handler.HandleAsync(CoreUpdateTrigger.Background, update, CoreUpdateAction.Notify);
+        Assert.Equal(1, notifications.Calls);
+        var pendingEvents = 0;
+        handler.StateChanged += (_, _) => pendingEvents++;
+        var renamed = previous with { Manifest = previous.Manifest! with { DisplayName = "new display name" } };
+        installer.SetCurrent(renamed);
+
+        coordinator.ReconcileDiscovery(ManagedCoreVariant.Stable);
+
+        Assert.Equal(1, pendingEvents);
+        Assert.True(handler.PendingUpdate!.UpdateAvailable);
+        Assert.True(CoreInstallationManifest.SourcesEqual(renamed.Manifest, handler.PendingUpdate.Local));
+        Assert.Equal(1, remote.CommitCalls);
+        await handler.HandleAsync(CoreUpdateTrigger.Foreground, coordinator.LastResult!, CoreUpdateAction.Notify);
+        Assert.Equal(1, notifications.Calls); // Dedup remains variant+remote, not display name/InstalledAt.
+        Assert.Equal(1, remote.CommitCalls);
+    }
+
+    [Fact]
+    public async Task AuditOrdinaryUpdateRechecksSourceAfterWaitingForMutationLock()
+    {
+        var calls = new List<string>();
+        var previous = Installed(new string('a', 40));
+        var stack = InstalledStack(new string('a', 40), new string('c', 40));
+        var installer = new RecordingInstaller(previous, calls) { PreparedResult = stack };
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var runtime = new RecordingRuntimeController(new RuntimeSnapshot(DesktopRuntimeState.Running, 9321, 42), calls);
+        runtime.AsyncStart = async () =>
+        {
+            entered.TrySetResult();
+            await release.Task;
+            runtime.SetSnapshot(new RuntimeSnapshot(DesktopRuntimeState.Running, 9321, 44));
+        };
+        var service = CreateService(installer, runtime, ManagedCoreVariant.Stable);
+        var request = new CorePreparedInstallRequest(ManagedCoreVariant.Stable, "staging", previous.Manifest!,
+            previous.Manifest!.CommitSha, stack.Manifest!.LocalMergeSha!, stack.Manifest.PullRequests);
+        var build = service.ApplyPreparedPullRequestMergeAsync(request);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var applyOld = service.ApplyUpdateAsync(StackUpdate(previous.Manifest!, new string('b', 40)), "original");
+        try { Assert.False(applyOld.IsCompleted); }
+        finally { release.SetResult(); }
+        await build;
+        var beforeRejected = calls.ToArray();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => applyOld);
+        Assert.Equal(beforeRejected, calls);
+    }
+
+    [Theory]
+    [MemberData(nameof(CoreInstallationModelsTests.ChangedSourceFields), MemberType = typeof(CoreInstallationModelsTests))]
+    public async Task AuditPreparedAndStackUpdatesRejectEveryChangedSourceField(string field)
+    {
+        var calls = new List<string>();
+        var expected = CoreInstallationModelsTests.Source();
+        var changed = Installed(expected.CommitSha) with { Manifest = CoreInstallationModelsTests.Change(expected, field) };
+        var installer = new RecordingInstaller(changed, calls);
+        var runtime = new RecordingRuntimeController(new RuntimeSnapshot(DesktopRuntimeState.Running, 9321, 42), calls);
+        var service = CreateService(installer, runtime, ManagedCoreVariant.Stable);
+        var request = new CorePreparedInstallRequest(ManagedCoreVariant.Stable, "staging", expected,
+            expected.CommitSha, new string('f', 40), expected.PullRequests);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ApplyPreparedPullRequestMergeAsync(request));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ApplyPullRequestStackUpdateAsync(
+            StackUpdate(expected, new string('f', 40)), [], "original"));
+        Assert.Empty(calls);
+    }
+
+    [Theory]
+    [InlineData("success")]
+    [InlineData("restoreDiskFails")]
+    [InlineData("restoreHealthFails")]
+    [InlineData("candidateStopFails")]
+    [InlineData("wrongRestoredSource")]
+    public async Task AuditUpdateOnlyHealthFailureRollsBackAndKeepsBothFailureDiagnostics(string recovery)
+    {
+        var calls = new List<string>();
+        var previous = InstalledStack(new string('a', 40), new string('c', 40));
+        var installer = new RecordingInstaller(previous, calls)
+        {
+            InstallResult = Installed(new string('b', 40)),
+            FailRestorePrepared = recovery == "restoreDiskFails",
+            RestoredOverride = recovery == "wrongRestoredSource" ? Installed(new string('a', 40)) : null,
+        };
+        var starts = 0;
+        var stops = 0;
+        var runtime = new RecordingRuntimeController(new RuntimeSnapshot(DesktopRuntimeState.Running, 9321, 42), calls);
+        runtime.AsyncStart = () =>
+        {
+            starts++;
+            runtime.SetSnapshot(starts == 1
+                ? new RuntimeSnapshot(DesktopRuntimeState.Failed, FailureReason: "candidate health rejected")
+                : recovery == "restoreHealthFails"
+                    ? new RuntimeSnapshot(DesktopRuntimeState.Failed, FailureReason: "old health rejected")
+                    : new RuntimeSnapshot(DesktopRuntimeState.Running, 9321, 44));
+            return Task.CompletedTask;
+        };
+        runtime.AsyncStop = () =>
+        {
+            stops++;
+            runtime.SetSnapshot(stops == 2 && recovery == "candidateStopFails"
+                ? new RuntimeSnapshot(DesktopRuntimeState.Failed, 9321, 99, FailureReason: "candidate termination rejected")
+                : new RuntimeSnapshot(DesktopRuntimeState.Stopped));
+            return Task.CompletedTask;
+        };
+        var service = CreateService(installer, runtime, ManagedCoreVariant.Stable);
+
+        var result = await service.ApplyPullRequestStackUpdateAsync(
+            StackUpdate(previous.Manifest!, new string('b', 40)), [], "original");
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("candidate health rejected", result.Diagnostic);
+        Assert.DoesNotContain("install", calls);
+        Assert.DoesNotContain("prepared-confirm", calls);
+        Assert.Equal(CoreInstallKind.Branch, installer.LastRequest!.Kind);
+        Assert.NotNull(result.RestorationError); // Original candidate failure stays structured even after successful recovery.
+        if (recovery == "success")
+        {
+            Assert.True(result.ServiceRestored);
+            Assert.False(result.DiskChangeApplied);
+            Assert.True(CoreInstallationManifest.SourcesEqual(previous.Manifest, result.Installation!.Manifest));
+            Assert.Equal(DesktopRuntimeState.Running, runtime.Snapshot.State);
+            Assert.Equal(["stop", "candidate-install", "start", "stop", "prepared-restore", "start"], calls);
+        }
+        else
+        {
+            Assert.False(result.ServiceRestored);
+            Assert.Contains("旧核心恢复失败", result.Diagnostic);
+            var combined = Assert.IsType<AggregateException>(result.RestorationError);
+            Assert.Contains("candidate health rejected", combined.ToString());
+            Assert.Contains(recovery switch
+            {
+                "restoreDiskFails" => "restore failed",
+                "restoreHealthFails" => "old health rejected",
+                "candidateStopFails" => "candidate termination rejected",
+                _ => "完整来源",
+            }, combined.ToString());
+            if (recovery == "candidateStopFails") Assert.DoesNotContain("prepared-restore", calls);
+            if (recovery == "restoreHealthFails") Assert.False(result.DiskChangeApplied);
+        }
+    }
+
+    [Fact]
+    public async Task AuditUpdateOnlyRecoveryHoldsLockUntilOldServiceHealthVerified()
+    {
+        var calls = new List<string>();
+        var previous = InstalledStack(new string('a', 40), new string('c', 40));
+        var installer = new RecordingInstaller(previous, calls) { InstallResult = Installed(new string('b', 40)) };
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var starts = 0;
+        var runtime = new RecordingRuntimeController(new RuntimeSnapshot(DesktopRuntimeState.Running, 9321, 42), calls);
+        runtime.AsyncStart = async () =>
+        {
+            starts++;
+            if (starts == 1) runtime.SetSnapshot(new RuntimeSnapshot(DesktopRuntimeState.Failed, FailureReason: "candidate failed"));
+            else
+            {
+                if (starts == 2) { entered.SetResult(); await release.Task; }
+                runtime.SetSnapshot(new RuntimeSnapshot(DesktopRuntimeState.Running, 9321, 44));
+            }
+        };
+        var service = CreateService(installer, runtime, ManagedCoreVariant.Stable);
+        var update = service.ApplyPullRequestStackUpdateAsync(StackUpdate(previous.Manifest!, new string('b', 40)), [], "original");
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var deleting = service.DeleteAsync(ManagedCoreVariant.Stable);
+        try { Assert.False(deleting.IsCompleted); Assert.DoesNotContain("delete", calls); }
+        finally { release.SetResult(); }
+        var result = await update;
+        Assert.False(result.Succeeded);
+        Assert.True(result.ServiceRestored);
+        await deleting;
+        Assert.Equal(["stop", "candidate-install", "start", "stop", "prepared-restore", "start", "stop", "delete", "start"], calls);
+    }
+
+    private sealed class TestTimestampStore : ICoreUpdateTimestampStore
+    {
+        public DateTimeOffset? ReadLastCheck(ManagedCoreVariant variant) => null;
+        public void WriteLastCheck(ManagedCoreVariant variant, DateTimeOffset checkedAt) { }
+    }
+    private sealed class TestRoutes : IGithubRoutePreferenceStore
+    {
+        public GithubRoutePreference Read() => new("original", true);
+        public void Confirm(string proxyId) => throw new NotSupportedException();
+        public void Invalidate() => throw new NotSupportedException();
+    }
+    private sealed class TestNotifications : IDesktopNotificationService
+    {
+        public int Calls { get; private set; }
+        public Task<DesktopNotificationResult> ShowAsync(string title, string message, CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            return Task.FromResult(new DesktopNotificationResult(true, "submitted"));
+        }
+    }
+    private sealed class TestDiagnostics : IAppDiagnostics
+    {
+        public string? LastDiagnostic { get; private set; }
+        public void Record(string message, Exception? error = null) => LastDiagnostic = message;
+    }
+
     private static CoreManagementService CreateService(
         RecordingInstaller installer,
         RecordingRuntimeController runtime,
         ManagedCoreVariant activeVariant) =>
         new(installer, new FixedRemote(), runtime, () => activeVariant);
+
+    /// <summary>
+    /// 本地 PR 组合的更新：用户选了"只更新"（远端已包含全部 PR，或明确放弃那些本地改动），
+    /// 就按普通分支安装远端提交，组合身份随之结束。
+    /// </summary>
+    [Fact]
+    public async Task StackUpdateWithoutReMergeInstallsTheRemoteCommitAsAPlainBranch()
+    {
+        var calls = new List<string>();
+        var remoteSha = new string('b', 40);
+        var previous = InstalledStack(new string('a', 40), new string('c', 40));
+        var installer = new RecordingInstaller(previous, calls) { InstallResult = Installed(remoteSha) };
+        var runtime = new RecordingRuntimeController(new RuntimeSnapshot(DesktopRuntimeState.Stopped), calls);
+        var service = new CoreManagementService(installer, new FixedRemote(), runtime, () => ManagedCoreVariant.Stable);
+
+        var result = await service.ApplyPullRequestStackUpdateAsync(
+            StackUpdate(previous.Manifest!, remoteSha), [], GithubProxyCatalog.OriginalId);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(["candidate-install", "refresh", "prepared-confirm"], calls);
+        Assert.NotNull(installer.LastRequest);
+        Assert.Equal(CoreInstallKind.Branch, installer.LastRequest!.Kind);
+        Assert.Equal(remoteSha, installer.LastRequest.CommitSha);
+    }
+
+    /// <summary>
+    /// 用户选了"更新并重新并入"：基线换成远端提交（不是旧基线），只并指定的 PR，
+    /// 不再继承旧组合里其余那些（远端已经有了，再并一遍没有意义）。
+    /// </summary>
+    [Fact]
+    public async Task StackUpdateWithReMergePreparesOnTheRemoteBaseAndMergesOnlyTheRequestedPullRequests()
+    {
+        var calls = new List<string>();
+        var remoteSha = new string('b', 40);
+        var previous = InstalledStack(new string('a', 40), new string('c', 40));
+        var open = new GithubPullRequest(15, "PR 15", "", "open", null, "main", "fork/core", "feature",
+            new string('d', 40), false, false, null, null, null, null, null);
+        var installer = new RecordingInstaller(previous, calls) { PreparedResult = Installed(remoteSha) };
+        var runtime = new RecordingRuntimeController(new RuntimeSnapshot(DesktopRuntimeState.Stopped), calls);
+        var merge = new RecordingMergeService(previous.Manifest!);
+        var service = new CoreManagementService(
+            installer, new FixedRemote(open), runtime, () => ManagedCoreVariant.Stable, pullRequestMerge: merge);
+
+        var result = await service.ApplyPullRequestStackUpdateAsync(
+            StackUpdate(previous.Manifest!, remoteSha), [15], GithubProxyCatalog.OriginalId);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal([15], merge.Numbers);
+        Assert.Equal(remoteSha, merge.BaseShaOverride);
+        Assert.False(merge.InheritExistingStack);
+        Assert.Equal(["prepared-install", "refresh", "prepared-confirm"], calls);
+    }
+
+    /// <summary>要重新并入的 PR 已经不是 open：明确拒绝，不静默跳过（跳过就等于悄悄丢改动）。</summary>
+    [Fact]
+    public async Task StackUpdateRejectsPullRequestsThatAreNoLongerOpen()
+    {
+        var calls = new List<string>();
+        var previous = InstalledStack(new string('a', 40), new string('c', 40));
+        var closed = new GithubPullRequest(15, "PR 15", "", "closed", null, "main", "fork/core", "feature",
+            new string('d', 40), false, true, null, null, null, null, null);
+        var installer = new RecordingInstaller(previous, calls);
+        var runtime = new RecordingRuntimeController(new RuntimeSnapshot(DesktopRuntimeState.Stopped), calls);
+        var merge = new RecordingMergeService(previous.Manifest!);
+        var service = new CoreManagementService(
+            installer, new FixedRemote(closed), runtime, () => ManagedCoreVariant.Stable, pullRequestMerge: merge);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.ApplyPullRequestStackUpdateAsync(
+            StackUpdate(previous.Manifest!, new string('b', 40)), [15], GithubProxyCatalog.OriginalId));
+
+        Assert.Contains("可合并状态", error.Message, StringComparison.Ordinal);
+        Assert.Empty(calls);
+        Assert.Null(merge.BaseShaOverride);
+    }
+
+    /// <summary>不是 PR 组合的核心不能走这条路径（避免把普通核心"更新"成组合语义）。</summary>
+    [Fact]
+    public async Task StackUpdateRefusesCoresThatAreNotLocalPullRequestStacks()
+    {
+        var calls = new List<string>();
+        var previous = Installed(new string('a', 40));
+        var installer = new RecordingInstaller(previous, calls);
+        var runtime = new RecordingRuntimeController(new RuntimeSnapshot(DesktopRuntimeState.Stopped), calls);
+        var service = CreateService(installer, runtime, ManagedCoreVariant.Stable);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.ApplyPullRequestStackUpdateAsync(
+            StackUpdate(previous.Manifest!, new string('b', 40)), [], GithubProxyCatalog.OriginalId));
+
+        Assert.Contains("不是本地 PR 组合", error.Message, StringComparison.Ordinal);
+        Assert.Empty(calls);
+    }
+
+    /// <summary>核对入口：不是组合直接拒绝；是组合时把落盘的 PR 来源交给核对器。</summary>
+    [Fact]
+    public async Task PresenceAnalysisUsesTheInstalledStackSources()
+    {
+        var calls = new List<string>();
+        var previous = InstalledStack(new string('a', 40), new string('c', 40));
+        var runtime = new RecordingRuntimeController(new RuntimeSnapshot(DesktopRuntimeState.Stopped), calls);
+        var analyzer = new RecordingPresenceAnalyzer();
+        var service = new CoreManagementService(
+            new RecordingInstaller(previous, calls), new FixedRemote(), runtime, () => ManagedCoreVariant.Stable,
+            presenceAnalyzer: analyzer);
+
+        var report = await service.AnalyzePullRequestPresenceAsync(ManagedCoreVariant.Stable, new string('b', 40));
+
+        Assert.Equal(1, analyzer.Calls);
+        Assert.Equal([12], analyzer.Numbers);
+        Assert.Equal(new string('b', 40), analyzer.RemoteSha);
+        Assert.Equal("huangxd-/danmu_api", report.Repository);
+    }
+
+    private static CoreInstallationInfo InstalledStack(string baseSha, string localMergeSha) =>
+        Installed(baseSha) with
+        {
+            Manifest = Installed(baseSha).Manifest! with
+            {
+                SchemaVersion = CoreInstallationManifest.CurrentSchemaVersion,
+                InstallKind = CoreInstallKind.LocalPullRequestStack,
+                BaseCommitSha = baseSha,
+                LocalMergeSha = localMergeSha,
+                PullRequests =
+                [
+                    new CorePullRequestSource(12, "fork/core", "feature", new string('d', 40), null),
+                ],
+            },
+        };
+
+    private static CoreUpdateCheckResult StackUpdate(CoreInstallationManifest manifest, string remoteSha) =>
+        new(manifest.Variant, CoreUpdateCheckStatus.Checked, true, manifest,
+            RemoteCommit(remoteSha), null, DateTimeOffset.UtcNow, "本地 PR 组合的基线有新提交");
+
+    private sealed class RecordingMergeService(CoreInstallationManifest expected) : ICorePullRequestMergeService
+    {
+        public int[] Numbers { get; private set; } = [];
+        public string? BaseShaOverride { get; private set; }
+        public bool InheritExistingStack { get; private set; } = true;
+
+        public Task<CorePreparedInstallRequest> PrepareAsync(
+            ManagedCoreVariant variant,
+            CoreInstallationInfo installed,
+            GithubRepositoryReference repository,
+            IReadOnlyList<GithubPullRequest> pullRequests,
+            string proxyId,
+            string displayName,
+            IProgress<CoreInstallProgress>? progress = null,
+            CancellationToken cancellationToken = default,
+            string? baseShaOverride = null,
+            bool inheritExistingStack = true)
+        {
+            Numbers = pullRequests.Select(item => item.Number).ToArray();
+            BaseShaOverride = baseShaOverride;
+            InheritExistingStack = inheritExistingStack;
+            return Task.FromResult(new CorePreparedInstallRequest(
+                variant,
+                "staging",
+                expected,
+                baseShaOverride ?? expected.CommitSha,
+                new string('e', 40),
+                [new CorePullRequestSource(15, "fork/core", "feature", new string('f', 40), null)]));
+        }
+    }
+
+    private sealed class RecordingPresenceAnalyzer : ICorePullRequestPresenceAnalyzer
+    {
+        public int Calls { get; private set; }
+        public int[] Numbers { get; private set; } = [];
+        public string? RemoteSha { get; private set; }
+
+        public Task<CorePullRequestPresenceReport> AnalyzeAsync(
+            GithubRepositoryReference repository,
+            string remoteSha,
+            IReadOnlyList<CorePullRequestSource> sources,
+            CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            RemoteSha = remoteSha;
+            Numbers = sources.Select(source => source.Number).ToArray();
+            return Task.FromResult(new CorePullRequestPresenceReport(
+                repository.FullName, repository.Branch ?? "main", remoteSha, [], []));
+        }
+    }
 
     /// <summary>记录对账调用次数的替身：安装变更后必须被敲一次。</summary>
     private sealed class RecordingReconciler : ICoreUpdateConclusionReconciler
@@ -686,10 +1122,13 @@ public sealed class CoreManagementServiceTests
     private static GithubCommit RemoteCommit(string sha) =>
         new(sha, "title", "title", "dev", DateTimeOffset.UtcNow, []);
 
-    private sealed class RecordingInstaller : ICoreInstaller, ICorePreparedInstaller
+    private sealed class RecordingInstaller : ICoreInstaller, ICorePreparedInstaller, ICoreUpdateCandidateInstaller
     {
         private readonly List<string> _calls;
         private CoreInstallationInfo _current;
+        private CoreInstallationInfo? _backup;
+        public CoreInstallationInfo? RestoredOverride { get; set; }
+        public void SetCurrent(CoreInstallationInfo current) => _current = current;
 
         public RecordingInstaller(CoreInstallationInfo current, List<string> calls)
         {
@@ -712,7 +1151,23 @@ public sealed class CoreManagementServiceTests
             CancellationToken cancellationToken = default)
         {
             _calls.Add("prepared-install");
+            _backup = _current;
             _current = PreparedResult ?? throw new InvalidOperationException("test prepared result missing");
+            return Task.FromResult(new CorePreparedInstallation(_current, BackupDirectory));
+        }
+
+        public Task<CorePreparedInstallation> InstallUpdateCandidateAsync(
+            CoreInstallRequest request,
+            CoreInstallationManifest expectedManifest,
+            IProgress<CoreInstallProgress>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            _calls.Add("candidate-install");
+            Assert.True(CoreInstallationManifest.SourcesEqual(_current.Manifest, expectedManifest));
+            _backup = _current;
+            LastRequest = request;
+            if (InstallError is not null) throw InstallError;
+            _current = InstallResult ?? throw new InvalidOperationException("test candidate result missing");
             return Task.FromResult(new CorePreparedInstallation(_current, BackupDirectory));
         }
 
@@ -724,7 +1179,7 @@ public sealed class CoreManagementServiceTests
             _calls.Add("prepared-restore");
             if (AsyncPreparedRestore is not null) await AsyncPreparedRestore();
             if (FailRestorePrepared) throw new IOException("restore failed");
-            _current = Installed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", variant);
+            _current = RestoredOverride ?? _backup ?? throw new InvalidOperationException("test backup missing");
             return _current;
         }
 
@@ -801,6 +1256,7 @@ public sealed class CoreManagementServiceTests
         }
         public bool StartWithoutCore { get; init; }
         public Func<Task>? AsyncStart { get; set; }
+        public Func<Task>? AsyncStop { get; set; }
         public event EventHandler<RuntimeSnapshot>? SnapshotChanged;
 
         public Task StartAsync(CancellationToken cancellationToken = default)
@@ -817,6 +1273,7 @@ public sealed class CoreManagementServiceTests
         public Task StopAsync(CancellationToken cancellationToken = default)
         {
             calls.Add("stop");
+            if (AsyncStop is not null) return AsyncStop();
             Snapshot = new RuntimeSnapshot(DesktopRuntimeState.Stopped);
             SnapshotChanged?.Invoke(this, Snapshot);
             return Task.CompletedTask;
@@ -832,10 +1289,14 @@ public sealed class CoreManagementServiceTests
     private sealed class FixedRemote(GithubPullRequest? pullRequest = null) : IGithubCoreRemote
     {
         public GithubRateLimit? LastRateLimit => null;
+        public int CommitCalls { get; private set; }
         public Task<GithubRepositoryMetadata> GetRepositoryAsync(GithubRepositoryReference repository, CancellationToken cancellationToken = default) =>
             Task.FromResult(new GithubRepositoryMetadata(repository.FullName, "main", null, false));
-        public Task<GithubCommit> GetCommitAsync(GithubRepositoryReference repository, string reference, CancellationToken cancellationToken = default) =>
-            Task.FromResult(RemoteCommit("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+        public Task<GithubCommit> GetCommitAsync(GithubRepositoryReference repository, string reference, CancellationToken cancellationToken = default)
+        {
+            CommitCalls++;
+            return Task.FromResult(RemoteCommit("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+        }
         public Task<GithubPullRequest> GetPullRequestAsync(GithubRepositoryReference repository, int number, CancellationToken cancellationToken = default) =>
             Task.FromResult(pullRequest ?? throw new NotSupportedException());
         public Task<IReadOnlyList<GithubBranch>> GetAllBranchesAsync(GithubRepositoryReference repository, CancellationToken cancellationToken = default) => throw new NotSupportedException();

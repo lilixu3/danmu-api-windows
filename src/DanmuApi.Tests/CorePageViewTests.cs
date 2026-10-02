@@ -281,6 +281,99 @@ public sealed partial class CorePageViewModelTests
         }
     }
 
+    /// <summary>
+    /// 本地 PR 组合发现远端新提交时：PR 实验室顶部要有一行提示，说明更新会先逐个核对
+    /// "远端到底包不包含已并入的 PR"，而不是让用户以为更新会直接盖掉他的改动。
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PullRequestLabShowsRemoteUpdateNoticeForLocalStacks(bool dark)
+    {
+        var update = StackPendingUpdate([12]);
+        var dialogs = new RecordingDialogService { Confirmation = false };
+        var model = CreateViewModel(
+            new RecordingManagementService { Installation = InstalledStack([12]) },
+            new RecordingRoutePreferenceStore(true),
+            dialogs,
+            new CompareStubRemote(update.Remote),
+            new StubScheduler(update));
+        var view = new CorePageView { DataContext = model };
+        var window = CreateCoreWindow(view, dark);
+        try
+        {
+            await model.CheckUpdateCommand.ExecuteAsync(null);
+            await model.OpenPullRequestsPageCommand.ExecuteAsync(null);
+            model.PullRequests = [PullRequest(7)];
+            FlushCoreLayout(window);
+
+            Assert.True(model.HasUpdate);
+            Assert.True(model.ShowStackUpdateNotice);
+            Assert.Contains("逐个核对", model.StackUpdateNoticeText, StringComparison.Ordinal);
+            Assert.Contains(update.Remote!.ShortSha, model.StackUpdateNoticeText, StringComparison.Ordinal);
+            var notice = Assert.Single(
+                view.FindControl<Border>("PullRequestsStage")!.GetVisualDescendants().OfType<Border>(),
+                border => border.Classes.Contains("notice-panel"));
+            Assert.True(notice.IsEffectivelyVisible);
+            Assert.Contains(notice.GetVisualDescendants().OfType<TextBlock>(),
+                text => text.Text == model.StackUpdateNoticeText);
+            SaveCorePreview(window, dark ? "core-pr-update-notice-dark" : "core-pr-update-notice-light");
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    /// <summary>
+    /// 核对框本身要能画出结论与证据（这是用户唯一能复核"远端到底包不包含"的地方）。
+    /// </summary>
+    [AvaloniaFact]
+    public void PullRequestStackUpdateWindowRendersVerdictsAndEvidence()
+    {
+        var prompt = new PullRequestStackUpdatePrompt(
+            "稳定核心",
+            "官方核心",
+            "huangxd-/danmu_api",
+            "main",
+            new string('a', 40),
+            new string('b', 40),
+            [
+                new CorePullRequestPresenceEntry(12, new string('c', 40), null, "open", false, true, true,
+                    CorePullRequestPresence.Missing, "PR #12 仍是 open：改动还没进远端 main"),
+                new CorePullRequestPresenceEntry(15, new string('d', 40), new string('e', 40), "closed", true, true, true,
+                    CorePullRequestPresence.Contained, "合并提交 eeeeeee 已在远端 bbbbbbb 的历史中"),
+                new CorePullRequestPresenceEntry(18, new string('f', 40), null, "unknown", false, true, false,
+                    CorePullRequestPresence.Unknown, "读取 PR #18 失败：GitHub 读取失败：网络不可达"),
+            ],
+            [12],
+            ["比对 ccccccc…bbbbbbb 失败：GitHub 读取失败：网络不可达"]);
+
+        var dialog = new PullRequestStackUpdateWindow(prompt);
+        dialog.Show();
+        try
+        {
+            FlushCoreLayout(dialog);
+            var texts = dialog.GetVisualDescendants().OfType<TextBlock>()
+                .Select(block => block.Text ?? string.Empty)
+                .ToList();
+            Assert.Contains(texts, text => text.Contains("不包含（更新后会按最新 head 重新并入）", StringComparison.Ordinal));
+            Assert.Contains(texts, text => text.Contains("已包含", StringComparison.Ordinal));
+            Assert.Contains(texts, text => text.Contains("无法确认", StringComparison.Ordinal));
+            Assert.Contains(texts, text => text.Contains("改动还没进远端 main", StringComparison.Ordinal));
+            Assert.Contains(texts, text => text.Contains("读不到这个 PR 当前是否还能合并", StringComparison.Ordinal));
+            var buttons = dialog.GetVisualDescendants().OfType<Button>().Select(button => button.Content).ToList();
+            Assert.Contains("更新并重新并入 1 个 PR", buttons);
+            Assert.Contains("仅更新（丢掉这些改动）", buttons);
+            Assert.Contains("取消", buttons);
+            SaveCorePreview(dialog, "core-pr-stack-update-dialog");
+        }
+        finally
+        {
+            dialog.Close();
+        }
+    }
+
     private static Window CreateCoreWindow(CorePageView view, bool dark)
     {
         var window = new Window

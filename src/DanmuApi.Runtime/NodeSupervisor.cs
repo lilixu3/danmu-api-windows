@@ -20,6 +20,10 @@ public sealed class NodeSupervisor : INodeSupervisor
     private Task? _stdoutPump;
     private Task? _stderrPump;
     private Task? _disposeTask;
+    private volatile bool _disposing;
+    private bool _disposed;
+
+    public bool HasOwnedProcess => _process is not null;
 
     public NodeSupervisor(
         IRuntimeHealthClient? healthClient = null,
@@ -54,7 +58,7 @@ public sealed class NodeSupervisor : INodeSupervisor
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (Snapshot.State is not (DesktopRuntimeState.Stopped or DesktopRuntimeState.Failed))
+            if (_disposing || HasOwnedProcess || Snapshot.State is not (DesktopRuntimeState.Stopped or DesktopRuntimeState.Failed))
             {
                 throw new InvalidOperationException($"当前状态 {Snapshot.State} 不允许启动，请先停止服务");
             }
@@ -68,7 +72,7 @@ public sealed class NodeSupervisor : INodeSupervisor
                 _identity = EnsureIdentity(config.IdentityFile ?? Path.Combine(config.ScriptDir, "instance-id"));
                 PrepareRuntime(config);
                 cancellationToken.ThrowIfCancellationRequested();
-                await PreflightPortAsync(config.Port, _identity, cancellationToken).ConfigureAwait(false);
+                await PreflightPortAsync(config.Port, ListenAddress(config.ListenHost), _identity, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException error)
             {
@@ -186,7 +190,7 @@ public sealed class NodeSupervisor : INodeSupervisor
         try
         {
             var current = Snapshot;
-            if (current.State is not (DesktopRuntimeState.Stopped or DesktopRuntimeState.Failed))
+            if (_disposing || HasOwnedProcess || current.State is not (DesktopRuntimeState.Stopped or DesktopRuntimeState.Failed))
             {
                 return AdoptionResult.Failure(
                     AdoptionFailureKind.InvalidState,
@@ -390,6 +394,9 @@ public sealed class NodeSupervisor : INodeSupervisor
                     return SetFailure($"停止 Node 失败（reason={reason}）: {result.Diagnostic}");
                 }
 
+                if (!process.HasExited)
+                    return SetFailure($"停止 Node 失败（reason={reason}）：终止器报告成功但 PID={process.Id} 仍存活");
+
                 if (!await WaitForPortFreeAsync(current.Port ?? -1, cancellationToken).ConfigureAwait(false))
                 {
                     return SetFailure($"Node 已退出，但端口 {current.Port} 仍被占用，拒绝报告为已停止");
@@ -460,29 +467,23 @@ public sealed class NodeSupervisor : INodeSupervisor
     {
         lock (this)
         {
-            _disposeTask ??= DisposeCoreAsync();
+            if (_disposed) return ValueTask.CompletedTask;
+            _disposing = true;
+            if (_disposeTask is null || _disposeTask.IsCompleted && !_disposeTask.IsCompletedSuccessfully)
+                _disposeTask = DisposeCoreAsync();
             return new ValueTask(_disposeTask);
         }
     }
 
     private async Task DisposeCoreAsync()
     {
-        try
-        {
-            await ForceStopAsync("dispose").ConfigureAwait(false);
-        }
-        finally
-        {
-            var pumpDiagnostic = await CompletePumpsAsync(cancel: true).ConfigureAwait(false);
-            if (pumpDiagnostic is not null && Snapshot.State != DesktopRuntimeState.Failed)
-            {
-                SetFailure($"释放 NodeSupervisor 时 stdout/stderr 日志泵收尾失败: {pumpDiagnostic}");
-            }
-
-            _lifetime?.Dispose();
-            _lifetime = null;
-            _gate.Dispose();
-        }
+        var stopped = await ForceStopAsync("dispose").ConfigureAwait(false);
+        if (stopped.State != DesktopRuntimeState.Stopped || HasOwnedProcess)
+            throw new InvalidOperationException(stopped.FailureReason ?? "释放 NodeSupervisor 失败：仍有受管进程待清理");
+        var pumpDiagnostic = await CompletePumpsAsync(cancel: false).ConfigureAwait(false);
+        if (pumpDiagnostic is not null) throw new IOException($"释放 NodeSupervisor 时日志泵收尾失败：{pumpDiagnostic}");
+        _disposed = true;
+        _gate.Dispose();
     }
 
     private Process StartProcess(StartConfig config, string identity)
@@ -716,9 +717,9 @@ public sealed class NodeSupervisor : INodeSupervisor
     /// 端口"不可绑定但没有监听者"是 Windows 把动态端口范围内的端口临时借给别的连接，
     /// 会自行释放，因此先等一小段时间再决定是否判失败。
     /// </summary>
-    private async Task PreflightPortAsync(int port, string identity, CancellationToken cancellationToken)
+    private async Task PreflightPortAsync(int port, System.Net.IPAddress listenAddress, string identity, CancellationToken cancellationToken)
     {
-        var initial = PortAvailability.Probe(port);
+        var initial = PortAvailability.Probe(port, listenAddress);
         if (initial == PortAvailabilityState.Free)
         {
             return;
@@ -732,6 +733,7 @@ public sealed class NodeSupervisor : INodeSupervisor
         var watch = Stopwatch.StartNew();
         var state = await PortAvailability.WaitForReleaseAsync(
             port,
+            listenAddress,
             _transientPortWait,
             TimeSpan.FromMilliseconds(500),
             cancellationToken).ConfigureAwait(false);
@@ -827,9 +829,18 @@ public sealed class NodeSupervisor : INodeSupervisor
         return identity;
     }
 
-    private static bool IsPortFree(int port) => PortAvailability.IsBindable(port);
+    private static System.Net.IPAddress ListenAddress(string host)
+    {
+        if (System.Net.IPAddress.TryParse(host, out var address)) return address;
+        // 主机名按现有 IPv4Only 契约解析；无法解析时显式失败，不猜测为通配地址。
+        return System.Net.Dns.GetHostAddresses(host)
+            .FirstOrDefault(item => item.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+            ?? throw new IOException("监听主机名没有可用的 IPv4 地址");
+    }
 
-    private static async Task<bool> WaitForPortFreeAsync(int port, CancellationToken cancellationToken)
+    private bool IsPortFree(int port) => PortAvailability.IsBindable(port, ListenAddress(_config?.ListenHost ?? RuntimeDefaults.ListenHost));
+
+    private async Task<bool> WaitForPortFreeAsync(int port, CancellationToken cancellationToken)
     {
         if (port is < 1 or > 65_535)
         {
@@ -889,22 +900,7 @@ public sealed class NodeSupervisor : INodeSupervisor
         }
     }
 
-    private static string Tail(string? path, int maxLines = 40)
-    {
-        if (path is null || !File.Exists(path))
-        {
-            return "（无日志）";
-        }
-
-        try
-        {
-            return string.Join(Environment.NewLine, File.ReadLines(path).TakeLast(maxLines));
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-        {
-            return $"（读取日志失败: {error.Message}）";
-        }
-    }
+    private static string Tail(string? path, int maxLines = 40) => Core.LogTail.Read(path, maxLines);
 
     private static string FormatFailure(string prefix, Exception error) =>
         $"{prefix}: {error.Message}";

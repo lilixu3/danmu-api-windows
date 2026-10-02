@@ -479,6 +479,11 @@
                 <TextBlock Text="PR 实验室" FontSize="16" FontWeight="SemiBold" />
                 <TextBlock Text="把这几个 PR 按顺序并入所选变体的当前核心：在本机隔离 Git 工作区真实合并，冲突或校验失败时当前核心不变。" Classes="wb-caption" />
               </StackPanel>
+              <!-- 本地组合遇见远端新提交：先说清"更新会先核对远端是否已包含这些 PR"，
+                   否则用户只能靠"更新检查一直说已是最新"来判断——那正是这次要修的假象。 -->
+              <Border Classes="notice-panel" IsVisible="{Binding ShowStackUpdateNotice}">
+                <TextBlock Text="{Binding StackUpdateNoticeText}" TextWrapping="Wrap" />
+              </Border>
               <Border Classes="wb-strip">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" RowDefinitions="Auto,Auto" RowSpacing="4">
                   <TextBlock Text="{Binding PullRequestQueueSummary}" Classes="wb-eyebrow" TextWrapping="Wrap" />

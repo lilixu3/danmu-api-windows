@@ -7,8 +7,11 @@ using DanmuApi.App.Services;
 using DanmuApi.App.ViewModels;
 using DanmuApi.App.Views;
 using DanmuApi.Core;
+using DanmuApi.Core.Frp;
 using DanmuApi.Platform;
+using DanmuApi.Platform.Frp;
 using DanmuApi.Runtime;
+using DanmuApi.Runtime.Frp;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace DanmuApi.App;
@@ -73,7 +76,6 @@ public partial class App : Application
         }
         base.OnFrameworkInitializationCompleted();
     }
-
             // 可选 Redis 依赖不在随包受管清单里（上游只在配置 LOCAL_REDIS_URL 时才 import 它），
             // 因此单独按配置铺开；结果只用于提醒，不改变运行环境就绪状态。
     private static void RegisterGlobalExceptionLogging(AppPaths paths)
@@ -93,6 +95,14 @@ public partial class App : Application
             MainWindow? mainWindow = null;
             _services = ConfigureServices(paths, desktop, () => mainWindow).BuildServiceProvider();
             _diagnostics = _services.GetRequiredService<IAppDiagnostics>();
+            // 界面线程上的未处理异常会直接终止进程（真机事故：AsyncRelayCommand 把命令里的异常
+            // 在 UI 线程重抛，点一下开关应用就没了）。这里统一记诊断并拦截，
+            // 让"某个操作出错"表现为一条可查的记录，而不是整个应用消失。
+            Dispatcher.UIThread.UnhandledException += (_, args) =>
+            {
+                _diagnostics?.Record("界面线程未处理异常（已拦截，应用继续运行）", args.Exception);
+                args.Handled = true;
+            };
             _services.GetRequiredService<ThemeService>().Initialize();
             var autostart = _services.GetRequiredService<IAutostartService>();
             var refreshResult = autostart.RefreshIfEnabled();
@@ -158,6 +168,12 @@ public partial class App : Application
                             case InstanceCommand.APPLY_CORE_UPDATE:
                                 _ = ApplyPendingUpdateAsync(_services, _diagnostics);
                                 break;
+                            case InstanceCommand.REQUEST_EXIT:
+                                // 安装器请本实例退出：走与「退出应用」同一条路径（先停服务再关进程），
+                                // 单实例锁与唤醒通道由 CleanupDesktop 释放。调用方只收到「已受理」，
+                                // 真正的完成以锁被释放为准（见 RunningInstanceExitRequester）。
+                                _ = _lifecycleCoordinator?.ExitApplicationAsync();
+                                break;
                             default:
                                 viewModel.NavigateTo("overview");
                                 _lifecycleCoordinator.RestoreMainWindow();
@@ -179,6 +195,9 @@ public partial class App : Application
             var updateScheduler = _services.GetRequiredService<ICoreUpdateScheduler>();
             updateScheduler.DiagnosticChanged += (_, diagnostic) => _diagnostics.Record(diagnostic);
             updateScheduler.Start();
+            // 穿透的状态对账循环与（用户开启的）自启都在这里起步；退出时由容器释放，
+            // 释放路径会把 frpc/frps 一并终止，不留孤儿进程。
+            _services.GetRequiredService<IFrpTunnelService>().Start();
             var notifications = _services.GetRequiredService<IDesktopNotificationService>();
             {
                 async void BeginPreparation()
@@ -281,6 +300,14 @@ public partial class App : Application
         services.AddSingleton<ISettingsStore>(provider =>
             new SettingsStore(provider.GetRequiredService<AppPaths>().SettingsFile));
         services.AddSingleton<ThemeService>();
+        services.AddSingleton<IOutboundSettingsStore>(provider => new OutboundSettingsStore(
+            provider.GetRequiredService<AppPaths>(),
+            message => provider.GetRequiredService<IAppDiagnostics>().Record(message)));
+        services.AddSingleton<IOutboundDirectService>(provider => new OutboundDirectService(
+            provider.GetRequiredService<IOutboundSettingsStore>(),
+            provider.GetRequiredService<IRuntimeController>(),
+            provider.GetRequiredService<IAppDiagnostics>()));
+        services.AddSingleton<OutboundDirectViewModel>();
         services.AddSingleton(provider => new RuntimePreparationService((forceRepair, progress, cancellationToken) => Task.Run(() =>
         {
             using var timing = StartupTiming.Measure(paths, "后台运行环境准备");
@@ -321,7 +348,9 @@ public partial class App : Application
         services.AddSingleton<IGithubTokenConfigurationService, GithubTokenConfigurationService>();
         services.AddSingleton<IGithubFileDownloader>(provider => new GithubFileDownloader(
             provider.GetRequiredService<GithubHttpClientResources>().Download,
-            routePreferences: provider.GetRequiredService<IGithubRoutePreferenceStore>()));
+            routePreferences: provider.GetRequiredService<IGithubRoutePreferenceStore>(),
+            // 核心 zipball 走 api.github.com，已配置 Token 时必须用上（否则匿名 60/小时 会先耗尽）。
+            tokenProvider: provider.GetRequiredService<IGithubTokenProvider>()));
         services.AddSingleton<ICoreInstaller>(provider => new CoreInstaller(
             provider.GetRequiredService<AppPaths>().NodeProjectDirectory,
             provider.GetRequiredService<AppPaths>().CoreCacheDirectory,
@@ -348,7 +377,14 @@ public partial class App : Application
         services.AddSingleton<NativeToastNotificationService>();
         services.AddSingleton<IDesktopNotificationService>(provider => new PreferenceDesktopNotificationService(
             provider.GetRequiredService<NativeToastNotificationService>(), provider.GetRequiredService<ISettingsStore>()));
-        services.AddSingleton<ApplicationUpdateViewModel>();
+        // 显式工厂：软件更新检查需要 GitHub Token（同 api.github.com 配额规则），
+        // 直接 AddSingleton<T>() 的反射构造拿不到这个可选参数。
+        services.AddSingleton<ApplicationUpdateViewModel>(provider => new ApplicationUpdateViewModel(
+            provider.GetRequiredService<ISettingsStore>(),
+            provider.GetRequiredService<IUiDialogService>(),
+            provider.GetRequiredService<IDesktopNotificationService>(),
+            provider.GetRequiredService<IAppDiagnostics>(),
+            tokenProvider: provider.GetRequiredService<IGithubTokenProvider>()));
         services.AddSingleton<IBackupRestoreGuard, BackupRestoreGuard>();
         services.AddSingleton(provider => new BackupLocalService(Path.Combine(paths.NodeProjectDirectory, "config", ".env"),
             typeof(App).Assembly.GetName().Version!.ToString(3), provider.GetRequiredService<IBackupRestoreGuard>(), paths.SettingsFile));
@@ -359,6 +395,7 @@ public partial class App : Application
         services.AddTransient<BackupPageViewModel>();
         services.AddSingleton<Func<BackupPageViewModel>>(provider => () => provider.GetRequiredService<BackupPageViewModel>());
         services.AddSingleton<IProcessTerminator, WindowsProcessTerminator>();
+        services.AddSingleton<IVerifiedProcessTerminator, WindowsProcessTerminator>();
         services.AddSingleton<IRuntimeHealthClient, RuntimeHealthClient>();
         services.AddSingleton<ICoreLogClient, CoreLogClient>();
         services.AddSingleton<IRuntimeManagementClient, RuntimeManagementClient>();
@@ -467,7 +504,12 @@ public partial class App : Application
             provider.GetRequiredService<IGithubTokenConfigurationService>(),
             provider.GetRequiredService<IAppDiagnostics>(),
             provider.GetRequiredService<Func<BackupPageViewModel>>(),
-            themeService: provider.GetRequiredService<ThemeService>()));
+            themeService: provider.GetRequiredService<ThemeService>(),
+            // 服务分类里的「随服务启动内网穿透」开关与穿透页监控开关是同一个值。
+            frpTunnel: provider.GetRequiredService<IFrpTunnelService>())
+        {
+            Outbound = provider.GetRequiredService<OutboundDirectViewModel>(),
+        });
         services.AddSingleton<RuntimeMaintenanceService>(provider => new RuntimeMaintenanceService(
             Path.Combine(AppContext.BaseDirectory, "runtime-bundle"),
             provider.GetRequiredService<AppPaths>(),
@@ -575,7 +617,73 @@ public partial class App : Application
             provider.GetRequiredService<Func<ApiDebugPageViewModel>>(),
             provider.GetRequiredService<Func<ServiceManagementPageViewModel>>(),
             provider.GetRequiredService<Func<RequestRecordsPageViewModel>>(),
-            provider.GetRequiredService<Func<LocalDanmuPageViewModel>>()));
+            provider.GetRequiredService<Func<LocalDanmuPageViewModel>>(),
+            provider.GetRequiredService<Func<FrpTunnelPageViewModel>>()));
+        // 内网穿透：设置（明文进 settings.properties / 秘密进 DPAPI）、二进制安装、进程监督三段各自独立，
+        // 由 FrpTunnelService 编排；概览卡片与穿透页共用它这一份快照。
+        services.AddSingleton<FrpSettingsStore>(provider => new FrpSettingsStore(
+            provider.GetRequiredService<ISettingsStore>(),
+            new WindowsProtectedStringStore(paths.FrpTokenFile, "DanmuApi.Windows.FrpToken.v1"),
+            new WindowsProtectedStringStore(paths.FrpAdminPasswordFile, "DanmuApi.Windows.FrpAdminPassword.v1")));
+        services.AddSingleton<IFrpBinaryInstaller>(provider => new FrpBinaryInstaller(
+            provider.GetRequiredService<AppPaths>(),
+            provider.GetRequiredService<IGithubFileDownloader>(),
+            provider.GetRequiredService<GithubHttpClientResources>().Download,
+            diagnosticSink: message => provider.GetRequiredService<IAppDiagnostics>().Record(message)));
+        services.AddSingleton<FrpReleaseDiscovery>(provider => new FrpReleaseDiscovery(
+            provider.GetRequiredService<GithubHttpClientResources>().Api,
+            provider.GetRequiredService<IGithubTokenProvider>()));
+        services.AddSingleton<IFrpAdminClient>(provider => new FrpAdminClient(
+            provider.GetRequiredService<GithubHttpClientResources>().Download));
+        services.AddSingleton<IFrpSupervisor>(provider => new FrpSupervisor(
+            provider.GetRequiredService<IFrpAdminClient>(),
+            provider.GetRequiredService<IVerifiedProcessTerminator>(),
+            diagnosticSink: message => provider.GetRequiredService<IAppDiagnostics>().Record(message)));
+        services.AddSingleton<IFrpTunnelService>(provider => new FrpTunnelService(
+            provider.GetRequiredService<FrpSettingsStore>(),
+            provider.GetRequiredService<IFrpBinaryInstaller>(),
+            provider.GetRequiredService<IFrpSupervisor>(),
+            provider.GetRequiredService<AppPaths>(),
+            provider.GetRequiredService<IAppDiagnostics>(),
+            // 穿透跟随弹幕服务生命周期：服务停它也停，服务起（且用户开了开关）它也起。
+            provider.GetRequiredService<IRuntimeController>(),
+            () => DesktopConfigReader.Read(
+                provider.GetRequiredService<ISettingsStore>(),
+                provider.GetRequiredService<AppPaths>().NodeProjectDirectory).Port));
+        services.AddSingleton<Func<FrpTunnelPageViewModel>>(provider => () =>
+        {
+            // 监控页底部的「去配置」要切到同一个页签容器里的「配置」页签。
+            // 页面是自己创建自己的（下面的工厂在构造函数里就被调用一次），
+            // 所以这里先把 page 变量捕获进闭包，等用户真的点按钮时它早已赋值。
+            FrpTunnelPageViewModel? page = null;
+            page = new FrpTunnelPageViewModel(
+            () => new FrpTunnelMonitorViewModel(
+                provider.GetRequiredService<IFrpTunnelService>(),
+                provider.GetRequiredService<IRuntimeController>(),
+                provider.GetRequiredService<IUiDialogService>(),
+                provider.GetRequiredService<IAppDiagnostics>(),
+                provider.GetRequiredService<AppPaths>(),
+                provider.GetRequiredService<FrpReleaseDiscovery>(),
+                provider.GetRequiredService<IGithubRoutePreferenceStore>(),
+                provider.GetRequiredService<IGithubProxySpeedTester>(),
+                () => DesktopConfigReader.Read(
+                    provider.GetRequiredService<ISettingsStore>(),
+                    provider.GetRequiredService<AppPaths>().NodeProjectDirectory).Port,
+                openConfiguration: () => page?.SelectTab(FrpTunnelTab.Configuration)),
+            () => new FrpTunnelConfigViewModel(
+                provider.GetRequiredService<IFrpTunnelService>(),
+                provider.GetRequiredService<IUiDialogService>(),
+                provider.GetRequiredService<IAppDiagnostics>(),
+                () => DesktopConfigReader.Read(
+                    provider.GetRequiredService<ISettingsStore>(),
+                    provider.GetRequiredService<AppPaths>().NodeProjectDirectory).Port),
+            () => new FrpTunnelLogViewModel(
+                provider.GetRequiredService<IFrpTunnelService>(),
+                provider.GetRequiredService<IUiDialogService>(),
+                provider.GetRequiredService<IAppDiagnostics>(),
+                provider.GetRequiredService<AppPaths>()));
+            return page;
+        });
         services.AddSingleton<Func<DanmuDownloadPageViewModel>>(provider => () => new DanmuDownloadPageViewModel(
             provider.GetRequiredService<RuntimeApiContext>(),
             provider.GetRequiredService<IDanmuApiClient>(),
@@ -604,7 +712,8 @@ public partial class App : Application
             provider.GetRequiredService<RuntimePreparationService>(),
             provider.GetRequiredService<ICoreManagementService>(),
             // 侧栏「有更新」卡片的权威来源：前台/后台/托盘/手动的核心检查结果都汇到协调器。
-            coreUpdateCoordinator: provider.GetRequiredService<ICoreUpdateCoordinator>()));
+            coreUpdateCoordinator: provider.GetRequiredService<ICoreUpdateCoordinator>(),
+            frp: provider.GetRequiredService<IFrpTunnelService>()));
         services.AddSingleton<AppLifecycleCoordinator>(provider => new AppLifecycleCoordinator(
             provider.GetRequiredService<IRuntimeController>(),
             provider.GetRequiredService<ISettingsStore>(),
@@ -612,7 +721,8 @@ public partial class App : Application
             provider.GetRequiredService<IAppDiagnostics>(),
             provider.GetRequiredService<ICoreUpdateScheduler>(),
             desktop,
-            ownerProvider));
+            ownerProvider,
+            provider.GetRequiredService<IFrpTunnelService>()));
         services.AddSingleton<TrayService>(provider =>
         {
             var viewModel = provider.GetRequiredService<MainWindowViewModel>();
@@ -624,6 +734,15 @@ public partial class App : Application
                 () =>
                 {
                     viewModel.NavigateTo("overview");
+                    lifecycle.RestoreMainWindow();
+                },
+                variant =>
+                {
+                    if (viewModel.CorePage is { } corePage)
+                    {
+                        corePage.SelectedVariant = variant;
+                    }
+                    viewModel.NavigateTo("core");
                     lifecycle.RestoreMainWindow();
                 },
                 () =>
@@ -641,7 +760,7 @@ public partial class App : Application
         return services;
     }
 
-    private static AppPaths CreateConfiguredPaths()
+    internal static AppPaths CreateConfiguredPaths()
     {
         var defaults = new AppPaths();
         var settings = new SettingsStore(defaults.SettingsFile).Read();

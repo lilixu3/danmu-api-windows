@@ -394,6 +394,138 @@ public sealed class PullRequestBuildConfirmWindow : Window
         string.Join(" ", numbers.Select(number => $"#{number.ToString(CultureInfo.InvariantCulture)}"));
 }
 
+/// <summary>
+/// 本地 PR 组合更新前的核对框：逐个 PR 说明远端最新提交**到底包不包含**它，
+/// 让用户在"更新并重新并入 / 仅更新（丢掉这些改动）/ 取消"之间明确选一个。
+///
+/// 每一行都带证据（比对了哪个提交、GitHub 怎么说），因为这里最危险的错误是
+/// "看着像包含、其实没包含"——用户必须能自己复核结论。
+/// </summary>
+public sealed class PullRequestStackUpdateWindow : Window
+{
+    public PullRequestStackUpdateWindow(PullRequestStackUpdatePrompt prompt)
+    {
+        ArgumentNullException.ThrowIfNull(prompt);
+        Title = "更新本地 PR 组合";
+        Width = 780;
+        Height = 640;
+        MinWidth = 560;
+        MinHeight = 420;
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+
+        var target = CoreDetailControls.Card(
+            new Thickness(16),
+            new TextBlock { Text = $"目标：{prompt.VariantLabel} · {prompt.DisplayName}", FontWeight = FontWeight.SemiBold },
+            CoreDetailControls.Mono($"{prompt.Repository}@{prompt.Branch}"),
+            CoreDetailControls.Mono($"当前基线 {CorePullRequestPresenceReport.Shorten(prompt.BaseCommitSha)} → 远端最新 {CorePullRequestPresenceReport.Shorten(prompt.RemoteSha)}"));
+
+        var panels = new List<Control?> { target };
+
+        if (prompt.ContainedEntries.Count > 0)
+        {
+            panels.Add(BuildSection(
+                $"远端已包含 {prompt.ContainedEntries.Count.ToString(CultureInfo.InvariantCulture)} 个 PR（更新后会失去「本地并入」的标记，但改动都在）",
+                prompt.ContainedEntries,
+                "✓"));
+        }
+
+        var notContained = prompt.Entries.Where(entry => entry.Presence != CorePullRequestPresence.Contained).ToArray();
+        if (notContained.Length > 0)
+        {
+            panels.Add(BuildSection(
+                $"远端不包含 {notContained.Length.ToString(CultureInfo.InvariantCulture)} 个 PR（直接更新会丢掉这些改动）",
+                notContained,
+                "✗"));
+        }
+
+        if (prompt.Diagnostics.Count > 0)
+        {
+            var diagnostics = new StackPanel { Spacing = 4 };
+            diagnostics.Children.Add(new TextBlock { Text = "读取过程中的问题（不影响已给出的结论）", FontWeight = FontWeight.SemiBold, FontSize = 13 });
+            foreach (var diagnostic in prompt.Diagnostics)
+            {
+                diagnostics.Children.Add(CoreDetailControls.Muted(diagnostic));
+            }
+
+            panels.Add(CoreDetailControls.Card(new Thickness(16), diagnostics));
+        }
+
+        var cancel = new Button { Content = "取消", MinWidth = 88, IsCancel = true };
+        cancel.Classes.Add("secondary-action");
+        cancel.Click += (_, _) => Close(PullRequestStackUpdateDecision.Canceled);
+
+        var updateOnly = new Button { Content = "仅更新（丢掉这些改动）", MinWidth = 160 };
+        updateOnly.Classes.Add("secondary-action");
+        updateOnly.Click += (_, _) => Close(new PullRequestStackUpdateDecision(PullRequestStackUpdateChoice.UpdateOnly, []));
+
+        var buttons = new List<Button> { updateOnly };
+        if (prompt.ReMergeableNumbers.Count > 0)
+        {
+            var reMerge = new Button
+            {
+                Content = $"更新并重新并入 {prompt.ReMergeableNumbers.Count.ToString(CultureInfo.InvariantCulture)} 个 PR",
+                MinWidth = 190,
+                IsDefault = true,
+            };
+            reMerge.Classes.Add("primary-action");
+            reMerge.Click += (_, _) => Close(new PullRequestStackUpdateDecision(
+                PullRequestStackUpdateChoice.UpdateAndReMerge,
+                prompt.ReMergeableNumbers));
+            buttons.Insert(0, reMerge);
+        }
+
+        buttons.Add(cancel);
+        Content = CoreDetailWindowShell.Build(
+            "更新本地 PR 组合",
+            "更新会把核心基线换成远端最新提交；远端没有的那些 PR 需要重新并入",
+            panels,
+            buttons.ToArray());
+    }
+
+    private static Control BuildSection(string title, IReadOnlyList<CorePullRequestPresenceEntry> entries, string marker)
+    {
+        var panel = new StackPanel { Spacing = 7 };
+        panel.Children.Add(new TextBlock { Text = title, FontWeight = FontWeight.SemiBold, FontSize = 13 });
+        foreach (var entry in entries)
+        {
+            var row = new StackPanel { Spacing = 2 };
+            row.Children.Add(new TextBlock
+            {
+                Text = $"{marker} #{entry.Number.ToString(CultureInfo.InvariantCulture)} {DescribeState(entry)}",
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = 12.5,
+            });
+            row.Children.Add(CoreDetailControls.Muted(entry.Evidence));
+            if (entry.Presence != CorePullRequestPresence.Contained && !entry.CanReMerge)
+            {
+                row.Children.Add(CoreDetailControls.Muted(DescribeBlockedReason(entry)));
+            }
+
+            panel.Children.Add(row);
+        }
+
+        return CoreDetailControls.Card(new Thickness(16), panel);
+    }
+
+    /// <summary>不能自动重新并入时要说清是哪种情况，别把"读不到"写成"已关闭"。</summary>
+    private static string DescribeBlockedReason(CorePullRequestPresenceEntry entry) => entry switch
+    {
+        { IsMerged: true } => "无法自动重新并入：这个 PR 已经被合并，需要在 PR 实验室单独处理",
+        { BaseBranchMatches: false } => "无法自动重新并入：PR 的目标分支已经变了，需要到 PR 实验室重新确认",
+        { State: "closed" } => "无法自动重新并入：PR 已关闭且没有被合并",
+        { Presence: CorePullRequestPresence.Unknown } => "无法自动重新并入：读不到这个 PR 当前是否还能合并，请刷新后重试",
+        _ => "无法自动重新并入：这个 PR 当前不是可合并状态",
+    };
+
+    private static string DescribeState(CorePullRequestPresenceEntry entry) => entry.Presence switch
+    {
+        CorePullRequestPresence.Contained => "已包含",
+        CorePullRequestPresence.Missing when entry.CanReMerge => "不包含（更新后会按最新 head 重新并入）",
+        CorePullRequestPresence.Missing => "不包含",
+        _ => "无法确认（更新后请自行复核）",
+    };
+}
+
 /// <summary>更新详情：变更总结 + 提交记录 + 逐文件 diff；「立即更新」返回 true。</summary>
 public sealed class UpdateDetailsWindow : Window
 {
@@ -476,7 +608,15 @@ internal static class CoreDetailWindowShell
         string subtitle,
         IReadOnlyList<Control?> content,
         Button close,
-        Button? primary)
+        Button? primary) =>
+        Build(title, subtitle, content, primary is null ? [close] : new[] { close, primary });
+
+    /// <summary>多按钮版本：需要「取消 / 只更新 / 更新并重新并入」这类三选一时用（按钮顺序=传入顺序）。</summary>
+    internal static Control Build(
+        string title,
+        string subtitle,
+        IReadOnlyList<Control?> content,
+        params Button[] actions)
     {
         var panel = new StackPanel { Spacing = 12 };
         foreach (var control in content)
@@ -493,24 +633,23 @@ internal static class CoreDetailWindowShell
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             Margin = new Thickness(24, 14, 24, 0),
         };
-        var actions = new StackPanel
+        var actionRow = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
             Spacing = 8,
             Margin = new Thickness(24, 12, 24, 18),
-            Children = { close },
         };
-        if (primary is not null)
+        foreach (var action in actions)
         {
-            actions.Children.Add(primary);
+            actionRow.Children.Add(action);
         }
         var grid = new Grid
         {
             RowDefinitions = new RowDefinitions("Auto,*,Auto"),
         };
         Grid.SetRow(scroll, 1);
-        Grid.SetRow(actions, 2);
+        Grid.SetRow(actionRow, 2);
         grid.Children.Add(new StackPanel
         {
             Spacing = 3,
@@ -522,7 +661,7 @@ internal static class CoreDetailWindowShell
             },
         });
         grid.Children.Add(scroll);
-        grid.Children.Add(actions);
+        grid.Children.Add(actionRow);
         return grid;
     }
 }

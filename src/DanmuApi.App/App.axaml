@@ -16,6 +16,7 @@
     <DataTemplate DataType="vm:ServiceManagementPageViewModel"><views:ServiceManagementView /></DataTemplate>
     <DataTemplate DataType="vm:BackupPageViewModel"><views:BackupView /></DataTemplate>
     <DataTemplate DataType="vm:ApplicationUpdateViewModel"><views:ApplicationUpdateView /></DataTemplate>
+    <DataTemplate DataType="vm:OutboundDirectViewModel"><views:OutboundDirectView /></DataTemplate>
     <DataTemplate DataType="vm:AboutPageViewModel">
       <views:AboutView />
     </DataTemplate>
@@ -75,6 +76,18 @@
     </DataTemplate>
     <DataTemplate DataType="vm:DanmuDownloadPageViewModel">
       <views:DanmuDownloadView />
+    </DataTemplate>
+    <DataTemplate DataType="vm:FrpTunnelPageViewModel">
+      <views:FrpTunnelView />
+    </DataTemplate>
+    <DataTemplate DataType="vm:FrpTunnelMonitorViewModel">
+      <views:FrpTunnelMonitorView />
+    </DataTemplate>
+    <DataTemplate DataType="vm:FrpTunnelConfigViewModel">
+      <views:FrpTunnelConfigView />
+    </DataTemplate>
+    <DataTemplate DataType="vm:FrpTunnelLogViewModel">
+      <views:FrpTunnelLogView />
     </DataTemplate>
   </Application.DataTemplates>
 

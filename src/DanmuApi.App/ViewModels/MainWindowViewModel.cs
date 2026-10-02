@@ -5,8 +5,10 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DanmuApi.App.Services;
 using DanmuApi.Core;
+using DanmuApi.Core.Frp;
 using DanmuApi.Platform;
 using DanmuApi.Runtime;
+using DanmuApi.Runtime.Frp;
 
 namespace DanmuApi.App.ViewModels;
 
@@ -45,6 +47,8 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
     private readonly Task _healthLoop;
     private readonly ICoreRequestRecordsClient? _requestRecordsClient;
     private readonly List<Task> _requestStatsTasks = [];
+    private readonly IFrpTunnelService? _frp;
+    private ToolsSection? _pendingToolsSection;
     private CancellationTokenSource? _requestStatsCts;
 
     [ObservableProperty]
@@ -101,7 +105,8 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         RuntimePreparationService? preparation = null,
         ICoreManagementService? coreManagement = null,
         ICoreUpdateCoordinator? coreUpdateCoordinator = null,
-        IAppDiagnostics? diagnostics = null)
+        IAppDiagnostics? diagnostics = null,
+        IFrpTunnelService? frp = null)
     {
         _controller = controller ?? throw new ArgumentNullException(nameof(controller));
         _healthClient = healthClient ?? throw new ArgumentNullException(nameof(healthClient));
@@ -124,6 +129,12 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         }
         _coreManagement = coreManagement;
         _diagnostics = diagnostics;
+        _frp = frp;
+        if (_frp is not null)
+        {
+            // 概览页的穿透卡片与穿透页共用同一份快照：状态可能来自后台对账循环，切回 UI 线程再刷新。
+            _frp.Changed += OnFrpTunnelChanged;
+        }
         _activityPageFactory = activityPageFactory;
         _toolsPageFactory = toolsPageFactory;
         _downloadPageFactory = downloadPageFactory;
@@ -430,6 +441,83 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
     public bool HasMergedPullRequests => MergedPullRequestText is not ("无" or "未知" or "配置无效");
     public string MergedPullRequestSummaryText => HasMergedPullRequests ? $"已合并 PR {MergedPullRequestText}" : string.Empty;
+
+    /// <summary>
+    /// 概览页的内网穿透状态。状态文字只描述事实：穿透是否真的通了以 frp 管理接口的代理状态为准，
+    /// 「已停止」「失败」都如实显示，不用"未运行"之类含糊说法盖过去。
+    /// 地址本身走「连接地址」列表（见 <see cref="BuildEndpointItems"/>），与局域网地址同形同脱敏。
+    /// </summary>
+    public string FrpStatusText => _frp is null ? "未接入" : FrpStatusPresentation.StatusText(FrpSurface);
+
+    /// <summary>概览卡片上的一行说明：失败原因是 frp 的原话，未安装/未配置也直接说清楚。</summary>
+    public string FrpHintText => _frp is null
+        ? "内网穿透服务未接入。"
+        : FrpStatusPresentation.HintText(FrpSurface);
+
+    public bool ShowFrpServiceWarning => _frp is not null && FrpStatusPresentation.ShowServiceWarning(FrpSurface);
+
+    private FrpSurfaceInput FrpSurface => new(
+        _frp!.Snapshot.State,
+        _frp.Snapshot.RemoteAddress,
+        _frp.Snapshot.Diagnostic,
+        _frp.Settings.Role,
+        _frp.Settings.Client.ProxyKind,
+        _frp.Settings.Server.BindPort,
+        Installed: _frp.InstalledVersion is not null,
+        ServiceRunning: IsServiceRunning,
+        CoreToken: _token);
+
+    public IBrush FrpStatusBrush => _frp?.Snapshot.State switch
+    {
+        FrpTunnelState.Running => new SolidColorBrush(Color.Parse("#16A34A")),
+        FrpTunnelState.Failed => new SolidColorBrush(Color.Parse("#DC2626")),
+        FrpTunnelState.Starting or FrpTunnelState.Stopping or FrpTunnelState.Reconnecting => new SolidColorBrush(Color.Parse("#2563EB")),
+        _ => new SolidColorBrush(Color.Parse("#64748B")),
+    };
+
+    /// <summary>
+    /// 概览页穿透状态胶囊的语义色。底色交给全局 chip 类（ok/warn/bad，跟随深浅主题），
+    /// 文字色仍用 <see cref="FrpStatusBrush"/>，因此这里只需要三个互斥的布尔量。
+    /// 「未启动 / 未接入」落回中性胶囊：那不是异常，是"还没开始"。
+    /// </summary>
+    public bool FrpChipOk => _frp?.Snapshot.State == FrpTunnelState.Running;
+
+    public bool FrpChipWarn => _frp?.Snapshot.State is FrpTunnelState.Starting or FrpTunnelState.Reconnecting or FrpTunnelState.Stopping;
+
+    public bool FrpChipBad => _frp?.Snapshot.State == FrpTunnelState.Failed;
+
+    private void OnFrpTunnelChanged(object? sender, FrpSnapshot snapshot) => DispatchToUi(() =>
+    {
+        OnPropertyChanged(nameof(FrpStatusText));
+        OnPropertyChanged(nameof(FrpHintText));
+        OnPropertyChanged(nameof(ShowFrpServiceWarning));
+        OnPropertyChanged(nameof(FrpStatusBrush));
+        OnPropertyChanged(nameof(FrpChipOk));
+        OnPropertyChanged(nameof(FrpChipWarn));
+        OnPropertyChanged(nameof(FrpChipBad));
+        // 穿透一上线/掉线，连接地址列表里那一行也要跟着出现/消失。
+        OnPropertyChanged(nameof(EndpointItems));
+    });
+
+    /// <summary>概览卡片上的「去配置」：直接落到工具页的内网穿透分区，而不是停在工具页首页。</summary>
+    [RelayCommand]
+    private void OpenFrpTunnel()
+    {
+        // 已经在工具页时导航不会触发换页，这里直接把分区切过去，免得按钮看起来"没反应"。
+        if (SelectedNavigationItem.Key == "tools" && CurrentPage is ToolsPageViewModel tools)
+        {
+            if (!tools.SelectSection(ToolsSection.IntranetPenetration))
+            {
+                _diagnostics?.Record("工具页没有「内网穿透」分区");
+            }
+
+            return;
+        }
+
+        _pendingToolsSection = ToolsSection.IntranetPenetration;
+        NavigateTo("tools");
+    }
+
     public string PortText => Runtime.Port?.ToString(CultureInfo.InvariantCulture) ?? (_config?.Port.ToString(CultureInfo.InvariantCulture) ?? "配置无效");
     public string TokenMasked => MaskToken(_token);
     public string TokenDisplay => IsTokenVisible ? _token : TokenMasked;
@@ -732,8 +820,7 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
                 ?? throw new InvalidOperationException("下载页工厂未注册"),
             "activity" => _activityPageFactory?.Invoke()
                 ?? (object)new PlaceholderPageViewModel(value.Title, value.Description, value.Icon),
-            "tools" => _toolsPageFactory?.Invoke()
-                ?? (object)new PlaceholderPageViewModel(value.Title, value.Description, value.Icon),
+            "tools" => CreateToolsPage(value),
             "settings" => _settingsPage,
             "about" => new AboutPageViewModel(this),
             _ => new PlaceholderPageViewModel(value.Title, value.Description, value.Icon),
@@ -751,6 +838,30 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         OnPropertyChanged(nameof(CurrentPage));
         OnPropertyChanged(nameof(SelectedPageTitle));
         OnPropertyChanged(nameof(SelectedPageDescription));
+    }
+
+    /// <summary>
+    /// 建工具页，并把「从别处点进来时必须落在哪个分区」的请求兑现掉。
+    /// 分区不存在时只记诊断：用户仍然看到工具页，而不是一个空窗口或崩掉的导航。
+    /// </summary>
+    private object CreateToolsPage(NavigationItem item)
+    {
+        var page = _toolsPageFactory?.Invoke();
+        if (page is null)
+        {
+            return new PlaceholderPageViewModel(item.Title, item.Description, item.Icon);
+        }
+
+        if (_pendingToolsSection is { } section)
+        {
+            _pendingToolsSection = null;
+            if (!page.SelectSection(section))
+            {
+                _diagnostics?.Record($"工具页没有「{section}」分区，已停在默认分区");
+            }
+        }
+
+        return page;
     }
 
     partial void OnIsSidebarCollapsedChanged(bool value)
@@ -776,6 +887,9 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
         NotifyHealthChanged();
         NotifyRuntimeChanged();
         OnPropertyChanged(nameof(CacheSummary));
+        // 穿透卡片上的「弹幕服务未运行」提醒取决于服务状态，服务一起一停就得重算。
+        OnPropertyChanged(nameof(FrpHintText));
+        OnPropertyChanged(nameof(ShowFrpServiceWarning));
         if (value.State == DesktopRuntimeState.Running)
         {
             if (RequestTrend.Points.Count == 0) RequestTrend.Reset(running: true);
@@ -1007,6 +1121,20 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             items.Add(new("局域网 IPv4 API", "当前监听未开放局域网", string.Empty, IsTokenVisible, _dialogService));
         }
 
+        // 外网入口与局域网地址并列：同一个列表、同一套脱敏与复制按钮。
+        // 只在"穿透真的通了且 frp 给出了入口"时出现——没有地址就不占一行。
+        if (_frp is not null
+            && FrpStatusPresentation.IsCopyableAddress(FrpSurface)
+            && FrpStatusPresentation.AddressText(FrpSurface) is { Length: > 0 } publicAddress)
+        {
+            items.Add(new(
+                "外网 API（穿透）",
+                "内网穿透入口，设备能否连接取决于 frps 的端口与防火墙",
+                publicAddress,
+                IsTokenVisible,
+                _dialogService));
+        }
+
         return items;
     }
 
@@ -1189,6 +1317,7 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
             ConfigurationPage.CoreConfigurationChanged -= OnCoreConfigurationChanged;
         }
         _controller.SnapshotChanged -= OnSnapshotChanged;
+        if (_frp is not null) _frp.Changed -= OnFrpTunnelChanged;
         if (_preparation is not null) _preparation.Changed -= OnPreparationChanged;
         if (_coreManagement is not null) _coreManagement.InstallationChanged -= OnCoreInstallationChanged;
         _disposeCts.Cancel();

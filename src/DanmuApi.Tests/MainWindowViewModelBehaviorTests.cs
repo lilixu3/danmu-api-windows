@@ -868,7 +868,8 @@ public sealed partial class MainWindowViewModelBehaviorTests
         StubCoreManagementService? coreManagement = null,
         CorePageViewModel? corePage = null,
         ICoreUpdateCoordinator? coreUpdate = null,
-        IAppDiagnostics? diagnostics = null)
+        IAppDiagnostics? diagnostics = null,
+        IFrpTunnelService? frp = null)
     {
         var settingsPage = new SettingsPageViewModel(
             settings,
@@ -885,7 +886,7 @@ public sealed partial class MainWindowViewModelBehaviorTests
             settingsPage,
             adminSession ?? new StubAdminSessionService(), preparation: preparation,
             coreManagement: coreManagement, corePage: corePage, coreUpdateCoordinator: coreUpdate,
-            diagnostics: diagnostics);
+            diagnostics: diagnostics, frp: frp);
     }
 
     /// <summary>写出一个"已安装本地 PR 组合"的核心目录：worker.js 让它可运行，

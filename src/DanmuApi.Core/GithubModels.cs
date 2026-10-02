@@ -69,6 +69,13 @@ public sealed record GithubPullRequest(
 {
     /// <summary>PR 创建时记录的 base SHA；GitHub 列表接口可能不提供，缺失不能猜测。</summary>
     public string? BaseSha { get; init; }
+
+    /// <summary>
+    /// PR 合并后产生的提交（普通合并是合并提交，压缩合并是压扁后的那个提交）。
+    /// 判定"远端分支是否已经包含这个 PR"要靠它：压缩合并时 head 提交不在分支历史里，
+    /// 只看 head 会把已经进主干的 PR 误判成"没包含"。
+    /// </summary>
+    public string? MergeCommitSha { get; init; }
 }
 
 public sealed record GithubPullRequestPage(

@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.Text;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -51,6 +51,44 @@ public sealed record PullRequestBuildConfirmation(bool Confirmed, bool ActivateA
     public static PullRequestBuildConfirmation Canceled { get; } = new(false, false);
 }
 
+/// <summary>本地 PR 组合更新前的核对结果：远端最新提交到底包不包含已并入的这些 PR。</summary>
+public sealed record PullRequestStackUpdatePrompt(
+    string VariantLabel,
+    string DisplayName,
+    string Repository,
+    string Branch,
+    string BaseCommitSha,
+    string RemoteSha,
+    IReadOnlyList<CorePullRequestPresenceEntry> Entries,
+    IReadOnlyList<int> ReMergeableNumbers,
+    IReadOnlyList<string> Diagnostics)
+{
+    /// <summary>远端不包含、又没法自动重新并入的那些（已合并到别处/已关闭/目标分支变了）。</summary>
+    public IReadOnlyList<CorePullRequestPresenceEntry> BlockedEntries =>
+        Entries.Where(entry => entry.Presence != CorePullRequestPresence.Contained && !entry.CanReMerge).ToArray();
+
+    public IReadOnlyList<CorePullRequestPresenceEntry> ContainedEntries =>
+        Entries.Where(entry => entry.Presence == CorePullRequestPresence.Contained).ToArray();
+}
+
+public enum PullRequestStackUpdateChoice
+{
+    Cancel,
+
+    /// <summary>先把基线更新到远端最新，再把远端没有的 PR 按当前 head 重新并进去。</summary>
+    UpdateAndReMerge,
+
+    /// <summary>只更新到远端最新：远端没有的那些本地改动会被丢掉。</summary>
+    UpdateOnly,
+}
+
+public sealed record PullRequestStackUpdateDecision(
+    PullRequestStackUpdateChoice Choice,
+    IReadOnlyList<int> ReMergeNumbers)
+{
+    public static PullRequestStackUpdateDecision Canceled { get; } = new(PullRequestStackUpdateChoice.Cancel, []);
+}
+
 public interface IUiDialogService
 {
     Task EditPortAsync(MainWindowViewModel viewModel);
@@ -91,6 +129,17 @@ public interface IUiDialogService
     Task CopyTextAsync(string text);
     Task ShowMessageAsync(string title, string message, bool isError = false) => Task.CompletedTask;
     Task<string?> PromptTextAsync(string title, string description, string initial, string confirmLabel) => Task.FromResult<string?>(null);
+
+    /// <summary>
+    /// 多行文本弹窗（内网穿透的 JSON 配置导入/查看用）。返回 null 表示取消。
+    /// 没有弹窗能力的实现方按取消处理。
+    /// </summary>
+    Task<string?> PromptMultilineTextAsync(
+        string title,
+        string description,
+        string initial,
+        string confirmLabel,
+        bool readOnly = false) => Task.FromResult<string?>(null);
     Task<DanmuFavoriteSchedule?> PromptFavoriteScheduleAsync(DanmuFavoriteSchedule? current) => Task.FromResult<DanmuFavoriteSchedule?>(null);
     Task OpenExternalUrlAsync(string url) => Task.CompletedTask;
     Task<ProgressOperationResult> RunWithProgressDialogAsync(
@@ -106,6 +155,13 @@ public interface IUiDialogService
     /// <summary>构建本地 PR 组合前的确认：目标变体、基线提交、有序队列，以及「安装后切换」开关。</summary>
     Task<PullRequestBuildConfirmation> ConfirmPullRequestBuildAsync(PullRequestBuildPrompt prompt) =>
         Task.FromResult(PullRequestBuildConfirmation.Canceled);
+
+    /// <summary>
+    /// 本地 PR 组合更新的核对确认：逐个 PR 说明远端到底包不包含它，让用户选
+    /// 「更新并重新并入 / 仅更新 / 取消」。没有弹窗能力的实现方按取消处理（绝不默认丢改动）。
+    /// </summary>
+    Task<PullRequestStackUpdateDecision> ConfirmPullRequestStackUpdateAsync(PullRequestStackUpdatePrompt prompt) =>
+        Task.FromResult(PullRequestStackUpdateDecision.Canceled);
 
     Task<bool> ShowUpdateDetailsAsync(GithubCompareResult comparison, string localDisplay, string remoteDisplay) => Task.FromResult(false);
     Task<GithubTokenDialogResult> PromptGithubTokenAsync(bool configured, string hint) => Task.FromResult(GithubTokenDialogResult.Cancel());
@@ -967,6 +1023,81 @@ public sealed partial class UiDialogService : IUiDialogService
         string description) =>
         PromptBasicCoreEnvEditAsync(definition, initial, configured, description);
 
+    public async Task<string?> PromptMultilineTextAsync(
+        string title,
+        string description,
+        string initial,
+        string confirmLabel,
+        bool readOnly = false)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+        var owner = GetOwner();
+        // 等宽多行框：JSON 配置的长度与换行都要能看清，窗体可拉伸（配置可能很长）。
+        var input = new TextBox
+        {
+            Text = initial,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            MinHeight = 0,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            FontFamily = new FontFamily("Consolas, Menlo, monospace"),
+            FontSize = 12,
+            IsReadOnly = readOnly,
+        };
+
+        ScrollViewer.SetVerticalScrollBarVisibility(input, Avalonia.Controls.Primitives.ScrollBarVisibility.Auto);
+        ScrollViewer.SetHorizontalScrollBarVisibility(input, Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled);
+        var cancel = new Button { Content = "取消", IsCancel = true, MinWidth = 80 };
+        cancel.Classes.Add("secondary-action");
+        var confirm = new Button { Content = confirmLabel, IsDefault = true, MinWidth = 110 };
+        confirm.Classes.Add("primary-action");
+        string? result = null;
+        var dialog = new Window
+        {
+            Title = title,
+            Width = 760,
+            Height = 560,
+            MinWidth = 520,
+            MinHeight = 320,
+            CanResize = true,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+        };
+        var layout = new Grid
+        {
+            RowDefinitions = new RowDefinitions("Auto,*,Auto"),
+            RowSpacing = 12,
+            Margin = new Avalonia.Thickness(24),
+        };
+        var heading = new StackPanel
+        {
+            Spacing = 12,
+            Children = { new TextBlock { Text = title, FontSize = 20, FontWeight = FontWeight.SemiBold }, CreateMutedText(description) },
+        };
+        var actions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 8,
+            Children = { cancel, confirm },
+        };
+        Grid.SetRow(input, 1);
+        Grid.SetRow(actions, 2);
+        layout.Children.Add(heading);
+        layout.Children.Add(input);
+        layout.Children.Add(actions);
+        dialog.Content = layout;
+
+        cancel.Click += (_, _) => dialog.Close();
+        confirm.Click += (_, _) =>
+        {
+            result = input.Text ?? string.Empty;
+            dialog.Close();
+        };
+
+        await dialog.ShowDialog(owner);
+        return result;
+    }
+
     private async Task<CoreEnvEditResult> PromptBasicCoreEnvEditAsync(
         CoreEnvDefinition definition,
         string initial,
@@ -1192,6 +1323,13 @@ public sealed partial class UiDialogService : IUiDialogService
         ArgumentNullException.ThrowIfNull(prompt);
         var dialog = new PullRequestBuildConfirmWindow(prompt);
         return await dialog.ShowDialog<PullRequestBuildConfirmation>(GetOwner());
+    }
+
+    public async Task<PullRequestStackUpdateDecision> ConfirmPullRequestStackUpdateAsync(PullRequestStackUpdatePrompt prompt)
+    {
+        ArgumentNullException.ThrowIfNull(prompt);
+        var dialog = new PullRequestStackUpdateWindow(prompt);
+        return await dialog.ShowDialog<PullRequestStackUpdateDecision>(GetOwner());
     }
 
     public async Task<bool> ShowUpdateDetailsAsync(GithubCompareResult comparison, string localDisplay, string remoteDisplay)

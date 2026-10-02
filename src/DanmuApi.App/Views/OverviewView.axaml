@@ -50,6 +50,18 @@
     <Style Selector="Button.console"><Setter Property="MinHeight" Value="30" /><Setter Property="Padding" Value="10,5" /><Setter Property="CornerRadius" Value="6" /><Setter Property="Background" Value="{DynamicResource OverviewInset}" /><Setter Property="Foreground" Value="{DynamicResource OverviewInk}" /><Setter Property="BorderBrush" Value="{DynamicResource OverviewRule}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="FontSize" Value="11" /></Style>
     <Style Selector="Button.console:pointerover /template/ ContentPresenter"><Setter Property="Background" Value="{DynamicResource OverviewTint}" /><Setter Property="Foreground" Value="{DynamicResource OverviewInk}" /></Style>
     <Style Selector="Button.console:disabled /template/ ContentPresenter"><Setter Property="Background" Value="{DynamicResource OverviewInset}" /><Setter Property="Foreground" Value="{DynamicResource OverviewMuted}" /><Setter Property="Opacity" Value="1" /></Style>
+
+    <!-- 地址行：入口名（左，定宽标签）、地址（中，主角）、复制（右，小尺寸描边）。
+         复制按钮刻意比主控件的 console 更小：它每行都出现，实心底块连成一列会盖过地址本身。 -->
+    <Style Selector="TextBlock.addressLabel"><Setter Property="FontSize" Value="11" /><Setter Property="Foreground" Value="{DynamicResource OverviewMuted}" /><Setter Property="TextWrapping" Value="Wrap" /></Style>
+    <Style Selector="TextBlock.addressValue"><Setter Property="FontFamily" Value="Cascadia Mono,Consolas" /><Setter Property="FontSize" Value="12.5" /><Setter Property="Foreground" Value="{DynamicResource OverviewInk}" /></Style>
+    <Style Selector="Button.rowAction"><Setter Property="Background" Value="Transparent" /><Setter Property="Foreground" Value="{DynamicResource OverviewAccent}" /><Setter Property="BorderBrush" Value="{DynamicResource OverviewRule}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="7" /><Setter Property="Padding" Value="10,4" /><Setter Property="MinHeight" Value="28" /><Setter Property="FontSize" Value="11.5" /></Style>
+    <Style Selector="Button.rowAction:pointerover /template/ ContentPresenter"><Setter Property="Background" Value="{DynamicResource OverviewInset}" /><Setter Property="BorderBrush" Value="{DynamicResource OverviewAccent}" /><Setter Property="Foreground" Value="{DynamicResource OverviewAccent}" /></Style>
+    <!-- 停服时四行复制按钮全部不可用：底色与描边同时退回中性，避免"一列死按钮"看起来像一堵实心灰墙。
+         Button 自身的 Foreground 也要改：图标（Path）的描边绑的是 Button.Foreground，
+         只改模板里 ContentPresenter 的话，文字变灰而图标仍是强调色。 -->
+    <Style Selector="Button.rowAction:disabled"><Setter Property="Foreground" Value="{DynamicResource OverviewMuted}" /><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="{DynamicResource OverviewRule}" /></Style>
+    <Style Selector="Button.rowAction:disabled /template/ ContentPresenter"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="{DynamicResource OverviewRule}" /><Setter Property="Foreground" Value="{DynamicResource OverviewMuted}" /><Setter Property="Opacity" Value="1" /></Style>
     <Style Selector="Button.serviceAction"><Setter Property="Height" Value="44" /><Setter Property="MinHeight" Value="44" /><Setter Property="HorizontalAlignment" Value="Stretch" /><Setter Property="Padding" Value="8,5" /><Setter Property="FontSize" Value="12" /><Setter Property="HorizontalContentAlignment" Value="Center" /></Style>
     <Style Selector="Button.start"><Setter Property="Background" Value="{DynamicResource OverviewAction}" /><Setter Property="Foreground" Value="{DynamicResource OverviewActionInk}" /><Setter Property="BorderThickness" Value="0" /></Style>
 
@@ -166,28 +178,96 @@
             </Grid>
           </Border>
         </StackPanel>
-        <Border Name="AddressDetailsPanel" Grid.Row="1" Grid.ColumnSpan="2" Classes="panel" Padding="22,14">
-          <StackPanel Spacing="6">
-            <StackPanel Orientation="Horizontal" Spacing="8"><Path Classes="icon" Data="M8 3h8v6H8Z M12 9v6 M4 18v-3h16v3 M2 18h7v3H2Z M15 18h7v3h-7Z" /><TextBlock Text="连接地址" Classes="section" /><Button Name="TokenEyeButton" Command="{Binding Shell.ToggleTokenVisibilityCommand}" ToolTip.Tip="{Binding Shell.TokenVisibilityActionText}" AutomationProperties.Name="{Binding Shell.TokenVisibilityActionText}" Background="Transparent" Padding="5" MinHeight="28"><Path Classes="icon" Data="M2 12 Q12 -2 22 12 Q12 26 2 12 M15 12 A3 3 0 1 1 9 12 A3 3 0 1 1 15 12" /></Button></StackPanel>
+        <Border Name="AddressDetailsPanel" Grid.Row="1" Grid.ColumnSpan="2" Classes="panel" Padding="22,16">
+          <StackPanel Spacing="10">
+            <!-- 卡片头：标题 + 一句话说明 + Token 显隐。
+                 说明原先落在卡片最底部当脚注，离它约束的那几行地址隔着四条分隔线；
+                 移到标题下面以后，"这些地址都带 Token" 与被约束的对象在同一屏内。 -->
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+              <StackPanel Orientation="Horizontal" Spacing="9" VerticalAlignment="Center">
+                <Path Classes="icon" Data="M8 3h8v6H8Z M12 9v6 M4 18v-3h16v3 M2 18h7v3H2Z M15 18h7v3h-7Z" VerticalAlignment="Top" Margin="0,3,0,0" />
+                <StackPanel Spacing="2" VerticalAlignment="Center">
+                  <TextBlock Text="连接地址" Classes="section" />
+                  <TextBlock Text="以下地址都带访问 Token，只分享给可信设备" Classes="caption" />
+                </StackPanel>
+              </StackPanel>
+              <!-- 眼睛按钮带文字标签：原先只有一枚无标签的图标，只能靠悬停提示才知道它做什么。 -->
+              <Button Name="TokenEyeButton" Grid.Column="1" Classes="console" VerticalAlignment="Center"
+                      Command="{Binding Shell.ToggleTokenVisibilityCommand}"
+                      ToolTip.Tip="{Binding Shell.TokenVisibilityActionText}"
+                      AutomationProperties.Name="{Binding Shell.TokenVisibilityActionText}">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <Path Classes="action-icon stroke" Data="M2 12 Q12 -2 22 12 Q12 26 2 12 M15 12 A3 3 0 1 1 9 12 A3 3 0 1 1 15 12" />
+                  <TextBlock Text="{Binding Shell.TokenVisibilityActionText}" VerticalAlignment="Center" />
+                </StackPanel>
+              </Button>
+            </Grid>
             <Border Name="AllAddressesContent" Padding="0" Background="Transparent">
               <ItemsControl ItemsSource="{Binding Shell.EndpointItems}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="services:EndpointItem">
-                    <Border BorderBrush="{DynamicResource OverviewRule}" BorderThickness="0,0,0,1" Padding="0,10">
-                      <Grid Classes="addressRow" ColumnDefinitions="90,*,82" ColumnSpacing="9">
-                        <TextBlock Text="{Binding Title}" Classes="caption" VerticalAlignment="Center" />
-                        <StackPanel Grid.Column="1" Spacing="5" VerticalAlignment="Center">
-                          <TextBlock Text="{Binding DisplayAddress}" IsVisible="{Binding HasAddress}" FontFamily="Consolas" FontSize="12" TextWrapping="Wrap" />
+                    <!-- 一行一个入口：入口名（固定 104 宽，标签列对齐）/ 地址 + 用途 / 复制。
+                         地址是本行的主角（等宽、主文字色），用途是次要说明，
+                         复制退成一枚小尺寸描边按钮 —— 原先是 82px 的实心底块，
+                         四行叠起来就是一堵灰墙，抢走了地址的注意力。 -->
+                    <Border BorderBrush="{DynamicResource OverviewRule}" BorderThickness="0,0,0,1" Padding="0,9">
+                      <Grid Classes="addressRow" ColumnDefinitions="104,*,Auto" ColumnSpacing="12">
+                        <TextBlock Text="{Binding Title}" Classes="addressLabel" VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                          <TextBlock Text="{Binding DisplayAddress}" IsVisible="{Binding HasAddress}" Classes="addressValue" TextWrapping="Wrap" />
                           <TextBlock Text="{Binding Hint}" Classes="caption" />
                         </StackPanel>
-                        <Button Grid.Column="2" Classes="console" Content="复制地址" Command="{Binding CopyCommand}" IsEnabled="{Binding HasAddress}" HorizontalAlignment="Right" VerticalAlignment="Center" ToolTip.Tip="复制包含 Token 的完整 API 地址" />
+                        <Button Grid.Column="2" Classes="rowAction" Command="{Binding CopyCommand}" IsEnabled="{Binding HasAddress}"
+                                VerticalAlignment="Center" ToolTip.Tip="复制包含 Token 的完整 API 地址"
+                                AutomationProperties.Name="复制地址">
+                          <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Path Classes="action-icon stroke" Data="M9 8.2h9.6a1.2 1.2 0 0 1 1.2 1.2v9.4a1.2 1.2 0 0 1-1.2 1.2H9a1.2 1.2 0 0 1-1.2-1.2v-9.4A1.2 1.2 0 0 1 9 8.2Z M15.4 5.2H6.2A1.2 1.2 0 0 0 5 6.4v9.2" />
+                            <TextBlock Text="复制" VerticalAlignment="Center" />
+                          </StackPanel>
+                        </Button>
                       </Grid>
                     </Border>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
             </Border>
-            <TextBlock Text="地址含 Token，仅分享给可信设备。" Classes="caption" Margin="0,4,0,0" />
+            <!-- 内网穿透单独成块（浅底 + 描边），不再用一条分隔线挂在地址列表尾巴上。
+                 块内只回答三件事：现在通没通（胶囊）、这句话什么意思（一行说明）、去哪儿管（右侧按钮）；
+                 外网地址本身只在上面的地址列表里出现一次，避免同一件事说两遍。 -->
+            <Border Name="FrpStrip" Background="{DynamicResource OverviewInset}" BorderBrush="{DynamicResource OverviewRule}"
+                    BorderThickness="1" CornerRadius="10" Padding="13,11">
+              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                <Border Width="34" Height="34" CornerRadius="9" Background="{DynamicResource OverviewPanel}"
+                        BorderBrush="{DynamicResource OverviewServiceRule}" BorderThickness="1" VerticalAlignment="Center">
+                  <Path Width="18" Height="18" Stretch="Uniform" StrokeThickness="1.65" StrokeLineCap="Round" StrokeJoin="Round"
+                        Stroke="{Binding Shell.FrpStatusBrush}"
+                        Data="M4 12h16 M12 4v16 M7.2 7.2l9.6 9.6 M16.8 7.2l-9.6 9.6" />
+                </Border>
+                <StackPanel Grid.Column="1" Spacing="5" VerticalAlignment="Center">
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="内网穿透" FontSize="12.5" FontWeight="Medium" VerticalAlignment="Center" />
+                    <Border Classes="chip"
+                            Classes.ok="{Binding Shell.FrpChipOk}"
+                            Classes.warn="{Binding Shell.FrpChipWarn}"
+                            Classes.bad="{Binding Shell.FrpChipBad}">
+                      <TextBlock Name="FrpStatusValue" Text="{Binding Shell.FrpStatusText}" Foreground="{Binding Shell.FrpStatusBrush}" />
+                    </Border>
+                    <Border Name="FrpServiceWarning" Classes="chip warn" IsVisible="{Binding Shell.ShowFrpServiceWarning}">
+                      <TextBlock Text="服务未运行" />
+                    </Border>
+                  </StackPanel>
+                  <TextBlock Name="FrpHintValue" Text="{Binding Shell.FrpHintText}" Classes="caption"
+                             MaxLines="2" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Shell.FrpHintText}" />
+                </StackPanel>
+                <Button Grid.Column="2" Name="ManageFrpButton" Classes="console" Command="{Binding Shell.OpenFrpTunnelCommand}"
+                        VerticalAlignment="Center" ToolTip.Tip="打开工具页的内网穿透">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="管理穿透" VerticalAlignment="Center" />
+                    <Path Classes="action-icon stroke" Data="M9 5.5 L15.5 12 L9 18.5" />
+                  </StackPanel>
+                </Button>
+              </Grid>
+            </Border>
           </StackPanel>
         </Border>
       </Grid>

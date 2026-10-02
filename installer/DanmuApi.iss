@@ -43,6 +43,8 @@ SignTool=DanmuSign
 SignedUninstaller=yes
 
 [Files]
+; The relay bytes come from this package, never from user-writable instance.endpoint.
+Source: "{#SourceDir}\DanmuApi.App.exe"; DestDir: "{tmp}"; DestName: "DanmuApi.ExitRelay.exe"; Flags: dontcopy
 Source: "{#SourceDir}\*.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\*.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\runtime-bundle\*"; DestDir: "{app}\runtime-bundle"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -147,10 +149,27 @@ function OpenProcess(Access: LongWord; Inherit: Boolean; Pid: LongWord): LongWor
 function WaitForSingleObject(Handle, Timeout: LongWord): LongWord;
   external 'WaitForSingleObject@kernel32.dll stdcall';
 
+{ Always execute package-owned relay bytes with the original user's token. The relay
+  refuses elevated tokens, including initially-elevated Setup (where Inno cannot recover
+  a non-elevated original user). Its fixed roaming lock probe also covers legacy app.lock.
+  No lock or endpoint path is inferred from Setup's possibly different administrator profile. }
+function RunOriginalUserRelay(Arguments: String; var ExitCode: Integer): Boolean;
+begin
+  ExtractTemporaryFile('DanmuApi.ExitRelay.exe');
+  Result := ExecAsOriginalUser(ExpandConstant('{tmp}\DanmuApi.ExitRelay.exe'),
+    Arguments, ExpandConstant('{tmp}'), SW_HIDE, ewWaitUntilTerminated, ExitCode);
+end;
+
+{ 0 = both real locks available; 10 = instance held; all other outcomes block install. }
+function ProbeOriginalUserInstance(var ExitCode: Integer): Boolean;
+begin
+  Result := RunOriginalUserRelay('--installer-instance-probe', ExitCode);
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
-  LockPath, Command, ReadyPath: String;
-  Handle, ParentHandle: LongWord;
+  Command, ReadyPath: String;
+  ParentHandle: LongWord;
   ParentPid: Integer;
   ExitCode: Integer;
 begin
@@ -170,23 +189,35 @@ begin
       if FileExists(ExtractFilePath(ReadyPath) + 'cancel') then begin Result := '主程序取消了更新'; exit; end;
     finally CloseHandle(ParentHandle); end;
   end;
-  LockPath := ExpandConstant('{userappdata}\DanmuApi\instance.lock');
-  if FileExists(LockPath) then begin
-    Handle := CreateFile(LockPath, $C0000000, 0, 0, 3, $80, 0);
-    if Handle = $FFFFFFFF then begin
-      Result := '弹幕 API 仍在运行，请从托盘完全退出后重新安装。';
-      exit;
-    end;
-    CloseHandle(Handle);
+  if not ProbeOriginalUserInstance(ExitCode) then begin
+    Result := '无法启动随包的原用户实例验证中继，未继续安装。'; exit;
   end;
-  LockPath := ExpandConstant('{userappdata}\DanmuApi\app.lock');
-  if FileExists(LockPath) then begin
-    Handle := CreateFile(LockPath, $C0000000, 0, 0, 3, $80, 0);
-    if Handle = $FFFFFFFF then begin
-      Result := '旧 Kotlin 程序仍在运行，请退出旧程序并停止服务。';
-      exit;
+  if (ExitCode <> 0) and (ExitCode <> 10) then begin
+    Result := '无法在原用户普通权限下验证运行实例（退出码 ' + IntToStr(ExitCode) + '）。' + #13#10 +
+              '请退出应用，以普通用户启动安装器后再授权 UAC；不要直接以管理员身份启动。'; exit;
+  end;
+  if ExitCode = 10 then begin
+    if MsgBox('弹幕 API 正在运行，替换程序文件前需要先退出。' + #13#10 + #13#10 +
+              '点「是」：用随包中继请求安全停止服务并退出（最多等 60 秒）。' + #13#10 +
+              '0.5.13 或更早版本不支持自动退出，请从托盘选择「退出」并手动停止旧服务。' + #13#10 +
+              '点「否」：取消安装，稍后完全退出应用再重试。',
+              mbConfirmation, MB_YESNO) <> IDYES then begin
+      Result := '安装已取消：请先从托盘完全退出弹幕 API。'; exit;
     end;
-    CloseHandle(Handle);
+    if not RunOriginalUserRelay('--installer-request-exit 60', ExitCode) then begin
+      Result := '无法启动原用户退出中继，未继续安装。'; exit;
+    end;
+    if ExitCode <> 0 then begin
+      Result := '运行实例未完成安全退出（退出码 ' + IntToStr(ExitCode) + '）。' + #13#10 +
+                '0.5.13 或更早版本不支持自动退出；请从托盘完全退出并手动停止服务后重新安装。'; exit;
+    end;
+    { OK merely accepts a request. Only a fresh original-user real-lock probe proves completion. }
+    if not ProbeOriginalUserInstance(ExitCode) then begin
+      Result := '退出后的原用户锁复核失败，未继续安装。'; exit;
+    end;
+    if ExitCode <> 0 then begin
+      Result := '弹幕 API 仍在运行或无法验证退出完成，请完全退出后重新安装。'; exit;
+    end;
   end;
   HadAutostart := RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'DanmuApi', Command);
   if LegacyPresent then begin

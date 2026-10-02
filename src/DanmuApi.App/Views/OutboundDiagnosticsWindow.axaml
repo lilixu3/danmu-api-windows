@@ -1,0 +1,90 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:DanmuApi.App.ViewModels"
+        x:Class="DanmuApi.App.Views.OutboundDiagnosticsWindow"
+        x:DataType="vm:OutboundDirectViewModel"
+        Title="增强直连 · 连接测速" Width="920" Height="680" MinWidth="760" MinHeight="540"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False" CanResize="True">
+  <Window.Styles>
+    <Style Selector="TextBlock.caption">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.cell">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="ListBox#DiagnosticList ListBoxItem">
+      <Setter Property="Padding" Value="10,0" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+  </Window.Styles>
+  <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" Margin="24" RowSpacing="16">
+    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+      <StackPanel Spacing="6">
+        <TextBlock Text="连接测速" FontSize="20" FontWeight="SemiBold" />
+        <TextBlock Text="{Binding SourceSummary}" Classes="caption" />
+      </StackPanel>
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Top">
+        <Button x:Name="DiagnoseSources" Content="重新测速" Command="{Binding DiagnoseCommand}" Classes="primary" />
+        <Button x:Name="CancelDiagnosis" Content="停止" Command="{Binding CancelCommand}" IsVisible="{Binding IsDiagnosing}" Classes="secondary" />
+      </StackPanel>
+    </Grid>
+    <StackPanel Grid.Row="1" Spacing="8">
+      <ProgressBar x:Name="TestProgress" IsIndeterminate="True" IsVisible="{Binding IsDiagnosing}" Height="3" />
+      <TextBlock x:Name="TestSummary" Text="{Binding DiagnosticStatus}" TextWrapping="Wrap" />
+      <TextBlock x:Name="TestBlockedReason" Text="{Binding DiagnoseBlockedReason}" Classes="caption" />
+      <SelectableTextBlock Text="{Binding DiagnosticError}" IsVisible="{Binding HasDiagnosticError}" TextWrapping="Wrap"
+                           Foreground="{DynamicResource DangerBrush}" MaxHeight="90" />
+    </StackPanel>
+    <Grid Grid.Row="2" RowDefinitions="Auto,*" IsVisible="{Binding HasDiagnosticRows}">
+      <Border BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,0,1" Padding="10,8">
+        <Grid x:Name="DiagnosticHeaders" ColumnDefinitions="66,*,70,76,60,66,96" ColumnSpacing="8">
+          <TextBlock Text="来源" Classes="cell" FontWeight="SemiBold" />
+          <TextBlock Grid.Column="1" Text="域名" Classes="cell" FontWeight="SemiBold" />
+          <TextBlock Grid.Column="2" Text="协议" Classes="cell" FontWeight="SemiBold" />
+          <TextBlock Grid.Column="3" Text="ECH" Classes="cell" FontWeight="SemiBold" />
+          <TextBlock Grid.Column="4" Text="状态码" Classes="cell" FontWeight="SemiBold" />
+          <TextBlock Grid.Column="5" Text="耗时" Classes="cell" FontWeight="SemiBold" />
+          <TextBlock Grid.Column="6" Text="结果" Classes="cell" FontWeight="SemiBold" />
+        </Grid>
+      </Border>
+      <ListBox x:Name="DiagnosticList" Grid.Row="1" ItemsSource="{Binding DiagnosticRows}"
+               SelectedItem="{Binding SelectedDiagnostic, Mode=TwoWay}" Background="Transparent" BorderThickness="0"
+               ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="各域名测速结果">
+        <ListBox.ItemsPanel><ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate></ListBox.ItemsPanel>
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:OutboundDiagnosticItem">
+            <Border BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,0,1" Padding="0,10">
+              <Grid ColumnDefinitions="66,*,70,76,60,66,96" ColumnSpacing="8">
+                <TextBlock Text="{Binding Source}" Classes="cell" />
+                <TextBlock Grid.Column="1" Text="{Binding Host}" Classes="cell" ToolTip.Tip="{Binding Host}" />
+                <TextBlock Grid.Column="2" Text="{Binding Protocol}" Classes="cell" />
+                <TextBlock Grid.Column="3" Text="{Binding EchText}" Classes="cell" />
+                <TextBlock Grid.Column="4" Text="{Binding HttpStatus}" Classes="cell" />
+                <TextBlock Grid.Column="5" Text="{Binding DurationText}" Classes="cell" />
+                <TextBlock Grid.Column="6" Text="{Binding OutcomeText}" Classes="cell" ToolTip.Tip="{Binding DetailText}" />
+              </Grid>
+            </Border>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </Grid>
+    <Border Grid.Row="3" IsVisible="{Binding HasSelectedDiagnostic}" Padding="12"
+            BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1" CornerRadius="6">
+      <StackPanel Spacing="6">
+        <TextBlock Text="{Binding SelectedDiagnostic.Host}" FontWeight="SemiBold" />
+        <ScrollViewer MaxHeight="100" HorizontalScrollBarVisibility="Disabled">
+          <SelectableTextBlock Text="{Binding SelectedDiagnostic.DetailText}" TextWrapping="Wrap" FontSize="12" />
+        </ScrollViewer>
+      </StackPanel>
+    </Border>
+    <Grid Grid.Row="4" ColumnDefinitions="*,Auto" ColumnSpacing="18">
+      <TextBlock Text="测试当前域名的实际连接。HTTP 401 表示需要业务密钥；不会由备用节点成功覆盖原域名失败。"
+                 Classes="caption" VerticalAlignment="Center" />
+      <Button Grid.Column="1" x:Name="CloseDiagnostics" Content="关闭" Click="CloseTest" Classes="secondary" />
+    </Grid>
+  </Grid>
+</Window>

@@ -17,7 +17,7 @@
 
 应用本身**不包含、也不修改**上游代码：核心由你在应用内自行安装，始终是独立的一份。
 
-> 界面语言为简体中文，支持 Windows 10 / 11 64 位。
+> 界面语言为简体中文，提供 Windows x64、x86 与 ARM64 安装包和免安装包；ARM64 尚未完成原生实机运行验收。
 
 ![概览页](docs/images/overview-light.png)
 
@@ -40,6 +40,8 @@
 - **桌面集成**：托盘菜单、开机自启（后台静默启动）、单实例、Windows 原生通知、局域网访问的防火墙授权引导。
 - **配套工具**：日志查看、API 调试、弹幕下载、缓存管理、请求记录、数据备份与恢复（支持 WebDAV）。
 - **软件自更新**：内置带签名的更新通道，检查到新版本可在应用内下载安装。
+- **内网穿透**：工具页提供 frp 客户端与服务端配置、日志和状态监控，支持与弹幕服务联动启停。
+- **增强直连（实验性）**：巴哈姆特、TMDB、弹弹play、Animeko 四来源可在主页面快捷勾选，详细设置与测速使用独立弹窗。支持 ECH 和 HTTP/3 策略；同一请求的公网 H3 + ECH 验收尚未完成，实际结果以域名诊断为准。必需 ECH 或强制 H3 失败会明确报错。会话目录必须通过 Windows 权限检查，可被其他账户替换的目录会被拒绝。
 
 ## 系统要求
 
@@ -135,11 +137,27 @@ dotnet test  src/DanmuApi.Tests/DanmuApi.Tests.csproj -c Release
 
 ```powershell
 dotnet publish src/DanmuApi.App/DanmuApi.App.csproj -c Release --runtime win-x64 `
-  --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false `
+  --self-contained true -p:PublishTrimmed=false `
   -p:BuiltInComInteropSupport=true
 ```
 
-完整的双形态发行（安装器、签名、便携 ZIP、更新清单）见 `build/Build-WindowsRelease.ps1`。
+单文件选项已在 App 工程中声明；不要向整个依赖图传入全局 `-p:PublishSingleFile=true`，以免改变其他工程的依赖锁。
+
+增强直连的 Windows Go helper、Node 桥接源码与测试分别位于 `runtime/outbound/src/`、`runtime/node-host/` 和 `node-tests/`。`runtime/outbound/README.md` 保留上游 Android 构建说明，Windows 构建使用本仓库脚本：
+
+```powershell
+# 验证固定的 Go 工具链并生成三架构 helper、对应源码 ZIP 和许可通知；输出目录必须是新目录。
+.\build\Build-OutboundHelper.ps1 -OutputRoot .\artifacts\outbound-new
+
+# 用匹配架构的依赖基包组装当前 Windows 宿主与 helper，再验证完整授权文件树。
+.\build\New-OutboundRuntimeBundle.ps1 -BaseBundle <依赖基包目录> `
+  -Destination .\artifacts\runtime-new-x64 -Arch x64 `
+  -OutboundArtifact .\artifacts\outbound-new\win-x64
+.\build\New-OutboundRuntimeBundle.ps1 -BaseBundle .\artifacts\runtime-new-x64 `
+  -Arch x64 -ValidateOnly
+```
+
+完整的双形态发行（安装器、签名、便携 ZIP、更新清单）见 `build/Build-WindowsRelease.ps1`。它要求与目标架构匹配的完整 runtime bundle 和 Portable Git，以及既有签名身份；发布后须用最终 EXE 的 `--verify-app-release` 和 `--release-self-test` 核验。
 测试中需要真实 `node.exe` 的集成用例通过环境变量 `DANMU_TEST_NODE_EXE` 提供路径，未提供时自动跳过。
 
 ## 相关项目
