@@ -20,6 +20,9 @@ public enum InstanceCommand
 
 public sealed record AppInstanceLockResult(bool Succeeded, string Diagnostic, bool AlreadyOwned = false)
 {
+    public string? FailureCode { get; init; }
+    public string? FailureType { get; init; }
+    public int? FailureHResult { get; init; }
     public static AppInstanceLockResult Success(string diagnostic = "操作成功") => new(true, diagnostic);
 }
 
@@ -105,7 +108,7 @@ public sealed class AppInstanceLock : IDisposable
                 _lockStream = null;
                 var diagnostic = $"单实例锁已被其他实例持有: {_paths.InstanceLockFile}";
                 RecordDiagnostic(diagnostic, error);
-                return new AppInstanceLockResult(false, diagnostic, AlreadyOwned: true);
+                return CommandFailure(diagnostic, error) with { AlreadyOwned = true };
             }
             catch (Exception error)
             {
@@ -115,7 +118,7 @@ public sealed class AppInstanceLock : IDisposable
                 _lockStream = null;
                 var diagnostic = $"获取单实例锁失败: {Describe(error)}";
                 RecordDiagnostic(diagnostic, error);
-                return new AppInstanceLockResult(false, diagnostic);
+                return CommandFailure(diagnostic, error);
             }
         }
     }
@@ -169,30 +172,33 @@ public sealed class AppInstanceLock : IDisposable
         }
     }
 
-    public AppInstanceLockResult SendCommand(InstanceCommand command, CancellationToken cancellationToken = default)
+    public AppInstanceLockResult SendCommand(InstanceCommand command, CancellationToken cancellationToken = default, int? expectedProcessId = null)
     {
         try
         {
-            return SendCommandAsync(command, cancellationToken).GetAwaiter().GetResult();
+            return SendCommandAsync(command, cancellationToken, expectedProcessId).GetAwaiter().GetResult();
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException error)
         {
             var diagnostic = "发送本地唤醒命令已取消";
-            RecordDiagnostic(diagnostic);
-            return new AppInstanceLockResult(false, diagnostic);
+            RecordDiagnostic(diagnostic, error);
+            return CommandFailure(diagnostic, error);
         }
         catch (Exception error) when (error is IOException or SocketException or ObjectDisposedException or UnauthorizedAccessException or FormatException)
         {
             var diagnostic = $"发送本地唤醒命令异常: {Describe(error)}";
             RecordDiagnostic(diagnostic, error);
-            return new AppInstanceLockResult(false, diagnostic);
+            return CommandFailure(diagnostic, error);
         }
     }
 
     public async Task<AppInstanceLockResult> SendCommandAsync(
         InstanceCommand command,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int? expectedProcessId = null)
     {
+        if (expectedProcessId is <= 0)
+            return Fail("本地退出请求的目标进程 ID 无效", "endpointowner");
         if (!Enum.IsDefined(command))
         {
             return Fail($"未知本地唤醒命令: {command}");
@@ -235,7 +241,26 @@ public sealed class AppInstanceLock : IDisposable
                             ? "发送本地唤醒命令已取消"
                             : "本地唤醒通道连接超时";
                         RecordDiagnostic(diagnostic, error);
-                        return new AppInstanceLockResult(false, diagnostic);
+                        return CommandFailure(diagnostic, error);
+                    }
+                }
+                if (expectedProcessId is { } ownerPid)
+                {
+                    try
+                    {
+                        if (!WindowsTcpPeerIdentity.MatchesConnectedServer(client, ownerPid))
+                            return Fail("本地退出通道不属于已验证的目标进程，未发送退出请求", "endpointowner");
+                    }
+                    catch (IOException error)
+                    {
+                        RecordDiagnostic($"验证本地退出通道所属进程失败: {Describe(error)}", error);
+                        return new AppInstanceLockResult(false, LastDiagnostic)
+                        {
+                            FailureCode = "endpointowner",
+                            FailureType = error.InnerException is System.ComponentModel.Win32Exception ? nameof(System.ComponentModel.Win32Exception) : error.GetType().Name,
+                            FailureHResult = error.InnerException is System.ComponentModel.Win32Exception native && native.NativeErrorCode is > 0 and <= 65535
+                                ? unchecked((int)(0x80070000u | (uint)native.NativeErrorCode)) : error.HResult
+                        };
                     }
                 }
                 using var stream = client.GetStream();
@@ -257,26 +282,29 @@ public sealed class AppInstanceLock : IDisposable
 
                 if (response?.StartsWith("ERROR ", StringComparison.Ordinal) == true)
                 {
-                    var diagnostic = $"本地唤醒通道拒绝请求: {LimitDiagnostic(response[6..])}";
+                    var diagnostic = expectedProcessId is not null
+                        ? "已验证的运行实例拒绝退出请求；该版本可能不支持安全退出，或当前操作不允许退出"
+                        : $"本地唤醒通道拒绝请求: {LimitDiagnostic(response[6..])}";
                     RecordDiagnostic(diagnostic);
-                    return new AppInstanceLockResult(false, diagnostic);
+                    return new AppInstanceLockResult(false, diagnostic) { FailureCode = "commandrejected" };
                 }
 
                 throw new IOException(response is null
                     ? "本地唤醒通道未返回结果"
+                    : expectedProcessId is not null ? "已验证的运行实例返回了未知退出响应"
                     : $"本地唤醒通道返回未知结果: {LimitDiagnostic(response)}");
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException error) when (cancellationToken.IsCancellationRequested)
             {
                 var diagnostic = "发送本地唤醒命令已取消";
-                RecordDiagnostic(diagnostic);
-                return new AppInstanceLockResult(false, diagnostic);
+                RecordDiagnostic(diagnostic, error);
+                return CommandFailure(diagnostic, error);
             }
             catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested)
             {
                 var diagnostic = "本地唤醒通道请求超时";
                 RecordDiagnostic(diagnostic, error);
-                return new AppInstanceLockResult(false, diagnostic);
+                return CommandFailure(diagnostic, error);
             }
             catch (Exception error) when (error is IOException or SocketException or ObjectDisposedException or UnauthorizedAccessException or FormatException)
             {
@@ -284,7 +312,7 @@ public sealed class AppInstanceLock : IDisposable
                 {
                     var diagnostic = $"发送本地唤醒命令失败: {Describe(error)}";
                     RecordDiagnostic(diagnostic, error);
-                    return new AppInstanceLockResult(false, diagnostic);
+                    return CommandFailure(diagnostic, error);
                 }
 
                 lastError = error;
@@ -300,17 +328,17 @@ public sealed class AppInstanceLock : IDisposable
             {
                 await Task.Delay(Math.Min(RetryDelayMilliseconds, remaining), cancellationToken).ConfigureAwait(false);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException error)
             {
                 var diagnostic = "发送本地唤醒命令已取消";
-                RecordDiagnostic(diagnostic, lastError);
-                return new AppInstanceLockResult(false, diagnostic);
+                RecordDiagnostic(diagnostic, error);
+                return CommandFailure(diagnostic, error);
             }
         }
 
         var failure = $"无法在 {RetryWindowMilliseconds}ms 内唤醒已运行的弹幕 API 实例: {Describe(lastError)}";
         RecordDiagnostic(failure, lastError);
-        return new AppInstanceLockResult(false, failure);
+        return lastError is null ? new AppInstanceLockResult(false, failure) : CommandFailure(failure, lastError);
     }
 
     public AppInstanceLockResult Release()
@@ -529,10 +557,17 @@ public sealed class AppInstanceLock : IDisposable
         }
     }
 
-    private AppInstanceLockResult Fail(string diagnostic)
+    private static AppInstanceLockResult CommandFailure(string diagnostic, Exception error) => new(false, diagnostic)
+    {
+        FailureType = error.GetType().Name,
+        FailureHResult = error is System.ComponentModel.Win32Exception native && native.NativeErrorCode is > 0 and <= 65535
+            ? unchecked((int)(0x80070000u | (uint)native.NativeErrorCode)) : error.HResult
+    };
+
+    private AppInstanceLockResult Fail(string diagnostic, string? failureCode = null)
     {
         RecordDiagnostic(diagnostic);
-        return new AppInstanceLockResult(false, diagnostic);
+        return new AppInstanceLockResult(false, diagnostic) { FailureCode = failureCode };
     }
 
     private void RecordDiagnostic(string diagnostic, Exception? error = null)

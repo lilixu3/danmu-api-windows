@@ -33,6 +33,11 @@ sealed class Program
             Environment.ExitCode = ReleaseSelfTest.Run(System.IO.Path.GetFullPath(args[1]));
             return;
         }
+        if (args.Length >= 1 && args[0] == Services.InstallerManualExit.Argument)
+        {
+            Environment.ExitCode = Services.InstallerManualExit.Run(args);
+            return;
+        }
         if (args.Length >= 1 && args[0] == Services.InstallerUpdateLease.Argument)
         {
             Environment.ExitCode = Services.InstallerUpdateLease.Run(args);

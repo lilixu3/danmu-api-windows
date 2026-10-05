@@ -25,4 +25,26 @@ public sealed class ApplicationInstallerLaunchTests
     [InlineData(System.Runtime.InteropServices.Architecture.Arm64, Microsoft.Win32.RegistryView.Registry64)]
     public void InstallationLookupMatchesTheInstallerRegistryView(System.Runtime.InteropServices.Architecture architecture, Microsoft.Win32.RegistryView expected) =>
         Assert.Equal(expected, ApplicationUpdateHelper.RegistryViewForArchitecture(architecture));
+
+    [Fact]
+    public void LegacyUpdateParentRetainsReadyParentWaitCancelAndLockOrder()
+    {
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "installer", "DanmuApi.iss"))) root = root.Parent;
+        Assert.NotNull(root);
+        var script = File.ReadAllText(Path.Combine(root!.FullName, "installer", "DanmuApi.iss"));
+
+        var prepare = script.IndexOf("function PrepareToInstall(", StringComparison.Ordinal);
+        var ready = script.IndexOf("SaveStringToFile(ReadyPath, 'ready'", prepare, StringComparison.Ordinal);
+        var wait = script.IndexOf("WaitForSingleObject(ParentHandle, 120000)", prepare, StringComparison.Ordinal);
+        var cancel = script.IndexOf("FileExists(ExtractFilePath(ReadyPath) + 'cancel')", prepare, StringComparison.Ordinal);
+        var modernLock = script.IndexOf("{userappdata}\\DanmuApi\\instance.lock", prepare, StringComparison.Ordinal);
+        var legacyLock = script.IndexOf("{userappdata}\\DanmuApi\\app.lock", prepare, StringComparison.Ordinal);
+        var manual = script.IndexOf("Result := BeginManualExit()", prepare, StringComparison.Ordinal);
+        Assert.True(prepare >= 0 && ready > prepare && wait > ready && cancel > wait &&
+                    modernLock > cancel && legacyLock > modernLock && manual > legacyLock);
+        Assert.DoesNotContain("BeginUpdateLease", script);
+        Assert.DoesNotContain("--installer-update-lease", script);
+        Assert.DoesNotContain("ExecAsOriginalUser", script);
+    }
 }

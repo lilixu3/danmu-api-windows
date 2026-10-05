@@ -97,7 +97,7 @@ public sealed partial class FrpTunnelMonitorViewModel : ViewModelBase, IAsyncDis
     /// <summary>弹幕服务没跑：穿透即使"正常"也送不出任何东西，状态区必须当场点出来。</summary>
     public bool ShowServiceWarning => !IsServiceRunning;
 
-    public bool IsClientRole => _tunnel.Settings.Role == FrpRole.Client;
+    public bool IsClientRole => _tunnel.EffectiveSettings.Role == FrpRole.Client;
 
     public bool IsTunnelActive => _tunnel.Snapshot.RequiresStop || _tunnel.HasOwnedProcess;
 
@@ -137,7 +137,7 @@ public sealed partial class FrpTunnelMonitorViewModel : ViewModelBase, IAsyncDis
                 ? "尚未安装 frp，请先点「安装 frp」。"
                 : _tunnel.SettingsProblems.Count > 0
                     ? $"穿透设置还不能用：{string.Join("；", _tunnel.SettingsProblems)}"
-                    : IsClientRole && _tunnel.Settings.Client.ServerAddress.Length == 0
+                    : IsClientRole && _tunnel.EffectiveSettings.Client.ServerAddress.Length == 0
                         ? "尚未填写 frps 服务器地址，请到「配置」页填写后再启动。"
                         : string.Empty;
 
@@ -163,9 +163,11 @@ public sealed partial class FrpTunnelMonitorViewModel : ViewModelBase, IAsyncDis
     /// <summary>链路第三节：客户端看服务器分配的公网入口，服务端看有多少客户端在线。</summary>
     public string PublicEntryLabel => IsClientRole ? "公网入口" : "在线客户端";
 
-    public string TokenStateText => _tunnel.HasToken
-        ? "已保存 Token（在「配置」页可修改或清除）"
-        : "未设置 Token（服务器启用 Token 时必须填写）";
+    public string TokenStateText => _tunnel.EffectiveSettings.ConfigMode == FrpConfigMode.Text
+        ? "认证由原生 JSON / TOML 配置决定，不使用可视化配置的 Token。"
+        : _tunnel.HasToken
+            ? "已保存 Token（在「配置」页可修改或清除）"
+            : "未设置 Token（服务器启用 Token 时必须填写）";
 
     public string RoleText => IsClientRole
         ? "客户端（frpc）：把本机服务送到远端 frps"
@@ -478,7 +480,7 @@ public sealed partial class FrpTunnelMonitorViewModel : ViewModelBase, IAsyncDis
     private void Refresh()
     {
         var snapshot = _tunnel.Snapshot;
-        var settings = _tunnel.Settings;
+        var settings = _tunnel.EffectiveSettings;
 
         StatusText = snapshot.State switch
         {
@@ -494,7 +496,12 @@ public sealed partial class FrpTunnelMonitorViewModel : ViewModelBase, IAsyncDis
         // frp 自己的话原样带出来（含 exitCode 与 stderr 尾部），只显示不加工。
         DiagnosticText = snapshot.Diagnostic ?? string.Empty;
 
-        ServiceAddressText = $"127.0.0.1:{settings.Client.LocalPort.ToString(CultureInfo.InvariantCulture)}";
+        ServiceAddressText = settings.Role == FrpRole.Server ? "服务端模式"
+            : settings.ConfigMode == FrpConfigMode.Text && snapshot.ExpectedProxies.Count > 1
+                ? $"{snapshot.ExpectedProxies.Count} 条原生代理，详见下方目标"
+                : settings.Client.LocalPort > 0
+                    ? $"{settings.Client.LocalAddress}:{settings.Client.LocalPort.ToString(CultureInfo.InvariantCulture)}"
+                    : "原生配置包含其他目标，详见代理列表";
         ServerText = settings.Role == FrpRole.Client
             ? settings.Client.ServerAddress.Length == 0
                 ? "未配置"
@@ -517,7 +524,7 @@ public sealed partial class FrpTunnelMonitorViewModel : ViewModelBase, IAsyncDis
 
         RebuildProxyItems(snapshot, PublicEntryText);
 
-        IsFollowServiceEnabled = settings.FollowService;
+        IsFollowServiceEnabled = _tunnel.Settings.FollowService;
         if (snapshot.State != FrpTunnelState.Stopped || DiagnosticText.Length > 0)
         {
             LastUpdatedText = $"界面最近更新 {DateTimeOffset.Now:HH:mm:ss}";
@@ -563,6 +570,10 @@ public sealed partial class FrpTunnelMonitorViewModel : ViewModelBase, IAsyncDis
 
             var detail = proxy.State switch
             {
+                FrpProxyState.Running when _tunnel.EffectiveSettings.ConfigMode == FrpConfigMode.Text =>
+                    string.IsNullOrEmpty(proxy.LocalAddress) ? proxy.RemoteAddress ?? string.Empty
+                        : string.IsNullOrEmpty(proxy.RemoteAddress) ? $"本地目标 {proxy.LocalAddress}"
+                        : $"{proxy.LocalAddress} → {proxy.RemoteAddress}",
                 FrpProxyState.Running when proxy.RemoteAddress is { Length: > 0 } remote
                     && !string.Equals(remote, publicEntry, StringComparison.Ordinal) => remote,
                 FrpProxyState.StartError => proxy.Error,
@@ -582,13 +593,12 @@ public sealed partial class FrpTunnelMonitorViewModel : ViewModelBase, IAsyncDis
     /// <summary>地址随 Token 可见性与快照变化重建（EndpointItem 的脱敏/复制是构造期固定的）。</summary>
     private void RebuildPublicEndpoint()
     {
-        var settings = _tunnel.Settings;
-        var address = FrpPublicAddress.Build(new FrpPublicAddressInput(
-            _tunnel.Snapshot.State,
-            settings.Role,
-            settings.Client.ProxyKind,
-            _tunnel.Snapshot.RemoteAddress,
-            ResolveCoreToken()));
+        var settings = _tunnel.EffectiveSettings;
+        var kind = FrpEndpointMetadata.ApiKind(_tunnel.Snapshot, settings, _runtime.Snapshot.Port);
+        var address = kind is { } apiKind
+            ? FrpPublicAddress.Build(new FrpPublicAddressInput(
+                _tunnel.Snapshot.State, settings.Role, apiKind, _tunnel.Snapshot.RemoteAddress, ResolveCoreToken()))
+            : string.Empty;
 
         // 地址就在上一行，提示语不再重复一遍地址本身，只说"这串东西该怎么用"。
         var hint = address.Length == 0

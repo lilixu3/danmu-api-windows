@@ -21,13 +21,19 @@ public sealed record FrpProxyKindOption(FrpProxyKind Value, string Title, string
     public override string ToString() => Title;
 }
 
-/// <summary>
-/// 内网穿透的**配置**页：只有表单，不掺状态与日志。
-///
-/// 表单按"填什么"分区（服务器 / 代理 / 高级），并把校验结果与"将要生效的值"实时回显在底部——
-/// 与配置工作台的约定一致：不让用户点保存才知道填错了。
-/// 另外提供 frp 原生 JSON 的导入导出，便于把一份配置搬到另一台机器。
-/// </summary>
+/// <summary>两个独立的配置草稿；保存当前模式后才改变下次启动的配置来源。</summary>
+public enum FrpConfigSection
+{
+    Visual,
+    Text,
+}
+
+public sealed record FrpConfigSectionOption(FrpConfigSection Value, string Title, string Description)
+{
+    public override string ToString() => Title;
+}
+
+/// <summary>可视化与原生文本分别维护草稿、校验和保存；状态刷新不得覆盖任何未保存的输入。</summary>
 public sealed partial class FrpTunnelConfigViewModel : ViewModelBase, IAsyncDisposable
 {
     private readonly IFrpTunnelService _tunnel;
@@ -40,11 +46,15 @@ public sealed partial class FrpTunnelConfigViewModel : ViewModelBase, IAsyncDisp
     private bool _isLoadingFields;
     private string _lastSavedFingerprint = string.Empty;
     private string _formFingerprintAtLoad = string.Empty;
+    private string _textAtLoad = string.Empty;
+    private FrpConfigSection _sectionAtLoad;
 
     [ObservableProperty] private FrpRoleOption _selectedRoleOption = null!;
+    [ObservableProperty] private FrpConfigSectionOption _selectedSectionOption = null!;
     [ObservableProperty] private FrpProxyKindOption _selectedProxyKindOption = null!;
     [ObservableProperty] private string _serverAddress = string.Empty;
     [ObservableProperty] private string _serverPortText = string.Empty;
+    [ObservableProperty] private string _user = string.Empty;
     [ObservableProperty] private string? _tokenInput;
     [ObservableProperty] private FrpTokenEditIntent _tokenIntent;
     [ObservableProperty] private bool _tokenConfigured;
@@ -63,7 +73,12 @@ public sealed partial class FrpTunnelConfigViewModel : ViewModelBase, IAsyncDisp
     [ObservableProperty] private string _serverAdminPortText = string.Empty;
     [ObservableProperty] private string _operationMessage = string.Empty;
     [ObservableProperty] private string _validationText = string.Empty;
-    [ObservableProperty] private string _importWarningText = string.Empty;
+    /// <summary>「配置文本」页签自己的结果框：粘贴/生成的结果与问题都在这里，与表单校验分开。</summary>
+    [ObservableProperty] private string _configText = string.Empty;
+    [ObservableProperty] private string _configTextMessage = string.Empty;
+    [ObservableProperty] private bool _configTextFailed;
+    [ObservableProperty] private bool _showConfigText = true;
+    [ObservableProperty] private string _configTextSummary = string.Empty;
     [ObservableProperty] private bool _isBusy;
 
     public FrpTunnelConfigViewModel(
@@ -89,8 +104,14 @@ public sealed partial class FrpTunnelConfigViewModel : ViewModelBase, IAsyncDisp
             new(FrpProxyKind.Http, "HTTP 域名", "用域名访问，需服务器配置 vhostHTTPPort"),
             new(FrpProxyKind.Https, "HTTPS 域名", "用域名访问，需服务器配置 vhostHTTPSPort"),
         ];
+        SectionOptions =
+        [
+            new(FrpConfigSection.Visual, "可视化配置", "按字段配置服务器与端口映射"),
+            new(FrpConfigSection.Text, "JSON 配置", "完整 JSON / TOML，保存后直接启动"),
+        ];
+        _selectedSectionOption = SectionOptions[0];
 
-        LoadFields(_tunnel.Settings);
+        LoadSavedDrafts(_tunnel.Settings);
         _tunnel.Changed += OnTunnelChanged;
         _ = LoadAsync();
     }
@@ -98,6 +119,8 @@ public sealed partial class FrpTunnelConfigViewModel : ViewModelBase, IAsyncDisp
     public IReadOnlyList<FrpRoleOption> RoleOptions { get; }
 
     public IReadOnlyList<FrpProxyKindOption> ProxyKindOptions { get; }
+
+    public IReadOnlyList<FrpConfigSectionOption> SectionOptions { get; }
 
     public IReadOnlyList<string> Problems => _problems;
 
@@ -110,6 +133,10 @@ public sealed partial class FrpTunnelConfigViewModel : ViewModelBase, IAsyncDisp
     public bool ShowTcpFields => IsClientRole && SelectedProxyKindOption.Value == FrpProxyKind.Tcp;
 
     public bool ShowDomainFields => IsClientRole && !ShowTcpFields;
+
+    public bool IsVisualSection => SelectedSectionOption.Value == FrpConfigSection.Visual;
+
+    public bool IsTextSection => !IsVisualSection;
 
     public bool CanClearToken => TokenConfigured || TokenIntent == FrpTokenEditIntent.Set;
 
@@ -130,16 +157,53 @@ public sealed partial class FrpTunnelConfigViewModel : ViewModelBase, IAsyncDisp
 
     public bool IsReadOnly => IsBusy;
 
-    public bool HasImportWarning => ImportWarningText.Length > 0;
+    public bool HasConfigTextMessage => ConfigTextMessage.Length > 0;
+
+    public bool HasConfigText => !string.IsNullOrWhiteSpace(ConfigText);
+
+    public bool ShowVisualProblems => IsVisualSection && HasProblems;
+
+    public string SaveButtonText => IsVisualSection ? "保存可视化配置" : "保存 JSON 配置";
+
+    public string SavedModeText => _tunnel.Settings.ConfigMode == FrpConfigMode.Text
+        ? "已保存的启动来源：JSON / TOML 配置"
+        : "已保存的启动来源：可视化配置";
+
+    public bool HasUnsavedVisualEdits => !string.Equals(SettingsFormFingerprint(), _formFingerprintAtLoad, StringComparison.Ordinal);
+
+    public bool HasUnsavedTextEdits => !string.Equals(ConfigText, _textAtLoad, StringComparison.Ordinal);
+
+    public bool HasUnsavedEdits => HasUnsavedVisualEdits || HasUnsavedTextEdits || SelectedSectionOption.Value != _sectionAtLoad;
+
+    public string DraftHint => SelectedSectionOption.Value != _sectionAtLoad
+        ? "保存当前模式后，下次启动将改用此配置；另一种配置保留。"
+        : (IsTextSection ? HasUnsavedTextEdits : HasUnsavedVisualEdits)
+            ? "当前配置有未保存的更改；启动仍使用上次保存的配置。"
+            : "当前配置已保存；保存不会自动启动或中断现有连接。";
+
+    public string HostOverlayHint => "运行时由宿主管理回环状态接口及其凭据、控制台日志和断线重连；原始文本、服务商认证与全部代理保持独立保存。";
 
     [RelayCommand]
     private async Task ReloadAsync()
     {
         await RunAsync(async () =>
         {
+            if (HasUnsavedEdits && !await _dialogService.ConfirmAsync(
+                    "重新读取穿透配置",
+                    "这会放弃两种模式中尚未保存的输入，恢复已保存的配置。切换模式不会丢弃输入，无需重新读取。",
+                    "放弃修改并重新读取").ConfigureAwait(true))
+                return;
+
             var result = await _tunnel.ReloadSettingsAsync().ConfigureAwait(true);
-            LoadFields(_tunnel.Settings);
-            OperationMessage = result.Succeeded ? "已重新读取保存的配置。" : result.Message;
+            if (result.Succeeded)
+            {
+                LoadSavedDrafts(_tunnel.Settings);
+                OperationMessage = "已重新读取保存的配置。";
+            }
+            else
+            {
+                ShowOperationFailure(result.Message);
+            }
         }).ConfigureAwait(true);
     }
 
@@ -148,6 +212,20 @@ public sealed partial class FrpTunnelConfigViewModel : ViewModelBase, IAsyncDisp
     {
         await RunAsync(async () =>
         {
+            if (IsTextSection)
+            {
+                var textResult = await _tunnel.SaveTextAsync(ConfigText).ConfigureAwait(true);
+                ConfigTextFailed = !textResult.Succeeded;
+                ConfigTextMessage = textResult.Message;
+                OperationMessage = textResult.Message;
+                if (textResult.Succeeded)
+                {
+                    _textAtLoad = _tunnel.Settings.RawConfig;
+                    MarkSavedMode();
+                }
+                return;
+            }
+
             var settings = BuildSettings(out var problems);
             if (settings is null)
             {
@@ -162,11 +240,13 @@ public sealed partial class FrpTunnelConfigViewModel : ViewModelBase, IAsyncDisp
             if (!result.Succeeded)
             {
                 ShowProblems([result.Message]);
+                OperationMessage = result.Message;
                 return;
             }
 
             OperationMessage = result.Message;
             LoadFields(_tunnel.Settings);
+            MarkSavedMode();
         }).ConfigureAwait(true);
     }
 
@@ -195,7 +275,7 @@ public sealed partial class FrpTunnelConfigViewModel : ViewModelBase, IAsyncDisp
         {
             if (!await _dialogService.ConfirmAsync(
                     "清除穿透 Token",
-                    "清除将暂存到表单，点「保存设置」后生效。客户端连接与服务端认证都将不再使用 Token；若远端仍要求 Token，连接会被拒绝。",
+                    "清除将暂存到表单，点「保存可视化配置」后生效。客户端连接与服务端认证都将不再使用 Token；若远端仍要求 Token，连接会被拒绝。",
                     "暂存清除").ConfigureAwait(true))
             {
                 return;
@@ -203,7 +283,7 @@ public sealed partial class FrpTunnelConfigViewModel : ViewModelBase, IAsyncDisp
 
             TokenInput = null;
             TokenIntent = FrpTokenEditIntent.Clear;
-            OperationMessage = "已暂存清除 Token；点「保存设置」后生效。";
+            OperationMessage = "已暂存清除 Token；点「保存可视化配置」后生效。";
         }).ConfigureAwait(true);
     }
 
@@ -216,111 +296,74 @@ public sealed partial class FrpTunnelConfigViewModel : ViewModelBase, IAsyncDisp
         OperationMessage = "已撤销 Token 草稿修改；其他表单输入保持不变。";
     }
 
-    /// <summary>
-    /// 导出为 frp 原生 JSON（可直接改名为 frpc.json 交给官方 frpc 运行）。
-    /// 弹窗既能看也能直接 Ctrl+A 复制——比"复制到剪贴板后只有一句提示"更不容易让人怀疑复制了什么。
-    /// </summary>
-    [RelayCommand]
-    private async Task ExportJsonAsync()
+    /// <summary>当前 Token 草稿对应的实际值（导出与生成文本都取这个口径，不能把新参数与旧 Token 混在一起）。</summary>
+    private string EffectiveToken() => TokenIntent switch
     {
-        var settings = BuildSettings(out var problems);
-        if (settings is null)
+        FrpTokenEditIntent.Set => TokenInput!.Trim(),
+        FrpTokenEditIntent.Clear => string.Empty,
+        _ => _tunnel.ReadAuthToken(),
+    };
+
+    /// <summary>生成只初始化文本草稿，不保存或转换另一种配置来源。</summary>
+    [RelayCommand]
+    private async Task GenerateConfigTextAsync()
+    {
+        await RunAsync(async () =>
         {
-            ShowProblems(problems);
+            if (HasConfigText && !await _dialogService.ConfirmAsync(
+                    "替换 JSON 配置草稿",
+                    "将用当前可视化草稿生成的 JSON 替换文本编辑器里的内容；已保存的文本配置不会改变，直到再次保存。",
+                    "替换文本草稿").ConfigureAwait(true))
+                return;
+
+            var settings = BuildSettings(out var problems);
+            if (settings is null)
+            {
+                ConfigTextFailed = true;
+                ConfigTextMessage = "无法从可视化草稿生成：" + string.Join("；", problems);
+                return;
+            }
+
+            ConfigText = FrpConfigJson.Export(settings, EffectiveToken());
+            ShowConfigText = true;
+            SelectedSectionOption = SectionOptions.Single(option => option.Value == FrpConfigSection.Text);
+            ConfigTextFailed = false;
+            ConfigTextMessage = "已生成独立的 JSON 草稿，尚未保存。可直接编辑并保存，无需再导入可视化配置。";
+        }).ConfigureAwait(true);
+    }
+
+    [RelayCommand]
+    private async Task CopyConfigTextAsync()
+    {
+        if (!HasConfigText)
+        {
             return;
         }
 
         try
         {
-            var token = TokenIntent switch
-            {
-                FrpTokenEditIntent.Set => TokenInput!.Trim(),
-                FrpTokenEditIntent.Clear => string.Empty,
-                _ => _tunnel.ReadAuthToken(),
-            };
-            var json = FrpConfigJson.Export(settings, token);
-            await _dialogService.CopyTextAsync(json).ConfigureAwait(true);
-            await _dialogService.PromptMultilineTextAsync(
-                "穿透配置（JSON）",
-                "已复制到剪贴板。这是 frp 原生格式：既能贴回本应用，也能改名 frpc.json 交给官方 frpc 运行。"
-                + "注意：其中包含 frp 的 auth.token，请勿公开分享。",
-                json,
-                "关闭",
-                readOnly: true).ConfigureAwait(true);
-            OperationMessage = "配置已按 JSON 复制到剪贴板。";
+            await _dialogService.CopyTextAsync(ConfigText).ConfigureAwait(true);
+            ConfigTextMessage = "已复制到剪贴板。";
+            ConfigTextFailed = false;
         }
         catch (Exception error)
         {
-            _diagnostics.Record("导出穿透配置失败", error);
-            OperationMessage = $"导出失败：{error.Message}";
+            var failure = $"复制配置失败：{error.GetType().Name}（0x{error.HResult:X8}）";
+            _diagnostics.Record(failure + Environment.NewLine + error.StackTrace);
+            ConfigTextFailed = true;
+            ConfigTextMessage = failure;
         }
     }
 
-    /// <summary>
-    /// 粘贴导入：严格解析；能认但不管理的字段会逐条列出来，绝不静默丢弃。
-    /// 导入只填表单，仍然要点「保存设置」才会落盘——避免一次误粘贴直接改掉正在生效的配置。
-    /// </summary>
     [RelayCommand]
-    private async Task ImportJsonAsync()
+    private async Task ValidateConfigTextAsync()
     {
-        try
+        await RunAsync(async () =>
         {
-            var pasted = await _dialogService.PromptMultilineTextAsync(
-                "粘贴穿透配置（JSON）",
-                "支持 frp 原生 JSON（frpc 的 serverAddr/proxies 或 frps 的 bindPort 结构）。"
-                + "导入只填入表单，确认无误后再点「保存设置」。",
-                string.Empty,
-                "导入到表单").ConfigureAwait(true);
-            if (pasted is null)
-            {
-                return;
-            }
-
-            var current = _tunnel.Settings;
-            var result = FrpConfigJson.Import(pasted, current with
-            {
-                Client = current.Client with { ProxyKind = SelectedProxyKindOption.Value },
-            });
-            if (!result.Succeeded || result.Settings is null)
-            {
-                ShowProblems(result.Problems);
-                ImportWarningText = string.Empty;
-                return;
-            }
-
-            // Whole-document replacement for its role; untouched opposite-role drafts remain in the form.
-            // Do not mark an import as a saved baseline, or a later notification could erase it.
-            LoadFields(result.Settings, importedRoleOnly: true);
-            TokenInput = result.Token;
-            TokenIntent = result.Token is { Length: > 0 } ? FrpTokenEditIntent.Set : FrpTokenEditIntent.Clear;
-            ValidateFields();
-            ImportWarningText = BuildImportSummary(result);
-            OperationMessage = "JSON 已导入到表单；点「保存设置」后生效。";
-        }
-        catch (Exception error)
-        {
-            _diagnostics.Record("导入穿透配置失败", error);
-            ShowProblems([$"导入失败：{error.Message}"]);
-        }
-    }
-
-    /// <summary>
-    /// 导入结果的说明：未支持的字段与我们补的默认值都要说清楚，哪怕"什么都没补"也要给一句回执。
-    /// </summary>
-    private static string BuildImportSummary(FrpConfigJsonImport result)
-    {
-        var lines = new List<string> { "已导入到表单。" };
-        if (result.Unsupported.Count > 0)
-        {
-            lines.Add($"以下字段本应用不管理、未导入：{string.Join("、", result.Unsupported)}");
-        }
-
-        if (result.AppliedDefaults.Count > 0)
-        {
-            lines.Add($"以下字段配置里没有写，已按默认值填入表单：{string.Join("；", result.AppliedDefaults)}");
-        }
-
-        return string.Join(Environment.NewLine, lines);
+            var result = await _tunnel.ValidateTextAsync(ConfigText).ConfigureAwait(true);
+            ConfigTextFailed = !result.Succeeded;
+            ConfigTextMessage = result.Message;
+        }).ConfigureAwait(true);
     }
 
     public async ValueTask DisposeAsync()
@@ -350,9 +393,41 @@ public sealed partial class FrpTunnelConfigViewModel : ViewModelBase, IAsyncDisp
         OnPropertyChanged(nameof(ShowDomainFields));
     }
 
+    partial void OnSelectedSectionOptionChanged(FrpConfigSectionOption value)
+    {
+        OnPropertyChanged(nameof(IsVisualSection));
+        OnPropertyChanged(nameof(IsTextSection));
+        OnPropertyChanged(nameof(ShowVisualProblems));
+        OnPropertyChanged(nameof(SaveButtonText));
+        NotifyDraftState();
+    }
+
     partial void OnIsBusyChanged(bool value) => OnPropertyChanged(nameof(IsReadOnly));
 
-    partial void OnImportWarningTextChanged(string value) => OnPropertyChanged(nameof(HasImportWarning));
+    partial void OnConfigTextMessageChanged(string value) => OnPropertyChanged(nameof(HasConfigTextMessage));
+
+    partial void OnConfigTextChanged(string value)
+    {
+        OnPropertyChanged(nameof(HasConfigText));
+        ConfigTextMessage = string.Empty;
+        ConfigTextFailed = false;
+        try
+        {
+            ConfigTextSummary = FrpNativeConfig.Parse(value).Summary;
+        }
+        catch (FrpConfigurationException error)
+        {
+            ConfigTextSummary = string.Join("；", error.Problems);
+        }
+        catch (Exception error)
+        {
+            var safeFailure = $"解析配置异常：{error.GetType().Name}（0x{error.HResult:X8}）";
+            _diagnostics.Record(safeFailure + Environment.NewLine + error.StackTrace);
+            ConfigTextFailed = true;
+            ConfigTextSummary = safeFailure;
+        }
+        NotifyDraftState();
+    }
 
     private async Task LoadAsync()
     {
@@ -364,13 +439,13 @@ public sealed partial class FrpTunnelConfigViewModel : ViewModelBase, IAsyncDisp
                 return;
             }
 
-            if (string.Equals(SettingsFormFingerprint(), _formFingerprintAtLoad, StringComparison.Ordinal))
+            if (result.Succeeded)
             {
-                LoadFields(_tunnel.Settings);
+                ApplySavedChanges();
             }
-            if (!result.Succeeded)
+            else
             {
-                ShowProblems([result.Message]);
+                ShowOperationFailure(result.Message);
             }
         }
         catch (Exception error)
@@ -387,24 +462,11 @@ public sealed partial class FrpTunnelConfigViewModel : ViewModelBase, IAsyncDisp
             return;
         }
 
-        // 只在"磁盘上的设置真的变过"时才回填，避免把用户正在编辑的输入冲掉；
-        // 真有变化但表单里也有未保存内容时，保留表单并说清楚，不悄悄覆盖。
-        var savedFingerprint = FingerprintOf(_tunnel.Settings);
         TokenConfigured = _tunnel.HasToken;
-        if (string.Equals(savedFingerprint, _lastSavedFingerprint, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        var hadUnsavedEdits = !string.Equals(SettingsFormFingerprint(), _formFingerprintAtLoad, StringComparison.Ordinal);
-        _lastSavedFingerprint = savedFingerprint;
-        if (hadUnsavedEdits)
-        {
-            OperationMessage = "保存的配置已在别处更新；当前表单里有未保存的修改，未自动覆盖。点「重新读取」可放弃修改并加载最新配置。";
-            return;
-        }
-
-        LoadFields(_tunnel.Settings);
+        OnPropertyChanged(nameof(SavedModeText));
+        OnPropertyChanged(nameof(ConfigPathText));
+        if (!IsBusy && _tunnel.SettingsProblems.Count == 0)
+            ApplySavedChanges();
     });
 
     private void Dispatch(Action action)
@@ -419,49 +481,106 @@ public sealed partial class FrpTunnelConfigViewModel : ViewModelBase, IAsyncDisp
         }
     }
 
-    private void LoadFields(FrpSettings settings, bool importedRoleOnly = false)
+    private void LoadFields(FrpSettings settings)
     {
         _isLoadingFields = true;
         try
         {
             SelectedRoleOption = RoleOptions.First(option => option.Value == settings.Role);
-            if (!importedRoleOnly || settings.Role == FrpRole.Client)
-            {
-                SelectedProxyKindOption = ProxyKindOptions.First(option => option.Value == settings.Client.ProxyKind);
-                ServerAddress = settings.Client.ServerAddress;
-                ServerPortText = Int(settings.Client.ServerPort);
-                ProxyName = settings.Client.ProxyName;
-                LocalAddress = settings.Client.LocalAddress;
-                LocalPortText = Int(settings.Client.LocalPort);
-                RemotePortText = Int(settings.Client.RemotePort);
-                CustomDomainsText = string.Join(", ", settings.Client.CustomDomains);
-                UseEncryption = settings.Client.UseEncryption;
-                UseCompression = settings.Client.UseCompression;
-                TransportTls = settings.Client.TransportTls;
-                ClientAdminPortText = Int(settings.Client.AdminPort);
-            }
-            if (!importedRoleOnly || settings.Role == FrpRole.Server)
-            {
-                BindPortText = Int(settings.Server.BindPort);
-                VhostHttpPortText = Int(settings.Server.VhostHttpPort);
-                SubdomainHost = settings.Server.SubdomainHost;
-                ServerAdminPortText = Int(settings.Server.AdminPort);
-            }
+            SelectedProxyKindOption = ProxyKindOptions.First(option => option.Value == settings.Client.ProxyKind);
+            ServerAddress = settings.Client.ServerAddress;
+            ServerPortText = Int(settings.Client.ServerPort);
+            User = settings.Client.User;
+            ProxyName = settings.Client.ProxyName;
+            LocalAddress = settings.Client.LocalAddress;
+            LocalPortText = Int(settings.Client.LocalPort);
+            RemotePortText = Int(settings.Client.RemotePort);
+            CustomDomainsText = string.Join(", ", settings.Client.CustomDomains);
+            UseEncryption = settings.Client.UseEncryption;
+            UseCompression = settings.Client.UseCompression;
+            TransportTls = settings.Client.TransportTls;
+            ClientAdminPortText = Int(settings.Client.AdminPort);
+            BindPortText = Int(settings.Server.BindPort);
+            VhostHttpPortText = Int(settings.Server.VhostHttpPort);
+            SubdomainHost = settings.Server.SubdomainHost;
+            ServerAdminPortText = Int(settings.Server.AdminPort);
             TokenConfigured = _tunnel.HasToken;
-            if (!importedRoleOnly)
-            {
-                TokenInput = null;
-                TokenIntent = FrpTokenEditIntent.Keep;
-                ImportWarningText = string.Empty;
-                _formFingerprintAtLoad = SettingsFormFingerprint();
-                _lastSavedFingerprint = FingerprintOf(settings);
-            }
+            TokenInput = null;
+            TokenIntent = FrpTokenEditIntent.Keep;
+            _formFingerprintAtLoad = SettingsFormFingerprint();
         }
         finally
         {
             _isLoadingFields = false;
         }
         ValidateFields();
+        NotifyDraftState();
+    }
+
+    private void LoadText(FrpSettings settings)
+    {
+        ConfigText = settings.RawConfig;
+        _textAtLoad = ConfigText;
+        ShowConfigText = true;
+        if (HasConfigText)
+        {
+            try
+            {
+                ShowConfigText = FrpNativeConfig.Parse(ConfigText).Secrets.Count == 0;
+            }
+            catch (FrpConfigurationException error)
+            {
+                ConfigTextFailed = true;
+                ConfigTextMessage = string.Join("；", error.Problems);
+                ShowConfigText = false;
+            }
+        }
+    }
+
+    private void LoadSavedDrafts(FrpSettings settings)
+    {
+        LoadFields(settings);
+        LoadText(settings);
+        SelectedSectionOption = SectionOptions.Single(option => option.Value == SectionOf(settings));
+        MarkSavedMode();
+    }
+
+    private void MarkSavedMode()
+    {
+        _sectionAtLoad = SectionOf(_tunnel.Settings);
+        _lastSavedFingerprint = FingerprintOf(_tunnel.Settings);
+        OnPropertyChanged(nameof(SavedModeText));
+        OnPropertyChanged(nameof(ConfigPathText));
+        NotifyDraftState();
+    }
+
+    private void ApplySavedChanges()
+    {
+        var saved = _tunnel.Settings;
+        var fingerprint = FingerprintOf(saved);
+        if (string.Equals(fingerprint, _lastSavedFingerprint, StringComparison.Ordinal)) return;
+
+        var visualDirty = HasUnsavedVisualEdits;
+        var textDirty = HasUnsavedTextEdits;
+        var modeDirty = SelectedSectionOption.Value != _sectionAtLoad;
+        if (!visualDirty) LoadFields(saved);
+        if (!textDirty) LoadText(saved);
+        if (!modeDirty) SelectedSectionOption = SectionOptions.Single(option => option.Value == SectionOf(saved));
+        MarkSavedMode();
+        if (visualDirty || textDirty || modeDirty)
+            OperationMessage = "保存的配置已在别处更新；当前有未保存的草稿，未自动覆盖。可继续编辑或重新读取。";
+    }
+
+    private static FrpConfigSection SectionOf(FrpSettings settings) => settings.ConfigMode == FrpConfigMode.Text
+        ? FrpConfigSection.Text : FrpConfigSection.Visual;
+
+    private void NotifyDraftState()
+    {
+        if (SelectedRoleOption is null || SelectedProxyKindOption is null || SelectedSectionOption is null) return;
+        OnPropertyChanged(nameof(HasUnsavedVisualEdits));
+        OnPropertyChanged(nameof(HasUnsavedTextEdits));
+        OnPropertyChanged(nameof(HasUnsavedEdits));
+        OnPropertyChanged(nameof(DraftHint));
     }
 
     /// <summary>
@@ -476,6 +595,7 @@ public sealed partial class FrpTunnelConfigViewModel : ViewModelBase, IAsyncDisp
         {
             ServerAddress = ServerAddress.Trim(),
             ServerPort = ParsePort(ServerPortText, "服务器端口", problems, current.Client.ServerPort),
+            User = User.Trim(),
             ProxyName = ProxyName.Trim(),
             ProxyKind = SelectedProxyKindOption.Value,
             LocalAddress = LocalAddress.Trim(),
@@ -515,7 +635,7 @@ public sealed partial class FrpTunnelConfigViewModel : ViewModelBase, IAsyncDisp
     private string SettingsFormFingerprint() => System.Text.Json.JsonSerializer.Serialize(new object?[]
     {
         SelectedRoleOption.Value, SelectedProxyKindOption.Value,
-        ServerAddress, ServerPortText, ProxyName, LocalAddress, LocalPortText, RemotePortText,
+        ServerAddress, ServerPortText, User, ProxyName, LocalAddress, LocalPortText, RemotePortText,
         CustomDomainsText, UseEncryption, UseCompression, TransportTls, ClientAdminPortText,
         BindPortText, VhostHttpPortText, SubdomainHost, ServerAdminPortText, TokenIntent, TokenInput,
     });
@@ -551,13 +671,14 @@ public sealed partial class FrpTunnelConfigViewModel : ViewModelBase, IAsyncDisp
     {
         base.OnPropertyChanged(e);
         if (e.PropertyName is nameof(SelectedRoleOption) or nameof(SelectedProxyKindOption)
-            or nameof(ServerAddress) or nameof(ServerPortText) or nameof(ProxyName) or nameof(LocalAddress)
+            or nameof(ServerAddress) or nameof(ServerPortText) or nameof(User) or nameof(ProxyName) or nameof(LocalAddress)
             or nameof(LocalPortText) or nameof(RemotePortText) or nameof(CustomDomainsText)
             or nameof(UseEncryption) or nameof(UseCompression) or nameof(TransportTls) or nameof(ClientAdminPortText)
             or nameof(BindPortText) or nameof(VhostHttpPortText) or nameof(SubdomainHost) or nameof(ServerAdminPortText)
             or nameof(TokenInput) or nameof(TokenIntent))
         {
             ValidateFields();
+            NotifyDraftState();
         }
     }
 
@@ -607,6 +728,21 @@ public sealed partial class FrpTunnelConfigViewModel : ViewModelBase, IAsyncDisp
 
         ValidationText = problems.Count == 0 ? string.Empty : string.Join(Environment.NewLine, problems);
         OnPropertyChanged(nameof(HasProblems));
+        OnPropertyChanged(nameof(ShowVisualProblems));
+    }
+
+    private void ShowOperationFailure(string message)
+    {
+        OperationMessage = message;
+        if (IsTextSection)
+        {
+            ConfigTextFailed = true;
+            ConfigTextMessage = message;
+        }
+        else
+        {
+            ShowProblems([message]);
+        }
     }
 
     private async Task RunAsync(Func<Task> operation)
@@ -623,8 +759,9 @@ public sealed partial class FrpTunnelConfigViewModel : ViewModelBase, IAsyncDisp
         }
         catch (Exception error)
         {
-            _diagnostics.Record("穿透配置操作失败", error);
-            ShowProblems([$"操作失败：{error.Message}"]);
+            var failure = $"穿透配置操作失败：{error.GetType().Name}（0x{error.HResult:X8}）";
+            _diagnostics.Record(failure + Environment.NewLine + error.StackTrace);
+            ShowOperationFailure(failure);
         }
         finally
         {

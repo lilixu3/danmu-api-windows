@@ -23,11 +23,16 @@ public sealed record FrpSettingsReadResult(FrpSettings Settings, IReadOnlyList<s
 public sealed class FrpSettingsStore
 {
     public const string RoleKey = "frp_role";
+    public const string ConfigModeKey = "frp_config_mode";
+    /// <summary>Integrity/transaction reference only; the source and its secrets never enter properties.</summary>
+    public const string ConfigTextHashKey = "frp_config_text_sha256";
     /// <summary>随弹幕服务启动而启动穿透（旧键 <c>frp_autostart</c> 是"随应用启动"，语义已改，故换名）。</summary>
     public const string FollowServiceKey = "frp_follow_service";
     public const string VersionKey = "frp_version";
     public const string ServerAddressKey = "frp_server_address";
     public const string ServerPortKey = "frp_server_port";
+    /// <summary>frp 的 <c>user</c>：服务商面板给的账号标识，frpc 用它把代理名登记为 <c>{user}.{proxy}</c>。</summary>
+    public const string UserKey = "frp_user";
     public const string ProxyNameKey = "frp_proxy_name";
     public const string ProxyKindKey = "frp_proxy_kind";
     public const string LocalAddressKey = "frp_local_address";
@@ -46,15 +51,18 @@ public sealed class FrpSettingsStore
     private readonly ISettingsStore _settings;
     private readonly IProtectedStringStore _tokenStore;
     private readonly IProtectedStringStore _adminPasswordStore;
+    private readonly IProtectedDocumentStore? _rawStore;
 
     public FrpSettingsStore(
         ISettingsStore settings,
         IProtectedStringStore tokenStore,
-        IProtectedStringStore adminPasswordStore)
+        IProtectedStringStore adminPasswordStore,
+        IProtectedDocumentStore? rawStore = null)
     {
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _tokenStore = tokenStore ?? throw new ArgumentNullException(nameof(tokenStore));
         _adminPasswordStore = adminPasswordStore ?? throw new ArgumentNullException(nameof(adminPasswordStore));
+        _rawStore = rawStore;
     }
 
     /// <summary>读取设置。<paramref name="defaultLocalPort"/> 仅在相关键完全缺失时用于默认值。</summary>
@@ -63,6 +71,17 @@ public sealed class FrpSettingsStore
         var defaults = FrpSettings.Default(defaultLocalPort);
         var values = _settings.Read();
         var problems = new List<string>();
+        var mode = FrpConfigMode.Visual;
+        if (values.TryGetValue(ConfigModeKey, out var modeText))
+        {
+            mode = modeText switch
+            {
+                "visual" => FrpConfigMode.Visual,
+                "text" => FrpConfigMode.Text,
+                _ => AddProblem(problems, $"{ConfigModeKey} 取值无效（只能是 visual 或 text）", FrpConfigMode.Visual),
+            };
+        }
+        var raw = ReadRaw(values, mode, problems);
 
         var role = defaults.Role;
         if (values.TryGetValue(RoleKey, out var roleText))
@@ -91,6 +110,7 @@ public sealed class FrpSettingsStore
         {
             ServerAddress = ReadString(values, ServerAddressKey, defaults.Client.ServerAddress),
             ServerPort = ReadPort(values, ServerPortKey, defaults.Client.ServerPort, problems),
+            User = ReadString(values, UserKey, defaults.Client.User).Trim(),
             ProxyName = ReadString(values, ProxyNameKey, defaults.Client.ProxyName).Trim(),
             ProxyKind = proxyKind,
             LocalAddress = ReadString(values, LocalAddressKey, defaults.Client.LocalAddress).Trim(),
@@ -116,7 +136,16 @@ public sealed class FrpSettingsStore
             ReadBool(values, FollowServiceKey, defaults.FollowService, problems),
             client,
             server,
-            ReadString(values, VersionKey, string.Empty).Trim());
+            ReadString(values, VersionKey, string.Empty).Trim())
+        {
+            ConfigMode = mode,
+            RawConfig = raw,
+        };
+        if (mode == FrpConfigMode.Text && raw.Length > 0)
+        {
+            try { FrpNativeConfig.Parse(raw); }
+            catch (FrpConfigurationException error) { problems.AddRange(error.Problems); }
+        }
 
         return new FrpSettingsReadResult(settings, problems);
     }
@@ -124,13 +153,20 @@ public sealed class FrpSettingsStore
     public void Save(FrpSettings settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        if (!Enum.IsDefined(settings.ConfigMode)) throw new ArgumentException("穿透配置模式无效", nameof(settings));
+        var current = RequireReadable(settings.Client.LocalPort);
+        if (settings.ConfigMode == FrpConfigMode.Text
+            && !string.Equals(settings.RawConfig, current.RawConfig, StringComparison.Ordinal))
+            throw new IOException("配置文本必须通过受保护文档事务保存，不能从可视化设置覆盖");
         _settings.Write(new Dictionary<string, string?>(StringComparer.Ordinal)
         {
+            [ConfigModeKey] = settings.ConfigMode == FrpConfigMode.Text ? "text" : "visual",
             [RoleKey] = settings.Role == FrpRole.Client ? "client" : "server",
             [FollowServiceKey] = Bool(settings.FollowService),
             [VersionKey] = settings.InstalledVersion,
             [ServerAddressKey] = settings.Client.ServerAddress,
             [ServerPortKey] = Int(settings.Client.ServerPort),
+            [UserKey] = settings.Client.User,
             [ProxyNameKey] = settings.Client.ProxyName,
             [ProxyKindKey] = settings.Client.ProxyKind.ToFrpText(),
             [LocalAddressKey] = settings.Client.LocalAddress,
@@ -146,6 +182,115 @@ public sealed class FrpSettingsStore
             [SubdomainHostKey] = settings.Server.SubdomainHost,
             [ServerAdminPortKey] = Int(settings.Server.AdminPort),
         });
+    }
+
+    /// <summary>
+    /// Commit a protected source and its mode/integrity reference, without changing any visual field/token.
+    /// A crash between files leaves a detectable hash mismatch, not an executable mixed snapshot.
+    /// Failed commits restore both files; rollback failures are explicitly reported, never hidden.
+    /// </summary>
+    public FrpSettingsReadResult SaveText(string text, int defaultLocalPort) =>
+        SaveTextAsync(text, defaultLocalPort).GetAwaiter().GetResult();
+
+    public async Task<FrpSettingsReadResult> SaveTextAsync(string text, int defaultLocalPort,
+        Func<string, CancellationToken, Task>? verifyBeforeActivation = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        cancellationToken.ThrowIfCancellationRequested();
+        var old = RequireReadable(defaultLocalPort);
+        FrpNativeConfig.Parse(text);
+        var rawStore = _rawStore ?? throw new IOException("未配置受保护配置文档存储，不能保存配置文本");
+        var before = _settings.Read();
+        before.TryGetValue(ConfigModeKey, out var oldMode);
+        before.TryGetValue(ConfigTextHashKey, out var oldHash);
+        var hadRaw = oldHash is not null;
+        try
+        {
+            rawStore.Save(text);
+            var persistedText = rawStore.Load();
+            if (!string.Equals(persistedText, text, StringComparison.Ordinal))
+                throw new IOException("受保护配置文档回读校验失败");
+            FrpNativeConfig.Parse(persistedText!);
+            if (verifyBeforeActivation is not null)
+                await verifyBeforeActivation(persistedText!, cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            _settings.Write(new Dictionary<string, string?>(StringComparer.Ordinal)
+            {
+                [ConfigModeKey] = "text",
+                [ConfigTextHashKey] = DocumentHash(text),
+            });
+            var committed = Read(defaultLocalPort);
+            if (!committed.Succeeded || committed.Settings.ConfigMode != FrpConfigMode.Text
+                || !string.Equals(committed.Settings.RawConfig, text, StringComparison.Ordinal))
+                throw new IOException("配置文本事务回读校验失败");
+            return committed;
+        }
+        catch (Exception error)
+        {
+            try
+            {
+                if (hadRaw) rawStore.Save(old.RawConfig);
+                else rawStore.Clear();
+                _settings.Write(new Dictionary<string, string?>(StringComparer.Ordinal)
+                {
+                    [ConfigModeKey] = oldMode,
+                    [ConfigTextHashKey] = oldHash,
+                });
+                var restored = Read(defaultLocalPort);
+                var restoredValues = _settings.Read();
+                restoredValues.TryGetValue(ConfigModeKey, out var restoredMode);
+                restoredValues.TryGetValue(ConfigTextHashKey, out var restoredHash);
+                if (!restored.Succeeded || restoredMode != oldMode || restoredHash != oldHash
+                    || !string.Equals(restored.Settings.RawConfig, old.RawConfig, StringComparison.Ordinal))
+                    throw new IOException("配置文本事务回滚回读校验失败");
+            }
+            catch (Exception rollback)
+            {
+                throw new IOException($"配置文本保存失败：{error.Message}；回滚也失败：{rollback.Message}。请修复存储一致性后再启动。",
+                    new AggregateException(error, rollback));
+            }
+            throw;
+        }
+    }
+
+    private FrpSettings RequireReadable(int defaultLocalPort)
+    {
+        var read = Read(defaultLocalPort);
+        if (!read.Succeeded) throw new IOException($"穿透设置读取失败：{string.Join("；", read.Problems)}");
+        return read.Settings;
+    }
+
+    private string ReadRaw(IReadOnlyDictionary<string, string> values, FrpConfigMode mode, List<string> problems)
+    {
+        var hasHash = values.TryGetValue(ConfigTextHashKey, out var hash);
+        if (_rawStore is null)
+        {
+            if (mode == FrpConfigMode.Text || hasHash) problems.Add("未配置受保护配置文档存储");
+            return string.Empty;
+        }
+        string? raw;
+        try { raw = _rawStore.Load(); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+        {
+            problems.Add($"读取受保护配置文档失败：{error.Message}");
+            return string.Empty;
+        }
+        if (raw is null)
+        {
+            if (mode == FrpConfigMode.Text || hasHash) problems.Add("已保存的配置文本缺失；禁止改用可视化配置启动");
+            return string.Empty;
+        }
+        if (!hasHash || hash!.Length != 64 || !hash.All(Uri.IsHexDigit)
+            || !string.Equals(hash, DocumentHash(raw), StringComparison.Ordinal))
+            problems.Add("配置文本与设置的完整性标记不一致；保存可能未完成，禁止启动");
+        return raw;
+    }
+
+    private static string DocumentHash(string text)
+    {
+        var bytes = new System.Text.UTF8Encoding(false, true).GetBytes(text);
+        try { return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)); }
+        finally { System.Security.Cryptography.CryptographicOperations.ZeroMemory(bytes); }
     }
 
     /// <summary>

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using DanmuApi.App.Services;
 using DanmuApi.Core.Frp;
 using DanmuApi.Platform;
 using DanmuApi.Platform.Frp;
@@ -32,6 +33,164 @@ public sealed class FrpSupervisorIntegrationTests
         var path = Path.Combine(directory!, fileName);
         Skip.IfNot(File.Exists(path), $"DANMU_TEST_FRP_DIR 下缺少 {fileName}: {path}");
         return path;
+    }
+
+    [SkippableTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RawSaveStartMultiProxyUserStatusAndStopUseNativeSourceWithoutVisualImport(bool toml)
+    {
+        var frpc = RequireFrp("frpc.exe");
+        var frps = RequireFrp("frps.exe");
+        using var directory = new TemporaryDirectory();
+        var paths = new AppPaths(Path.Combine(directory.Path, "runtime"), Path.Combine(directory.Path, "settings"));
+        Directory.CreateDirectory(Path.Combine(paths.FrpBinaryDirectory, "0.71.0"));
+        File.Copy(frpc, Path.Combine(paths.FrpBinaryDirectory, "0.71.0", "frpc.exe"));
+        File.Copy(frps, Path.Combine(paths.FrpBinaryDirectory, "0.71.0", "frps.exe"));
+        await using var server = await FrpTestServer.StartAsync(frps, directory.Path, "integration-token");
+        await using var backend = EchoBackend.Start();
+        var remotePort = TestPorts.FreePort();
+        var otherPort = TestPorts.FreePort();
+        var adminPort = TestPorts.FreePort();
+        var raw = toml ? $$$"""
+            serverAddr = "127.0.0.1"
+            serverPort = {{{server.BindPort}}}
+            user = "native-user"
+            auth.method = "token"
+            auth.token = "integration-token"
+            webServer.port = {{{adminPort}}}
+            transport.tls.enable = true
+            [[proxies]]
+            name = "api"
+            type = "tcp"
+            localIP = "127.0.0.1"
+            localPort = {{{backend.Port}}}
+            remotePort = {{{remotePort}}}
+            transport.useCompression = true
+            [[proxies]]
+            name = "other"
+            type = "udp"
+            localIP = "127.0.0.1"
+            localPort = {{{backend.Port}}}
+            remotePort = {{{otherPort}}}
+            """ : $$$"""
+            {"serverAddr":"127.0.0.1","serverPort":{{{server.BindPort}}},"user":"native-user",
+            "auth":{"method":"token","token":"integration-token"},"webServer":{"port":{{{adminPort}}}},
+            "transport":{"tls":{"enable":true}},"proxies":[
+            {"name":"api","type":"tcp","localIP":"127.0.0.1","localPort":{{{backend.Port}}},"remotePort":{{{remotePort}}},"transport":{"useCompression":true}},
+            {"name":"other","type":"udp","localIP":"127.0.0.1","localPort":{{{backend.Port}}},"remotePort":{{{otherPort}}}}]}
+            """;
+        var store = new FrpSettingsStore(new SettingsStore(paths.SettingsFile),
+            new WindowsProtectedStringStore(paths.FrpTokenFile, "DanmuApi.Windows.FrpToken.v1"),
+            new WindowsProtectedStringStore(paths.FrpAdminPasswordFile, "DanmuApi.Windows.FrpAdminPassword.v1"),
+            new WindowsProtectedDocumentStore(paths.FrpConfigTextFile));
+        var visual = FrpSettings.Default(backend.Port) with { Role = FrpRole.Server };
+        store.Save(visual);
+        store.SaveToken("dormant-visual-token");
+        var installer = new FakeFrpInstaller { BinaryDirectory = paths.FrpBinaryDirectory, Version = "0.71.0" };
+        var runtime = new FakeRuntimeController();
+        runtime.SetState(DesktopRuntimeState.Running, backend.Port);
+        var admin = new RecordingAdminClient(new FrpAdminClient(NewHttpClient()));
+        await using var supervisor = new FrpSupervisor(admin, new WindowsProcessTerminator());
+        await using var service = new FrpTunnelService(store, installer, supervisor, paths, new FrpTestDiagnostics(), runtime,
+            () => backend.Port, new FrpNativeVerifier());
+        var saved = await service.SaveTextAsync(raw);
+        Assert.True(saved.Succeeded, saved.Message);
+        Assert.Equal(FrpRole.Server, service.Settings.Role);
+        Assert.Equal(FrpRole.Client, service.EffectiveSettings.Role);
+        Assert.Equal("dormant-visual-token", store.ReadToken());
+        Assert.Equal(raw, store.Read(backend.Port).Settings.RawConfig);
+        Assert.Empty(Directory.GetFiles(paths.FrpConfigDirectory, "verify-*.json"));
+        var started = await service.StartTunnelAsync();
+        Assert.True(started.Succeeded, started.Message + "; observed admin names/types: " + string.Join(",", admin.LastStatus.Select(proxy => proxy.Name + "/" + proxy.Type)));
+        Assert.Equal(FrpTunnelState.Running, service.Snapshot.State);
+        Assert.Equal(["api", "other"], service.Snapshot.ProxyList.Select(proxy => proxy.Name));
+        Assert.Equal(["api", "other"], service.Snapshot.ExpectedProxies.Select(proxy => proxy.AdminName));
+        Assert.Equal(["***.api", "***.other"], service.Snapshot.ExpectedProxies.Select(proxy => proxy.Name));
+        Assert.Empty(service.Snapshot.ActiveSettings!.Client.User);
+        Assert.All(service.Snapshot.ProxyList, proxy => Assert.True(proxy.IsRunning));
+        Assert.Equal($"127.0.0.1:{remotePort}", service.Snapshot.RemoteAddress);
+        Assert.Equal("DANMU-OK:PING", await TunnelEchoAsync(remotePort));
+        Assert.Empty(service.Snapshot.ActiveSettings!.RawConfig);
+        Assert.DoesNotContain("integration-token", service.ReadLogTail(), StringComparison.Ordinal);
+        Assert.DoesNotContain(store.EnsureAdminPassword(), service.ReadLogTail(), StringComparison.Ordinal);
+        Assert.True((await service.SaveAsync(visual, null, false)).Succeeded);
+        Assert.Equal(FrpConfigMode.Visual, service.Settings.ConfigMode);
+        Assert.Equal(FrpRole.Client, service.EffectiveSettings.Role);
+        Assert.Equal(FrpConfigMode.Text, service.Snapshot.ActiveSettings.ConfigMode);
+        Assert.Equal(FrpTunnelState.Running, (await supervisor.RefreshAsync()).State);
+        Assert.True((await service.StopTunnelAsync()).Succeeded);
+        Assert.Equal(FrpRole.Server, service.EffectiveSettings.Role);
+        AssertProcessGone(installer.ExecutablePath("0.71.0", false));
+        Assert.True(PortAvailability.IsBindable(adminPort));
+    }
+
+    [SkippableFact]
+    public async Task SwitchingFromLegacyTomlToRawJsonCleansOnlyTheExactOwnedOrphan()
+    {
+        var frpc = RequireFrp("frpc.exe");
+        var frps = RequireFrp("frps.exe");
+        using var directory = new TemporaryDirectory();
+        await using var server = await FrpTestServer.StartAsync(frps, directory.Path, "integration-token");
+        await using var backend = EchoBackend.Start();
+        var adminPort = TestPorts.FreePort();
+        var remotePort = TestPorts.FreePort();
+        var oldPlan = WriteClientPlan(directory.Path, frpc, server.BindPort, "integration-token", backend.Port, remotePort, adminPort);
+        var legacyPath = Path.Combine(directory.Path, "frpc.toml");
+        File.Move(oldPlan.ConfigPath, legacyPath);
+        oldPlan = oldPlan with { ConfigPath = legacyPath };
+        using var orphan = Process.Start(new ProcessStartInfo(frpc)
+        {
+            Arguments = $"-c \"{legacyPath}\"", WorkingDirectory = directory.Path, UseShellExecute = false,
+            CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
+        }) ?? throw new InvalidOperationException("Cannot create owned legacy orphan");
+        var stdout = orphan.StandardOutput.ReadToEndAsync();
+        var stderr = orphan.StandardError.ReadToEndAsync();
+        try
+        {
+            await WaitForAdminAsync(new FrpAdminClient(NewHttpClient()), adminPort, "danmu-api");
+            var jsonPath = Path.Combine(directory.Path, "frpc.json");
+            var native = FrpNativeConfig.Parse($$$"""
+                {"serverAddr":"127.0.0.1","serverPort":{{{server.BindPort}}},"auth":{"method":"token","token":"integration-token"},
+                "webServer":{"port":{{{adminPort}}}},"proxies":[{"name":"danmu-api","type":"tcp","localIP":"127.0.0.1","localPort":{{{backend.Port}}},"remotePort":{{{remotePort}}}}]}
+                """);
+            File.WriteAllText(jsonPath, native.CreateRuntimeConfig("admin", "local-admin-pass"));
+            var plan = oldPlan with { ConfigPath = jsonPath, OwnedConfigPaths = [legacyPath, jsonPath],
+                ExpectedProxies = native.Proxies, Secrets = native.Secrets, CoreServicePort = backend.Port };
+            Assert.True((await new FrpNativeVerifier().VerifyAsync(plan)).Succeeded);
+            await using var supervisor = new FrpSupervisor(new FrpAdminClient(NewHttpClient()), new WindowsProcessTerminator());
+            Assert.Equal(FrpTunnelState.Running, (await supervisor.StartAsync(plan)).State);
+            Assert.True(orphan.HasExited);
+            Assert.Equal("DANMU-OK:PING", await TunnelEchoAsync(remotePort));
+            Assert.Equal(FrpTunnelState.Stopped, (await supervisor.StopAsync()).State);
+        }
+        finally
+        {
+            if (!orphan.HasExited) orphan.Kill(entireProcessTree: true);
+            await orphan.WaitForExitAsync();
+            await Task.WhenAll(stdout, stderr);
+        }
+    }
+
+    [SkippableFact]
+    public async Task NativeVerifierRejectsUnknownFieldsWithoutLeakingAnyConfigurationSnippet()
+    {
+        var frpc = RequireFrp("frpc.exe");
+        using var directory = new TemporaryDirectory();
+        var config = Path.Combine(directory.Path, "frpc.json");
+        File.WriteAllText(config, """
+            {"serverAddr":"127.0.0.1","proxies":[{"name":"api","type":"tcp","localPort":9321,"remotePort":19321}],
+             "invalidNativeField":"private-unknown-marker","auth":{"method":"token","token":"test-token"}}
+            """);
+        var plan = new FrpRunPlan(FrpRole.Client, frpc, config, directory.Path, directory.Path, 7400, "admin", "admin-secret", "api",
+            TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5)) { Secrets = ["test-token"] };
+        var result = await new FrpNativeVerifier().VerifyAsync(plan);
+        Assert.False(result.Succeeded);
+        Assert.Contains("exitCode=1", result.Diagnostic, StringComparison.Ordinal);
+        Assert.Contains("不支持的字段", result.Diagnostic, StringComparison.Ordinal);
+        Assert.DoesNotContain("invalidNativeField", result.Diagnostic, StringComparison.Ordinal);
+        Assert.DoesNotContain("private-unknown-marker", result.Diagnostic, StringComparison.Ordinal);
+        Assert.DoesNotContain("test-token", result.Diagnostic, StringComparison.Ordinal);
     }
 
     [SkippableFact]
@@ -219,6 +378,8 @@ public sealed class FrpSupervisorIntegrationTests
             {
                 ServerAddress = "frp.example.com",
                 ServerPort = 7000,
+                // 服务商面板普遍要求 user：写错这个键名 frpc 会直接以 unknown field 拒绝，所以拿真二进制把关。
+                User = "panel-user",
                 LocalPort = 9321,
                 RemotePort = 19321,
                 UseCompression = true,
@@ -231,6 +392,16 @@ public sealed class FrpSupervisorIntegrationTests
         Assert.Equal(0, clientVerify.ExitCode);
         Assert.Contains("syntax is ok", clientVerify.Output, StringComparison.Ordinal);
 
+        var clientToml = Path.Combine(directory.Path, "frpc.toml");
+        File.WriteAllText(
+            clientToml,
+            FrpConfigWriter.WriteClient(settings.Client, "server-token", "admin", "local-admin-pass"),
+            new UTF8Encoding(false));
+        Assert.Contains("user = \"panel-user\"", File.ReadAllText(clientToml), StringComparison.Ordinal);
+        var clientTomlVerify = RunVerify(frpc, clientToml);
+        Assert.Equal(0, clientTomlVerify.ExitCode);
+        Assert.Contains("syntax is ok", clientTomlVerify.Output, StringComparison.Ordinal);
+
         var serverSettings = FrpSettings.Default(9321) with
         {
             Role = FrpRole.Server,
@@ -241,6 +412,29 @@ public sealed class FrpSupervisorIntegrationTests
         var serverVerify = RunVerify(frps, serverConfig);
         Assert.Equal(0, serverVerify.ExitCode);
         Assert.Contains("syntax is ok", serverVerify.Output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 端到端：用户从服务商面板复制回来的 frpc.toml → 粘贴导入 → 我们导出的配置 → 官方 frpc 接受。
+    /// 这条链路上任何一环把字段吃掉（例如 user 或代理级 transport）都会在这里被真二进制拦下。
+    /// </summary>
+    [SkippableFact]
+    public void ProviderPastedTomlRoundTripsIntoAConfigTheOfficialFrpcAccepts()
+    {
+        var frpc = RequireFrp("frpc.exe");
+        using var directory = new TemporaryDirectory();
+        var imported = FrpConfigText.Import(FrpProviderSample.ClientToml, FrpSettings.Default(9321));
+        Assert.True(imported.Succeeded, string.Join("；", imported.Problems));
+
+        var config = Path.Combine(directory.Path, "frpc.json");
+        File.WriteAllText(
+            config,
+            FrpConfigJson.Export(imported.Settings!, imported.Token ?? string.Empty),
+            new UTF8Encoding(false));
+
+        var result = RunVerify(frpc, config);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("syntax is ok", result.Output, StringComparison.Ordinal);
     }
 
     [SkippableTheory]
@@ -383,6 +577,7 @@ public sealed class FrpSupervisorIntegrationTests
         var client = new FrpClientSettings(
             "127.0.0.1",
             serverPort,
+            User: string.Empty,
             proxyName,
             FrpProxyKind.Tcp,
             "127.0.0.1",
@@ -423,6 +618,18 @@ public sealed class FrpSupervisorIntegrationTests
             FrpConfigWriter.WriteServer(new FrpServerSettings(bindPort, 0, string.Empty, adminPort), token, "admin", "local-admin-pass"),
             new UTF8Encoding(false));
         return configPath;
+    }
+
+    private sealed class RecordingAdminClient(IFrpAdminClient inner) : IFrpAdminClient
+    {
+        public IReadOnlyList<FrpProxyStatus> LastStatus { get; private set; } = [];
+        public async Task<IReadOnlyList<FrpProxyStatus>> ReadClientStatusAsync(int port, string user, string password, CancellationToken cancellationToken = default)
+        {
+            LastStatus = await inner.ReadClientStatusAsync(port, user, password, cancellationToken);
+            return LastStatus;
+        }
+        public Task<FrpServerInfo> ReadServerInfoAsync(int port, string user, string password, CancellationToken cancellationToken = default) =>
+            inner.ReadServerInfoAsync(port, user, password, cancellationToken);
     }
 
     private static HttpClient NewHttpClient() => new() { Timeout = TimeSpan.FromSeconds(5) };

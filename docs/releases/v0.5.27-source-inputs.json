@@ -1,0 +1,2897 @@
+﻿[
+    {
+        "Path":  ".gitignore",
+        "Length":  767,
+        "SHA256":  "23D54478960464F181E2950AA3BC40A992A1FA0968CB5C8A09AFD0C301F1558E"
+    },
+    {
+        "Path":  "assets/icons/app-icon-256.png",
+        "Length":  16343,
+        "SHA256":  "20A6C9FFED6B6B5DAB85063B6FB869E4B1F2B3CA194F4AF12D7B799AFB28683E"
+    },
+    {
+        "Path":  "assets/icons/danmuapi.ico",
+        "Length":  18386,
+        "SHA256":  "0E5083B0F2F936148DE21A89E0FADDE3CDFA5B3453FBF7867298B144F74CE915"
+    },
+    {
+        "Path":  "build/Add-OptionalRedisPayload.ps1",
+        "Length":  3583,
+        "SHA256":  "37B77D5AEB92AB5C2D3C103C39604B735E4400A59C6D024D3BAA4A692581F45F"
+    },
+    {
+        "Path":  "build/Build-OutboundHelper.ps1",
+        "Length":  13681,
+        "SHA256":  "85DC8BC50BE6C8D334328521B27D9CCB1CD282D2D01E353DF300E862E7B5905D"
+    },
+    {
+        "Path":  "build/Build-WindowsRelease.ps1",
+        "Length":  9205,
+        "SHA256":  "9D26C09A3A697E4C3A16FBBE16554375483BF90F6D34EB874DC1493321ECFE14"
+    },
+    {
+        "Path":  "build/Compile-WindowsInstaller.ps1",
+        "Length":  985,
+        "SHA256":  "131CEA6E3880F152A0593811D2582E5EB0E0FFE759BC08042721687014A3474A"
+    },
+    {
+        "Path":  "build/Export-SigningRecovery.ps1",
+        "Length":  814,
+        "SHA256":  "B00E3D3D85FED1BEFF519C09B2E7D4D24E9DD15DE41F0504412AF851B9785339"
+    },
+    {
+        "Path":  "build/Extract-BundledRuntime.ps1",
+        "Length":  4062,
+        "SHA256":  "4278CF9273718361069D1AF9A73E83F218A45C209AD92B4717977C09420555CA"
+    },
+    {
+        "Path":  "build/Get-GoToolchain.ps1",
+        "Length":  8593,
+        "SHA256":  "6BDEB6BAA7DDD247772532C69719012F696261D2845DE343DEC2182262228CCA"
+    },
+    {
+        "Path":  "build/Get-OfficialNodeRuntime.ps1",
+        "Length":  6089,
+        "SHA256":  "A659531672D9B3D287B94F4B56FF4F0E27E60B134DB83F84FE2785607413EB56"
+    },
+    {
+        "Path":  "build/Initialize-WindowsSigning.ps1",
+        "Length":  2236,
+        "SHA256":  "0CD4DCF91EF9E1D0FD5A86653AEB99429A91B8F37FCE5BBEEC6C2CF47F7EDDEB"
+    },
+    {
+        "Path":  "build/Inspect-LegacyInstaller.ps1",
+        "Length":  1157,
+        "SHA256":  "BE20AA2A7036EA3CC314D8B0C317F2D54BAF429F6433772B8CE72F267A87C0D9"
+    },
+    {
+        "Path":  "build/New-OutboundRuntimeBundle.ps1",
+        "Length":  19861,
+        "SHA256":  "D77D1393BCCD50122395B5F4B350EE1C48D461A8B8DA263A36AFD9269FFD4716"
+    },
+    {
+        "Path":  "build/New-RuntimeBuildIdentity.ps1",
+        "Length":  5110,
+        "SHA256":  "7EC9007C706CC574FC791D0FC58DA935E3D3363C9A40DEBC80E5079887A48464"
+    },
+    {
+        "Path":  "build/New-TrustedLegacyRuntimeCatalog.ps1",
+        "Length":  2140,
+        "SHA256":  "D7F9CDD3322FDCAE537676FAF3D1DCA545B3FCF9F93CED4CF8560517AAD797F2"
+    },
+    {
+        "Path":  "build/New-UpdateManifest.ps1",
+        "Length":  1805,
+        "SHA256":  "2245EBA44ABBC09C1C6FAD533E7C0AC2502982EF31852B3DC465C0041C4DED24"
+    },
+    {
+        "Path":  "build/Sign-WindowsFile.ps1",
+        "Length":  1746,
+        "SHA256":  "8B4192A2C4DA3D59A86AED35AAC45DF8F04F6AFCEE2F4708E93D7297C7AFEA04"
+    },
+    {
+        "Path":  "build/Test-PortableUpdater.ps1",
+        "Length":  5942,
+        "SHA256":  "1BE2F02C090C302388B90C1E3B3D26B295E8DD27F1E34B7D97F0BA082BDD981F"
+    },
+    {
+        "Path":  "Directory.Build.props",
+        "Length":  1660,
+        "SHA256":  "0E02EFD63ECED49DBCFD0145B681E3E5746AC238E4676CBC3229891CDBC2E9F8"
+    },
+    {
+        "Path":  "Directory.Build.targets",
+        "Length":  1004,
+        "SHA256":  "2A836BE848F1500BD00EE33A5B263FBF1611EBBD45D1FEAF7AE303DFC6DE3209"
+    },
+    {
+        "Path":  "Directory.Packages.props",
+        "Length":  1473,
+        "SHA256":  "8385711838A6D255ADE5443D0B3547577FD6687283B9065C4ABB487CD7D2C9C4"
+    },
+    {
+        "Path":  "global.json",
+        "Length":  108,
+        "SHA256":  "119D752C287FA3C11D438BECFA8436921034C3A2624B9ABF063E1A0F98BCF0AC"
+    },
+    {
+        "Path":  "installer/DanmuApi.iss",
+        "Length":  35197,
+        "SHA256":  "6EFE07EADA393B40B15BC90F90E037521B75C1CAD416D2ECE4F5FE322DE9D305"
+    },
+    {
+        "Path":  "lib",
+        "Length":  151,
+        "SHA256":  "5531F032FF54BB5CE9708CC6607D8C82B350F611D5D91923FC6D4D6909EE27B4"
+    },
+    {
+        "Path":  "node-tests/app-outbound-bridge.test.cjs",
+        "Length":  25439,
+        "SHA256":  "1AAFA68E0F0294C0FBDA0EA6E8C207E160982E685728A409C478BAF5A98352CB"
+    },
+    {
+        "Path":  "node-tests/app-outbound-host.test.cjs",
+        "Length":  14363,
+        "SHA256":  "8D01547E3615499F10CA030BCFA542765E3F23C5AFD1083F369405EF91A76A3A"
+    },
+    {
+        "Path":  "node-tests/app-outbound-runtime.test.cjs",
+        "Length":  23039,
+        "SHA256":  "34B07F6BC342DA25A8A5F34B2B8A9BF945B0DAE002BF8AFC407CA3F6E5505065"
+    },
+    {
+        "Path":  "node-tests/fake-outbound-helper.cjs",
+        "Length":  2334,
+        "SHA256":  "12216603CAA412E655A5591B3B4D4517A6FB75C737F83DDCA19F6BB6CBD98499"
+    },
+    {
+        "Path":  "node-tests/host-fixture-preload.cjs",
+        "Length":  647,
+        "SHA256":  "505C1749BB6ADC8C85820A3BFE2180BA580064C8CC1430C3A8E91D89F91E9089"
+    },
+    {
+        "Path":  "node-tests/support.cjs",
+        "Length":  1351,
+        "SHA256":  "EF2D4C40B0B630F35CD568412E5B11A4A613D1E3B841A5A654E8CFB0C85867AA"
+    },
+    {
+        "Path":  "README.md",
+        "Length":  10369,
+        "SHA256":  "18562D87BD3A86075211B1ABFA4FEEDC4794BF9A303741706F856B4CF5E564D7"
+    },
+    {
+        "Path":  "runtime/node-host/android-server.js",
+        "Length":  89891,
+        "SHA256":  "F4F523E19F22C18677B07ECE21ABA518D3725DD60649FF9D652E236C3E14A9B4"
+    },
+    {
+        "Path":  "runtime/node-host/app-outbound-bridge.js",
+        "Length":  20352,
+        "SHA256":  "6EF94A96F68FF188D7E46FEB1EDF5E284CAC1E019B3CCB70CE1B85075EC6C468"
+    },
+    {
+        "Path":  "runtime/node-host/app-outbound-diagnostics.js",
+        "Length":  3521,
+        "SHA256":  "8EB749E230C0636BF63F2B64C308DDDA428A0BFC9C79B43B5FE0104CE259920E"
+    },
+    {
+        "Path":  "runtime/node-host/app-outbound-errors.js",
+        "Length":  1594,
+        "SHA256":  "D60B80EEBDEE124DD16AE62C0EB86E47738AA6E561F06F2CB0A32244C40ABAE6"
+    },
+    {
+        "Path":  "runtime/node-host/app-outbound-runtime.js",
+        "Length":  24702,
+        "SHA256":  "4B7DFF04B314A74CBE92F8C0C4040F0DA9511AF37E285135B07C7683ADAC8A53"
+    },
+    {
+        "Path":  "runtime/node-host/favorite-scheduler-host.js",
+        "Length":  14420,
+        "SHA256":  "AFBAEFF73DB2781A7CE70090B89420D01D87ADCD073A1BE91FEF35ADEE5578BD"
+    },
+    {
+        "Path":  "runtime/node-host/main.js",
+        "Length":  850,
+        "SHA256":  "19B62796E9FB27A09548EF2C68F407B61FEB7D6D994C215DCD69C8A7B88B9301"
+    },
+    {
+        "Path":  "runtime/node-host/package.json",
+        "Length":  297,
+        "SHA256":  "CF0F04B05A5FC2592EF08664805540932BE75393E4C88B3036CB64A9A2D421CB"
+    },
+    {
+        "Path":  "runtime/node-host/package-lock.json",
+        "Length":  20278,
+        "SHA256":  "AEF2899231D1C5DCB2D85E715B8612D5B56BD4E059D61F0A1B6DCE85AE707A21"
+    },
+    {
+        "Path":  "runtime/node-host/runtime_asset_layout.txt",
+        "Length":  24,
+        "SHA256":  "F86A7E22CC3DF286FEBAFF9EC3AF23640A539731C8EF7F7A8F2376F4C6F08A05"
+    },
+    {
+        "Path":  "runtime/node-host/runtime-polyfills.js",
+        "Length":  1252,
+        "SHA256":  "A6F1D1D6FB3CE527E6531C4AD8544374C3239CD6F4DD417F59634D7B645FBAE9"
+    },
+    {
+        "Path":  "runtime/node-host/startup-failure.js",
+        "Length":  2062,
+        "SHA256":  "AE254ACE0167C05E58289779C853BC7DCC5CD8E0F7140A97FACB2703DCAED27F"
+    },
+    {
+        "Path":  "runtime/node-host/worker-proxy.js",
+        "Length":  12170,
+        "SHA256":  "6DE9F0CA840DA66EC463969292DA2F98E7408926B57008D3ECC4F03BE5A76938"
+    },
+    {
+        "Path":  "runtime/outbound/LICENSE",
+        "Length":  35182,
+        "SHA256":  "13FB48A6C31A72E0E2B69650B1CEBE8954F7B73449848492DCFD22B25BD91AFA"
+    },
+    {
+        "Path":  "runtime/outbound/README.md",
+        "Length":  11355,
+        "SHA256":  "9C70E36C2F018B037DE3E759798F7EACFEDEA33C95B72CBA7BA1315FC5C5F2FA"
+    },
+    {
+        "Path":  "runtime/outbound/src/bounded_log.go",
+        "Length":  1712,
+        "SHA256":  "2E85A38695735E4EA3231947220BF7324C84A63763A66880BA174782302857AB"
+    },
+    {
+        "Path":  "runtime/outbound/src/bounded_log_test.go",
+        "Length":  783,
+        "SHA256":  "87D1170C17018DBD7D2206983FA014C22D14693E8D6EAC607CD074CF33BE0C97"
+    },
+    {
+        "Path":  "runtime/outbound/src/diagnostics.go",
+        "Length":  4533,
+        "SHA256":  "0653B078D50463AA66B5CDA6B4A6B85941AC2110428D8FEC9D48958D424F77CC"
+    },
+    {
+        "Path":  "runtime/outbound/src/diagnostics_test.go",
+        "Length":  7459,
+        "SHA256":  "5E7DDE1595739E35A1423946B2627A905E15BA9DA5FF73FE5E238501B8FD8B93"
+    },
+    {
+        "Path":  "runtime/outbound/src/dns.go",
+        "Length":  17007,
+        "SHA256":  "B171F6D7B812193A997DAD2236CB78F4697DF3CA92D2B0093604EFAE2ECF84C6"
+    },
+    {
+        "Path":  "runtime/outbound/src/dns_test.go",
+        "Length":  13494,
+        "SHA256":  "D9AB3E076464AD5FA146707D2F171FBB95F724082A7BFE157B9C7541869CDE9A"
+    },
+    {
+        "Path":  "runtime/outbound/src/empty_response_test.go",
+        "Length":  1458,
+        "SHA256":  "A1E5D3CE56D113DD80D12CE87DAD775D519A0348EC0F666D91B178C869469A77"
+    },
+    {
+        "Path":  "runtime/outbound/src/github_proxy.go",
+        "Length":  7702,
+        "SHA256":  "D18E7E3ABD4D38D223BD73D87891DA3E6EA1CC602F1E0EFB33AE5CEB737EBF67"
+    },
+    {
+        "Path":  "runtime/outbound/src/github_proxy_test.go",
+        "Length":  5734,
+        "SHA256":  "1030F41942B2253821124CF61E0ED129AFCE6E4062F698348E2FA717774E27D9"
+    },
+    {
+        "Path":  "runtime/outbound/src/go.mod",
+        "Length":  322,
+        "SHA256":  "D6A50F44606EC546C49DF65CBBCA793DDF39B965F05E4E9D7C4DCAEC55BCEB60"
+    },
+    {
+        "Path":  "runtime/outbound/src/go.sum",
+        "Length":  1970,
+        "SHA256":  "5C3A4797676AA9DBAF7CC4163C6842DC1E67B5C1987284A81AE130B9BBDE2F49"
+    },
+    {
+        "Path":  "runtime/outbound/src/helper_test.go",
+        "Length":  2074,
+        "SHA256":  "0F17997FBE8A8B0D776B5F18DE8D1281D91563F723527AED99C06AC305F120FB"
+    },
+    {
+        "Path":  "runtime/outbound/src/live_test.go",
+        "Length":  748,
+        "SHA256":  "5697629050FE728A546C009D07BC207E09AB758ADD461CD9E0C9C1A8F4C48F91"
+    },
+    {
+        "Path":  "runtime/outbound/src/main.go",
+        "Length":  10505,
+        "SHA256":  "535AC02082C249F31B974935E1F6B069BCFDC53D03C283BADC25832C8E58BE66"
+    },
+    {
+        "Path":  "runtime/outbound/src/native_helper_test.go",
+        "Length":  9561,
+        "SHA256":  "485BA3625E8A6694CDBB6BC52F481D4E8788657AE9AA1CBA4878DC86D17EC0DB"
+    },
+    {
+        "Path":  "runtime/outbound/src/policy.go",
+        "Length":  954,
+        "SHA256":  "F07B516E38E679223413F9D69B19AA5618EDB5B93D8464FCE95E5C7F48F28ECD"
+    },
+    {
+        "Path":  "runtime/outbound/src/policy_test.go",
+        "Length":  4972,
+        "SHA256":  "8C69804508C9F19DE790DE0FCDCB68D7F6BA2D554AA56030B09A50D827313435"
+    },
+    {
+        "Path":  "runtime/outbound/src/pool_test.go",
+        "Length":  4738,
+        "SHA256":  "D0A7DECF24E7F4EDAC20929CC5AB870BA41B11C175B3EEF8CAC40A08FFE10139"
+    },
+    {
+        "Path":  "runtime/outbound/src/proxy.go",
+        "Length":  7109,
+        "SHA256":  "D407751E0DAF8CE723E210E1BDB4309088353C1AE0489612FE99C56E03A81E89"
+    },
+    {
+        "Path":  "runtime/outbound/src/proxy_stream_test.go",
+        "Length":  4331,
+        "SHA256":  "8048A3962FEBE15C55DD527A7FDAFFB9651B45B2182E47F504A868C0993E405C"
+    },
+    {
+        "Path":  "runtime/outbound/src/proxy_test.go",
+        "Length":  4221,
+        "SHA256":  "CB9897F9B670D3716F72FB057BA7D46616571AEDF7C020074CDFD3A82D89F67A"
+    },
+    {
+        "Path":  "runtime/outbound/src/redaction_test.go",
+        "Length":  804,
+        "SHA256":  "E8FC51F9E1DDEA43B90FE88909A934E18282F6A48109B942FB481AC7CA3353BD"
+    },
+    {
+        "Path":  "runtime/outbound/src/request_decode.go",
+        "Length":  2900,
+        "SHA256":  "3BEB620C09932E6A6E1F1955020DBE4B9364ABD15936286E07D0DB8E6980D227"
+    },
+    {
+        "Path":  "runtime/outbound/src/request_decode_test.go",
+        "Length":  2851,
+        "SHA256":  "2C9E97BFF0D304C8327774D0955449B22477840CCA90FA4D9D54F2E7180C8F1D"
+    },
+    {
+        "Path":  "runtime/outbound/src/secure_directory_other.go",
+        "Length":  189,
+        "SHA256":  "437BE8AA60CE9E9CFE6ECE2A0272AC3A318BBBC4E16F27940EB191CD4DEC7DE8"
+    },
+    {
+        "Path":  "runtime/outbound/src/secure_directory_windows.go",
+        "Length":  7423,
+        "SHA256":  "940090F0E12D020686FDACC009473E36793419542FE72E6CA65ACF4D32A25D43"
+    },
+    {
+        "Path":  "runtime/outbound/src/secure_directory_windows_test.go",
+        "Length":  3833,
+        "SHA256":  "32069B43DC8805D3388ADA1ABFE0DF7A9F45569E643C329DE129FF9D27273EAC"
+    },
+    {
+        "Path":  "runtime/outbound/src/transport.go",
+        "Length":  11509,
+        "SHA256":  "3E740E6DBCF6C75E171572465A52692A5044C133200E4124DB485664ECDDB610"
+    },
+    {
+        "Path":  "runtime/outbound/src/transport_test.go",
+        "Length":  7956,
+        "SHA256":  "B96C90D76B19B0A71AACE37BAC0419B1906A4B4A3A12CB12C1D7E547B20920CB"
+    },
+    {
+        "Path":  "runtime/outbound/UPSTREAM",
+        "Length":  617,
+        "SHA256":  "4555531AC38F4603D2F688D66E461EECBDD0A17033A692D73EB72510F5AB290D"
+    },
+    {
+        "Path":  "src/DanmuApi.App/App.axaml",
+        "Length":  24109,
+        "SHA256":  "795E9BDE030A2E5A2E4F57711631C9F104D7F80061150157C1C829A505A86423"
+    },
+    {
+        "Path":  "src/DanmuApi.App/App.axaml.cs",
+        "Length":  54352,
+        "SHA256":  "7C96E9BA1951964ACB2D9DF9CD1E6B7D30A07D9EC40E50494F4C8511BA2E621F"
+    },
+    {
+        "Path":  "src/DanmuApi.App/app.manifest",
+        "Length":  1492,
+        "SHA256":  "115B47B2632AF4B1AA828C45131291D3DF3B3BDFA98AE87FD306E22AC0450BE5"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Assets/avalonia-logo.ico",
+        "Length":  175875,
+        "SHA256":  "63BD34C6B0215A4D7507538F619308DFE20130F6BB0018EE075EB7D3891BA203"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Assets/danmuapi.ico",
+        "Length":  18386,
+        "SHA256":  "0E5083B0F2F936148DE21A89E0FADDE3CDFA5B3453FBF7867298B144F74CE915"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Assets/update-publisher.cer",
+        "Length":  1020,
+        "SHA256":  "2F3A05C9A169075A56464884BC1C58DA65764CA73CAE8FDDB926B66D0C3DE0A6"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Controls/ColorPaletteEditor.cs",
+        "Length":  13101,
+        "SHA256":  "2444DA89670B2AE9A3BF1F4A36A8107E3D49A013D6E337F8C9ABE5A2407E8880"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Controls/ColorWheel.cs",
+        "Length":  3956,
+        "SHA256":  "AACD95A5444A7729A941AAB90ED405D325BF365293D7A0A6480434F846E6CCA9"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Controls/ConfigForm.cs",
+        "Length":  4539,
+        "SHA256":  "10B1942FF7D9EFD5D5D4C0721F3DF4EAEBD2F7A45745B059B8A60FAF8D72E43E"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Controls/CustomMergeRulesEditor.cs",
+        "Length":  12942,
+        "SHA256":  "26C8FBFBDEC2636626D9D8A314783E994379573B3785D31942D783CD80850FB6"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Controls/DanmuHeatmapControl.cs",
+        "Length":  6023,
+        "SHA256":  "8369F3D7517A46416601C9D341290412D2834E29C3EBAE66B6C24C442FDD03AF"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Controls/DanmuOffsetEditor.cs",
+        "Length":  11221,
+        "SHA256":  "5EC4AAE1CE72B5C944DFA0D6539070A0E326D14F7AD8DE4A64932C79E9055895"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Controls/EnterKeyCommand.cs",
+        "Length":  2556,
+        "SHA256":  "8AD9E4CEE732CD46B30CD485C6D911F97A0F29E6276343AE897626F412179ACA"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Controls/IpBlacklistEditor.cs",
+        "Length":  4027,
+        "SHA256":  "4BADED493932FDD0DD0551D55FBF681E2EF859A649A2824D7D68F5E754E6B1C2"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Controls/MappingTableEditor.cs",
+        "Length":  6880,
+        "SHA256":  "340AAB7CFCA67A0C9169D5525269A2998B2212D0C142C870D43480B9E63D1D1A"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Controls/MarkdownView.cs",
+        "Length":  31824,
+        "SHA256":  "4CB427836D20D8CA7A9E89ECFBC1179199B40F5B34F5870ED8579E9F1B58CDEE"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Controls/MergeSourcePairsEditor.cs",
+        "Length":  6170,
+        "SHA256":  "7C7530CB3DB922116BD5CB54CBB4F9224B24583AD904CA19239A1AA03DB90AB8"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Controls/NumberWheelEditor.cs",
+        "Length":  3982,
+        "SHA256":  "045EF70653D772170E79FE05C852F83C56D40476382979CDEE60FACAA88D9FE5"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Controls/OrderedTagsEditor.cs",
+        "Length":  8998,
+        "SHA256":  "A253D7CA287EE63E7F8C566071F6E005A4F47FD5A86C6B5915538FB91A866389"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Controls/RecentDataPanel.cs",
+        "Length":  19062,
+        "SHA256":  "E93D38CDCC4289D4162A643171B9389E87C95AAFF942950865C440D8C3B5C2F7"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Controls/SavedStateCheckBox.cs",
+        "Length":  337,
+        "SHA256":  "69C04F49450BB8862BDB1FEBAE9AA94DE915C313EFBAEB58561698D7782422E3"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Controls/SavedStateToggleSwitch.cs",
+        "Length":  2116,
+        "SHA256":  "166AD73B04EDB2276168B0F5ECA55F36B9CA8B451CAF1F8A2850AC2003964770"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Controls/SwitchEditor.cs",
+        "Length":  2400,
+        "SHA256":  "1E10D49C9F3DE46E3067B5CD5C832E77410CCCE7FBA66835BEA82B39871CB48C"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Controls/TagPicker.cs",
+        "Length":  26811,
+        "SHA256":  "A35327D926F04996962CBB953D41ECDA02AB5A6B3E639017DD6D41793DB693B9"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Controls/TagSelectEditor.cs",
+        "Length":  2414,
+        "SHA256":  "D47F7DBAB90C81CC53FB2FF7821ED64BBB5EF5C01A12253BCBE20A40D55A973F"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Controls/VodServersEditor.cs",
+        "Length":  3238,
+        "SHA256":  "B0B3DAE636EE6F4C0C87545D0F13241B0C3980E30A83F350157248DF5A1D3248"
+    },
+    {
+        "Path":  "src/DanmuApi.App/DanmuApi.App.csproj",
+        "Length":  1769,
+        "SHA256":  "077CB1A0B33CDBB300067242C18DFACB33ACF06C87C3536DDED75D6F34D6D6C6"
+    },
+    {
+        "Path":  "src/DanmuApi.App/DesktopConfigReader.cs",
+        "Length":  1839,
+        "SHA256":  "9F5E2452BC68CAB8E5024F058EB5BD0C446B80C13ED4246B9F70303C67BF5EB3"
+    },
+    {
+        "Path":  "src/DanmuApi.App/packages.lock.json",
+        "Length":  10002,
+        "SHA256":  "94B0F8CCE2CD48FF821C29E27DC5D0E9052E2DDC44A7E93A4DCC64F027178F83"
+    },
+    {
+        "Path":  "src/DanmuApi.App/packages.lock.win-arm64.json",
+        "Length":  12343,
+        "SHA256":  "9AFB47F533568D84C2E6E564C15E139B40236FCE8C394A32B825771588BE30B8"
+    },
+    {
+        "Path":  "src/DanmuApi.App/packages.lock.win-x64.json",
+        "Length":  12341,
+        "SHA256":  "328B66DE49957D895549E20DA9988C07C690526D9ADB9A9E922D5A1CF080BCFF"
+    },
+    {
+        "Path":  "src/DanmuApi.App/packages.lock.win-x86.json",
+        "Length":  12341,
+        "SHA256":  "14CFD67ED90E9D9AF2E3AA74D1DB50F49A0CF7706C390E5834A079EE0ABB645E"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Program.cs",
+        "Length":  3868,
+        "SHA256":  "2B7812EAC0B71B6CE954384CFB22ED2CC7B9D50ED42275A2DFCC8445300BBE56"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Properties/AssemblyInfo.cs",
+        "Length":  89,
+        "SHA256":  "A3BE2A6ED640AA01B3CD93FA984D3CF9398AF5B4DBF2DCD13521AA9C0C1C4AE5"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ReleaseSelfTest.cs",
+        "Length":  14353,
+        "SHA256":  "5343F9E57A88DB67D094C6F841D5D4D69166661EB220E22816AF3306F9905776"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/AdminSessionService.cs",
+        "Length":  8716,
+        "SHA256":  "7E6B9C40CA78915062E8FE9ACBB7D999049BC7D4C3642B7EF5558C80180404DD"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/AdminWriteGate.cs",
+        "Length":  2790,
+        "SHA256":  "2E00E467236DF9846FE157FE6FD0BD9E9CC9BABA12453BCB9FC84E15CE1CFCF4"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/AppDiagnostics.cs",
+        "Length":  1580,
+        "SHA256":  "98E86BA4D9A7BADE7FEEA65E46E1C279079F7D13443D5B53880C8690CF4B0B3C"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/ApplicationReleaseVerifier.cs",
+        "Length":  3479,
+        "SHA256":  "6A1C7A77153FD1800F5C5206A2D03F1004F4511A7BF87650CD62C233F2C209E3"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/ApplicationUpdateHelper.cs",
+        "Length":  26064,
+        "SHA256":  "8B95206809F9ADDD9B36CC5AE3AE30385E6A49A8F1F81259E41B22AFB19F931D"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/AppLifecycleCoordinator.cs",
+        "Length":  10773,
+        "SHA256":  "42F0E887AD6483E68B2D3451C603B8473785BC477FBECA83DB10B68EA8EAFB7C"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/AppUpdateTrust.cs",
+        "Length":  3003,
+        "SHA256":  "E6CCBA345320F8A6AB1B04B897EE4052EAACB2EA990FE8F0CFBAB936D51220FA"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/AutostartService.cs",
+        "Length":  4293,
+        "SHA256":  "48A156589556EE11ECC6774B7CCAB1548507527FA7A407D0D0B7F6FF70A0E87F"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/BackupDialogService.cs",
+        "Length":  2263,
+        "SHA256":  "118FAA3C1EE0E91DC6CA7584D169FD3126241C43299C70644C1C949F2EB430A6"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/BackupRestoreGuard.cs",
+        "Length":  1330,
+        "SHA256":  "0D81BF24B6035FA3C7501177A21F2F61807F29E9B459FFB90A5F51165B300515"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/CloseAction.cs",
+        "Length":  914,
+        "SHA256":  "83CB3993E774C075FF00D8F1C651C963AAE5A6CAFD0FC72849A2B648CD4B06B7"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/CoreDependencyVerifier.cs",
+        "Length":  3204,
+        "SHA256":  "6794E270F1B7F306305FB3E8616C4F2F4BD9A326A9FD2F653A44077AEF1374A2"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/CoreEnvEditResult.cs",
+        "Length":  542,
+        "SHA256":  "8F131875B45A8F3FF4CEDBDC7B93CCDB777D7E7EB409EEAEBD4071228C4A62AB"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/CoreManagementService.cs",
+        "Length":  50211,
+        "SHA256":  "B7B0F7213B291F5DA66A60C4C1056C558BB087CBC6312F6D558024AF0EA7BEA8"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/CorePullRequestMergeService.cs",
+        "Length":  27088,
+        "SHA256":  "7B78459EB332FAA894868A4C57C40B437015F79C33B57A6A008D53CFDCC4E3EC"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/CoreUpdateResultHandler.cs",
+        "Length":  13524,
+        "SHA256":  "7E303D4B450D58F2ED642559C32BF0775DF974195FF0B8CCD481FC91F4E2D201"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/DependencyMaintenanceDiagnostics.cs",
+        "Length":  4220,
+        "SHA256":  "01B00CA530B8A06CFB5643F5B90BC093975150F4266AB26C2D0CD385885BD413"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/DesktopNotificationService.cs",
+        "Length":  11399,
+        "SHA256":  "967612207FA306CAB2D89B8AD10AEB297FB2EE52204F214388BABC4728748D9F"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/FrpEndpointMetadata.cs",
+        "Length":  1424,
+        "SHA256":  "10C4C5BAFE5AA19021296BCC5ACEB93E28D59555548D0A1D2FC6BD1BF0C12C9C"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/FrpSettingsStore.cs",
+        "Length":  19699,
+        "SHA256":  "2F97C772B1EE97024CD460927971A3587F385ACB37B2411930275AB3E8418AE4"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/FrpStatusPresentation.cs",
+        "Length":  4143,
+        "SHA256":  "E131E5477AD76DF58978762465C190460869087960C7B56D3E5718AE9D167CFA"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/FrpTunnelService.cs",
+        "Length":  56993,
+        "SHA256":  "D47B98077F1A996391B12CCF0D5F9915A8DDEB639E5B06031E00DE1F4F3D84B7"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/GithubHttpClientResources.cs",
+        "Length":  1408,
+        "SHA256":  "53AFB8E8553B914FA1E95A3417FD3092C9FE7FC9321CB3B122E30606A6E238A9"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/GithubTokenConfigurationService.cs",
+        "Length":  7263,
+        "SHA256":  "F0DF26886ECDBFFD4514466E8189EA9A519D5FA7DF1C02CD9F89DE3062E4559C"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/ImmersiveTitleBar.cs",
+        "Length":  1554,
+        "SHA256":  "E3340B55ED63CB9167EC5C657983FBF9AE1A35F50543B265C84FC074E1E137D6"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/InstallerManualExit.cs",
+        "Length":  53618,
+        "SHA256":  "66359EAFE1D7612AD4C09F0C6513E378109EB07D0881204511E67C62E3742D41"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/InstallerUpdateLease.cs",
+        "Length":  49310,
+        "SHA256":  "52DCB64E9B8E684DAA3C2F7D7C07382EF41AEDA2D4E3782C4687FD344249D7EA"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/LocalDanmuCacheReader.cs",
+        "Length":  7083,
+        "SHA256":  "D50403F0F37EB554440A9141AB6000039319BD7F73691098AA6D994F79A8621D"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/LocalDanmuFilenameParser.cs",
+        "Length":  17269,
+        "SHA256":  "F32644E8B08BE0F3625CB1943C14D2EA4364481163A0EB1D0DBE16ECF9DC557E"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/MarkdownImageLoader.cs",
+        "Length":  4568,
+        "SHA256":  "76776E1608DB06B6DDB03F111FCD343767B07CB7567A38C21535571763F686C0"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/MarkdownUriPolicy.cs",
+        "Length":  1722,
+        "SHA256":  "FB3F2C660BF502C272A95F784800EA92001F42409236B5C14E43E9C8D7FD19E7"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/NativeToastNotificationService.cs",
+        "Length":  8733,
+        "SHA256":  "AF9B306C9AC4790D8AAD6FFED047F49E513A78C1E956CC7FB76F08A580D04B03"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/NotificationShortcut.cs",
+        "Length":  4373,
+        "SHA256":  "BF0EA481BA940C1DD7E622A07ED6CDE73FA48D82A6233807FEA5897678DC7879"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/OutboundDirectService.cs",
+        "Length":  53951,
+        "SHA256":  "62E8855E76E6944F36BB48F88A47E4E77AB6597CAC33AC11CE3EF71979DB2DC0"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/PosterImageService.cs",
+        "Length":  4164,
+        "SHA256":  "668EDA3540884C6D2B71A680DD9CA181F7529EE292E1D1C51001814EF48C373E"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/RunningInstanceExitRequester.cs",
+        "Length":  7208,
+        "SHA256":  "C352B0ECD78E8456DCE60ABD9DCD6F1C919F18F2056E308B6399F4FF16E92D4B"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/RuntimeMaintenanceService.cs",
+        "Length":  7847,
+        "SHA256":  "FA17BEC7238D453D326F1737F6BFEBEAE9A01E98570D7FD998243EDE6871BBAD"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/RuntimePreparationService.cs",
+        "Length":  6219,
+        "SHA256":  "2A0E7F5B20751EA2C69C25271AE1C36FE187911A3D7226C35059872B7C52A786"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/RuntimeVariantSwitchService.cs",
+        "Length":  4645,
+        "SHA256":  "C816E10981714D9BB91D4ACD0059563A2656339922A0077A1C364DF851766D09"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/ShellNavigationAccessor.cs",
+        "Length":  474,
+        "SHA256":  "C1FC6A7783DD3C12C511BE62F757C4C8EB7213C434B8E0469DE3A75841C9311F"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/StartupExit.cs",
+        "Length":  1146,
+        "SHA256":  "6EEEBC84F547ADED22E37B967CC85EA7623A374FCD121D6C32BD454A675AAC47"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/StartupTiming.cs",
+        "Length":  1885,
+        "SHA256":  "42A173F633580A6C8A3A848565804CBD5FC0A98D80D06146E0FEF6BF37513306"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/ThemeService.cs",
+        "Length":  2528,
+        "SHA256":  "ED88D8F2F77B1CE677A1E9A02E9EACD3EAA321FA60B9F60C8D058B7AC49CF256"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/TrayService.cs",
+        "Length":  10156,
+        "SHA256":  "0CC197CDCD88157F9AB648C720FC23E06363E33B63ADE4996BDDCFA6BAA0E31B"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/UiDialogService.cs",
+        "Length":  65772,
+        "SHA256":  "6B28B0232BD3358862AFE392E627074DD0FF18E5FA7E299ABA6F226DECF4276D"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/UiDialogService.SecretEditor.cs",
+        "Length":  5325,
+        "SHA256":  "1E9C322AAFABFD1A6A8811C4205E73DF1DD15DA180DB3859D6C04F7BA5A421D9"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/UiDialogService.StructuredEditors.cs",
+        "Length":  28494,
+        "SHA256":  "E88BF532C9ED5F9558A4F889F9A2A7D925905CFC917C67BF1BBB10AD1DE68BFC"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Services/UpdatedServiceRestorer.cs",
+        "Length":  1466,
+        "SHA256":  "626262B31A3AFCEE64D587CFB1835B190916DF285CD815A6FB23CE7BE970EA99"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Styles/ConfigForm.axaml",
+        "Length":  15018,
+        "SHA256":  "1BDADA0A319F9DB108C9519964840146DE204C621D91F150F110692E123DB387"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Styles/Shell.axaml",
+        "Length":  22874,
+        "SHA256":  "B648A17002F483FD151FDDAEE50A28071CDEC87E18637B7AE3A11AF8BF2D401A"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Styles/Tokens.axaml",
+        "Length":  9102,
+        "SHA256":  "A822D0C9765D7880A45F147559B840B30032ED3A977BE7003ED1FAE468AB1F0C"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewLocator.cs",
+        "Length":  1057,
+        "SHA256":  "31154D2740AF9DA6BB07EE676F44F2C8835A262B3958438E7609E64641030FB5"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/AboutPageViewModel.cs",
+        "Length":  472,
+        "SHA256":  "1366A3E62994C9EED910B0950EC623CE38F2D5AD441860F567D193C18A50B130"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/ActivityPageViewModel.cs",
+        "Length":  382,
+        "SHA256":  "7AE15BCC8D673749DB0C92F00A13D0162789004AC947A91BE22EE65F10D2222F"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/AnimeSearchPresentation.cs",
+        "Length":  1512,
+        "SHA256":  "70FA8CBC1E8C7C4071137ADE58F087811C3CA1BB46070D68DB4AC3ED062799E6"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/ApiDebugPageViewModel.cs",
+        "Length":  19495,
+        "SHA256":  "A1FD0AE266EB92F20902A65EC2750C47B059A3C4FF43365C5D995717F3423011"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/ApplicationUpdateViewModel.cs",
+        "Length":  21924,
+        "SHA256":  "2BA04620CC4AF0BB87686D45AE669672E9E9861A9405A88FD0203F8A08D88FBA"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/BackupPageViewModel.cs",
+        "Length":  7116,
+        "SHA256":  "FCBC8E034787D0B8452C7EB0E0A628CFACA2809DCEBA844A9BFFB605666E5ED0"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/ConfigurationPageViewModel.cs",
+        "Length":  33887,
+        "SHA256":  "6A01187FFDA765AAD3BA09F9C52E46A84B07EB323D15BA66182A0ECF102AC38C"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/CoreDependencyViewModel.cs",
+        "Length":  8590,
+        "SHA256":  "A68FCD284340A4F5A96D501CFFB7830A5ADF376490CABC153C4DD4D77840B074"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/CorePageViewModel.cs",
+        "Length":  96808,
+        "SHA256":  "FB2FB0407113A2145AF61A65063DAA7FBB404E12DB6C829EE04E266EA6A38968"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/DanmuDownloadPageViewModel.cs",
+        "Length":  110039,
+        "SHA256":  "4EE834900259F83450D2E492C49A926550A03DDF2B87E08DB16B0891E922B23D"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/DanmuTestPageViewModel.cs",
+        "Length":  60480,
+        "SHA256":  "8D4116159F2D58960A0B5027EE8F7F2B1CDA9CB1675BF9C032414FCBBFB9BD5B"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/DependencyStatus.cs",
+        "Length":  283,
+        "SHA256":  "9A82CF75B7D278D15975E4A83428CDCE861F481C085311003BF563D48BACD688"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/FrpProxyLine.cs",
+        "Length":  816,
+        "SHA256":  "343B1ECDE4099660F9DC7BAA2C1518D8AAA9EEDB974160741A63AD98A66354AE"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/FrpTunnelConfigViewModel.cs",
+        "Length":  30996,
+        "SHA256":  "870C9EE72303B3E48FFFCF254045303306750EBF68E241D81C93FA141458D758"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/FrpTunnelLogViewModel.cs",
+        "Length":  2849,
+        "SHA256":  "E5F615DFB1ABCAB68CA147088D976CAB743304F5AD809865C61FCC0FAB601A58"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/FrpTunnelMonitorViewModel.cs",
+        "Length":  28516,
+        "SHA256":  "3A997B7A6E7306808B00792223E5DC557BB5A07757CB24BC3A8974AB8FA33644"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/FrpTunnelPageViewModel.cs",
+        "Length":  4170,
+        "SHA256":  "033C2F052020159761EEE28159C7BB1F24C3E192CD30D9B7E63C98DC5E49E297"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/LocalDanmuDetailDialogViewModel.cs",
+        "Length":  3715,
+        "SHA256":  "801A682FF11AEA16233F3B7DCA7A5C455A9C303FBF9BAC4A64A149E23D244276"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/LocalDanmuEditDialogViewModel.cs",
+        "Length":  7490,
+        "SHA256":  "4E95EC49337289823DD4C5ED8284C4B3836BAB19331008D6D98C2E529BCA58A3"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/LocalDanmuModels.cs",
+        "Length":  8740,
+        "SHA256":  "7AD0B88FA1AC7235B954574B975720E7E4F0A325121531EEF0578D74D582D9AB"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/LocalDanmuPageViewModel.cs",
+        "Length":  58647,
+        "SHA256":  "021A9E726D5A6E7F010E33F9B4CD7FF54D0198D463474221DD9C2635B8EA9FBE"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/LogsPageViewModel.cs",
+        "Length":  24464,
+        "SHA256":  "E2F58F1C41687CA3914D6C1B67B246FE9206F4C6F52BA05B5B242C343273AF84"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/MainWindowViewModel.cs",
+        "Length":  59629,
+        "SHA256":  "6776B4EFEF73BFB8512FF9AA6964CCC61EE7A202BA2746F86750166BB32B9060"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/NavigationItem.cs",
+        "Length":  305,
+        "SHA256":  "D577C56BE165157423FCA2AF3D50DF147D813FF8DDB215F9CF4A1A3360C00684"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/OutboundDirectViewModel.cs",
+        "Length":  42660,
+        "SHA256":  "E49D2C726C4D8D61FEBF2E510DE31BE800EF413DEB87D566446D8E43224A14E7"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/OverviewPageViewModel.cs",
+        "Length":  2264,
+        "SHA256":  "B21853EF958B9C5564DEE5D1B858696784B4E81035DF15B92EDD469EB9ADCA1B"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/PosterItemViewModelBase.cs",
+        "Length":  4076,
+        "SHA256":  "F22AC37EDF7B6C39EBDA3FB966785CD79F9B94E66E78288C3FBB993BADEBEFFF"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/QuickUpdateDialogViewModel.cs",
+        "Length":  7736,
+        "SHA256":  "CBFDA354FF6BEEB971ACA4051CEF1F11D9EA2F2DE94679787E81D5BA337139C1"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/RequestRateHistory.cs",
+        "Length":  3001,
+        "SHA256":  "D8AC0500980E1433918FD55A3BBEE03F34A3683AF9D8B5C8A819945E9FAFF325"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/RequestRecordsPageViewModel.cs",
+        "Length":  24591,
+        "SHA256":  "DBE45EDF09C282C1ED6785F283972098D6573590D1A503345759B7A282EC12D1"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/RuntimeMaintenanceViewModel.cs",
+        "Length":  6317,
+        "SHA256":  "F81698B42CB29ACE8C6E9E13929BB90DA6B32B9CBAF1C5178F4C5C390C7F2045"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/ServiceManagementPageViewModel.cs",
+        "Length":  7220,
+        "SHA256":  "22F57D6ADF98E01A98E746CE42C5DCE216DB10EAB418404E238E80B9E0B36DBA"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/SettingsPageViewModel.cs",
+        "Length":  41565,
+        "SHA256":  "7F40D4AE920272AB2215BF71BE3100700C151B78157BB44207A71D72F4B89C4C"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/ToolsPageViewModel.cs",
+        "Length":  6689,
+        "SHA256":  "34E2A917B5C8CB8E14B7B13664B01087FC227898C9C25BC1932C947654505014"
+    },
+    {
+        "Path":  "src/DanmuApi.App/ViewModels/ViewModelBase.cs",
+        "Length":  150,
+        "SHA256":  "58B5A2C6D5DD84C5DBCAD9573B59D0ED20698A5AD9A1BFE4952BAB8E1C97A638"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/AboutView.axaml",
+        "Length":  3763,
+        "SHA256":  "636BE9AC99A1B51760B1B072B5AA888EDB96501EF21E8436E2901273DC00B2A8"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/AboutView.axaml.cs",
+        "Length":  155,
+        "SHA256":  "4914786C7D6E8A8626605CAD9CEC7A64ED73AFB09EB4B4F9F429B99C460C2607"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/ActivityView.axaml",
+        "Length":  634,
+        "SHA256":  "14A5F5A9D68610F1D2B22042E56572A7EB3035F82D01DFE437ACC3FDB9CA28DA"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/ActivityView.axaml.cs",
+        "Length":  178,
+        "SHA256":  "EFCDFE988C640B76DD6E0AE40AE97D75EBF64DFAEFF6F984107493B8BF4A0F69"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/ApiDebugView.axaml",
+        "Length":  5017,
+        "SHA256":  "64B24C1D006107A69E2E33B20A3BA995D6D2B46F539EBFC6589C356D6F5B1B8B"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/ApiDebugView.axaml.cs",
+        "Length":  161,
+        "SHA256":  "16ED820CB997B34C402FCF847505389738466858B257A20CDC5F8AE0CC6E8AF1"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/ApplicationUpdateView.axaml",
+        "Length":  2781,
+        "SHA256":  "50C3D5761CE2E3A25BEF9F36AC241C494733FC3F888F37FD3DFBF91FCC3DDE86"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/ApplicationUpdateView.axaml.cs",
+        "Length":  177,
+        "SHA256":  "1962CFEF878732EB70FC5E4720343CE1C6D52486FE2900C642507D897FA160E7"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/AutoMatchView.axaml",
+        "Length":  2062,
+        "SHA256":  "17E63CDF092DF1A3C670BED5366686C78AD990044C8DAECF7C5FC8CFBFB62823"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/AutoMatchView.axaml.cs",
+        "Length":  163,
+        "SHA256":  "176E5F4DC648BBB6D1408EE836EF88F3D7F74B3D13E0CF0D7BA32906DF0F17E5"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/BackupView.axaml",
+        "Length":  4322,
+        "SHA256":  "04736329212CA932912EC32BA3CD4522BA298C6CBDA748FFF7DAC0D22E4B24CA"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/BackupView.axaml.cs",
+        "Length":  157,
+        "SHA256":  "E6F6D1739125EC3F1B2C98B683E6D41BC30C14FAEC84AB58F97B10EC0A9ACEC1"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/BangumiDetailsView.axaml",
+        "Length":  2285,
+        "SHA256":  "D11F1E4711237FE926EF9C3A2493D9DCC59AB3860651C38586ACC44F62E5B500"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/BangumiDetailsView.axaml.cs",
+        "Length":  173,
+        "SHA256":  "91378B3F0D0FA527FE3E228A351A72892A73D36164A64F5AF53F456A2884ECC7"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/CacheCleanupWindow.cs",
+        "Length":  9704,
+        "SHA256":  "A41B3FC735519B4E7104FD78D599E9B8C87ADD2817D2A44EA7BA89203E07A9B6"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/CloseActionWindow.axaml",
+        "Length":  2021,
+        "SHA256":  "443D2B736FC0C5F4433F1771EAE3FC38CE031D9A3ED32DFBF58ECBE22AE08DB1"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/CloseActionWindow.axaml.cs",
+        "Length":  579,
+        "SHA256":  "5E8D6B2B508E84B8FC0718355025491313375307269EC4E55D6CF652939A2CCC"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/ConfigurationEditorWindow.axaml",
+        "Length":  3629,
+        "SHA256":  "2FB2A48EBC34830E23985553F8795D3B01561A761744B550D52AD79929DDF697"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/ConfigurationEditorWindow.axaml.cs",
+        "Length":  6462,
+        "SHA256":  "1F84FC50F07697FF948B6ED8C93B7DAC41347937B15F4F7A2C60A9A13C4077F3"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/ConfigurationView.axaml",
+        "Length":  17282,
+        "SHA256":  "BDFD3BAB09123C4045DD14E4BA2CE2CF947701532B666653CFD17B74BDE31B78"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/ConfigurationView.axaml.cs",
+        "Length":  1046,
+        "SHA256":  "59943F9EDFD4BB6A8D220C4C0A01C949903523AE104F1A08D3A1853E783696EA"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/CoreDetailWindows.cs",
+        "Length":  29937,
+        "SHA256":  "016482EC6ACDCE8A88F43A0E925157B5D0E5E2DE78E470F6AA3E7EF2E7DCADB8"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/CorePageView.axaml",
+        "Length":  41775,
+        "SHA256":  "DE988F3246F6C96C4CFD57A1D1BE5B55A5F3837109053607677359786D6E303C"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/CorePageView.axaml.cs",
+        "Length":  1308,
+        "SHA256":  "3C4DB33F38EF568A631CC5012D37D30F054C4A9A2564418F01DD4CDC968E63A4"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/DanmuDetailsView.axaml",
+        "Length":  9834,
+        "SHA256":  "DBF69DADBB8801B243C5C402336DD07E7828A2869E4BB62FF1350FDD4D401E03"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/DanmuDetailsView.axaml.cs",
+        "Length":  169,
+        "SHA256":  "00B3038F68A70063953E692765EAA138BA9C6314FD22D224A654CDAA7B47FFDE"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/DanmuDownloadView.axaml",
+        "Length":  33539,
+        "SHA256":  "618A8EE109C6AABCF529CD38DC3B45D3FB85D04C9111BBD1F6CC6F262B74C960"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/DanmuDownloadView.axaml.cs",
+        "Length":  2792,
+        "SHA256":  "C1A5214BB70BC24136F030EBABF4B1A3B4316778548D37D897CE22D1CA115A27"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/DanmuTestView.axaml",
+        "Length":  1454,
+        "SHA256":  "938F92726A06138D6BE194AAB8D16AEE0F92AB54132760B2FE5D13C4D82A5984"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/DanmuTestView.axaml.cs",
+        "Length":  163,
+        "SHA256":  "78090930648820FD59FB0BDE8206A5CF769C776FD17E69AF43F24544C6DFFE21"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/FavoritesView.axaml",
+        "Length":  5904,
+        "SHA256":  "462B4DF70116CD0A1D6A76069FAC4178B28C77247AFBEBD927E7F2BC25469F8C"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/FavoritesView.axaml.cs",
+        "Length":  163,
+        "SHA256":  "621DA32DC22AB3791077C952FF7792718A3E4A4BD26D0095BAAC3AA9CBB5FCD6"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/FrpTunnelConfigView.axaml",
+        "Length":  15037,
+        "SHA256":  "E35538B0715406C5B35C15379B075E40060F9B3880EAF00E86B1E7569802DA9E"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/FrpTunnelConfigView.axaml.cs",
+        "Length":  183,
+        "SHA256":  "697EFD41578E6BDC003FEAF3BF3C300A9B2CFA00A439112DC8D192294D483814"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/FrpTunnelLogView.axaml",
+        "Length":  1231,
+        "SHA256":  "67EE0E6803BB31B5BCBCAEFF269B35768AF768238ADD4B416F1D046CC4D9C0C3"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/FrpTunnelLogView.axaml.cs",
+        "Length":  177,
+        "SHA256":  "95F8B2701D4C3CF069657B7EDEF34539F9904085B8900C71227BB196A50294E5"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/FrpTunnelMonitorView.axaml",
+        "Length":  14407,
+        "SHA256":  "1F6F70DCE698C98DEB3600C9AC166B055C1BC211FD820BD3600BEF15D5D000C2"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/FrpTunnelMonitorView.axaml.cs",
+        "Length":  185,
+        "SHA256":  "484968265C9222452F02AE85E32BFF08F92EFCED5709CB615950360630F7698B"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/FrpTunnelView.axaml",
+        "Length":  1939,
+        "SHA256":  "261CD3A62B6F47800D901E74B96FCE7ECE0FB69F4E2E32100202C2A1C9F874DF"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/FrpTunnelView.axaml.cs",
+        "Length":  171,
+        "SHA256":  "D249D663C59A9B9F952F4BB24C2B6DEDC857775361A54241E9DB9F109C3629C4"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/GithubRoutePickerWindow.cs",
+        "Length":  7938,
+        "SHA256":  "83DB7171351E508414AAC0A38CA1935CFB70B672A1D42D1158B800DCE059F117"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/HighlightTextBlock.cs",
+        "Length":  3066,
+        "SHA256":  "20ED34E8FDCE8B7B2C8E88A437776FF72FBB706A9D3242CA7FF215C05972A2A5"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/LocalDanmuDetailWindow.axaml",
+        "Length":  3792,
+        "SHA256":  "EAFC38D19BAD847C8A2C071C4656447678BFE301E5FDE52F5D01C97C09A273D2"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/LocalDanmuDetailWindow.axaml.cs",
+        "Length":  359,
+        "SHA256":  "36BD40D2FC50E32382F7F4BA4C5E66389CE2C019A85FBA37227C2C6144D31115"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/LocalDanmuEditWindow.axaml",
+        "Length":  4547,
+        "SHA256":  "5CD39F497C886369BE8AE389AD047751D35949F2AE4B0AA0E1BAC329782D46B2"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/LocalDanmuEditWindow.axaml.cs",
+        "Length":  346,
+        "SHA256":  "F45962F4389222DAC4DE90FCD1C3BE0EE5EFA5C4E5BE2B7596797B2CAC8FA6D3"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/LocalDanmuView.axaml",
+        "Length":  21443,
+        "SHA256":  "6541F025074535D103F7C0A083161C63AF41AF9F63D92FBC6B30792828C44B48"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/LocalDanmuView.axaml.cs",
+        "Length":  428,
+        "SHA256":  "351548E4DC616C90AD0A672996BFF68359C104C09A006B341B5B71689E2421F1"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/LogsView.axaml",
+        "Length":  8965,
+        "SHA256":  "17698950E46404EF33BFC56FA4EED5A48573265BF09184FA1D876D2830D5C8D7"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/LogsView.axaml.cs",
+        "Length":  2738,
+        "SHA256":  "16975095FB03C24E049DF414895AB012797F6F0D15C4EB11C04CF332B4257F95"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/LogViewConverters.cs",
+        "Length":  1841,
+        "SHA256":  "AFCDB60667CCA21A299B5B4A81D3AB05BFEEAEA594A4FD15F48A6151FEC3182B"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/MainWindow.axaml",
+        "Length":  13125,
+        "SHA256":  "6F8B691ECA7562F20EE23F56B9C7880A1973989EC710B6AD81CDEBA8F42CEBB1"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/MainWindow.axaml.cs",
+        "Length":  1699,
+        "SHA256":  "1CE1E692B5D7E01BACE58F95BE97649DF0E1D343485EF5DCF07913501CF141FD"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/ManualSearchView.axaml",
+        "Length":  1097,
+        "SHA256":  "ABA531E17A16D1A288D7433529ADF871A9673B75005F9744D1855EDEF580C639"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/ManualSearchView.axaml.cs",
+        "Length":  169,
+        "SHA256":  "18C8E950A68B762FDE60B0ED9BCAC9095A8AB432C01C1B32447C25D1565EF069"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/OutboundConfigurationWindow.axaml",
+        "Length":  4214,
+        "SHA256":  "3166A23415EA26632B6E76EBE13326075600E8E34EA09743AE1F1A97E5D70525"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/OutboundConfigurationWindow.axaml.cs",
+        "Length":  1593,
+        "SHA256":  "5422A96F71F94F3C051212FC2315B2E7D58F9ABDEDB7D623ABF114663C1FCDC5"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/OutboundDiagnosticsWindow.axaml",
+        "Length":  5989,
+        "SHA256":  "5BB5C44A6089107B34969C9A370A774C43D585B8895A027E84CBDEB43B965E6C"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/OutboundDiagnosticsWindow.axaml.cs",
+        "Length":  1364,
+        "SHA256":  "DF91B00217B033C984F873B8976E4BE238A50FA2F51FEB5EE842827E33D6C2DA"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/OutboundDirectView.axaml",
+        "Length":  12487,
+        "SHA256":  "B8E78EFCBBA85981C23895F9D331A8EF2743DE9A62C26920A4BCA1C5A634FA7E"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/OutboundDirectView.axaml.cs",
+        "Length":  4863,
+        "SHA256":  "4C126337135F89A6EBFACCFA7DC44DC2797317D1BE4B3C2828BBCC9FDFA5D074"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/OverviewView.axaml",
+        "Length":  27901,
+        "SHA256":  "9F39E654B61CBB129D6D9CE9E06669C624B99B611DC99D4A3F9B8FACF1099E20"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/OverviewView.axaml.cs",
+        "Length":  1028,
+        "SHA256":  "669F30145D3B00548D453ED49EB58F9C724A1FEBA6B9DA778EE48667B98956E3"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/PlaceholderView.axaml",
+        "Length":  1072,
+        "SHA256":  "A7B3F2DD25E683DE3D01725C67C86A2A53DA1385E32F54D89F82308A6F4E0AA7"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/PlaceholderView.axaml.cs",
+        "Length":  184,
+        "SHA256":  "2F85564EBF7C017CCA602A0D5F92C029AB213FBE20084C6D51CAA76741789D13"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/ProgressDialogWindow.cs",
+        "Length":  5060,
+        "SHA256":  "959E01E82236713BF2A23E815B88AA5C6F1402A90B4E4DD185263F944A934FAD"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/QuickUpdateWindow.axaml",
+        "Length":  3193,
+        "SHA256":  "B2EF50006CF8B015F39F6B7241C7049BFB543C8CE842570EA2E01DFC7EAD4A9C"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/QuickUpdateWindow.axaml.cs",
+        "Length":  425,
+        "SHA256":  "5D54AC70681EDD2C7792322FC0995D2BD2B22AF3F09FB1F27DB73AD2D47AEF9B"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/RequestRecordsView.axaml",
+        "Length":  8596,
+        "SHA256":  "22433CEBA7A282B7FA630D1BD8F7A12D6C7A43C94555A38FFC0199FB6B3EE11A"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/RequestRecordsView.axaml.cs",
+        "Length":  735,
+        "SHA256":  "CF3A7E10BEFABEA836060C7079B8840A7A9AA6E9D080A810071FB602D428A1F7"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/RequestTrendControl.cs",
+        "Length":  3229,
+        "SHA256":  "12470D8E275E23D8BD0C6DD663A81EC74DA30E564774F0F78313D77B9FFB6255"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/ResponsiveWorkspace.cs",
+        "Length":  5351,
+        "SHA256":  "685167A45935B3C479EFBDD4344D0BA2E25B640F70DFF26F11A33142F945A565"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/SearchResultsView.axaml",
+        "Length":  3464,
+        "SHA256":  "2CD90DCF104826348BC74C9CB027841D0BE2CE3AF02F02165231124DF8752F73"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/SearchResultsView.axaml.cs",
+        "Length":  171,
+        "SHA256":  "9F4FB738E2F3468D73AB5374A81E806B18FBCAF0F995314309C929CFC64679D5"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/ServiceManagementView.axaml",
+        "Length":  4694,
+        "SHA256":  "350473FC0570D696EA94C405743CCBD851133F179424488C70023191F7C3B168"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/ServiceManagementView.axaml.cs",
+        "Length":  179,
+        "SHA256":  "FF2F987BD77AAEC1CCEAA7458A9AD7744CD51F4851763CAC120EA2393B7D4E43"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/SettingsView.axaml",
+        "Length":  28000,
+        "SHA256":  "7A9AA757D789FE98FA9A70C3DB03C65F6C0C0E285A3870AD76FE42725FB27B0D"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/SettingsView.axaml.cs",
+        "Length":  727,
+        "SHA256":  "5B938F561A0008DB3F88D73EA692B39E9F2D1A1BEEA797815648BC8F3EFAC43C"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/StartupWindow.cs",
+        "Length":  4970,
+        "SHA256":  "5EF9B44224EEB734D1B2723B620DA0D324EC53D6D1E2ADEFC1E8F4905F9D21E6"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/ToolsView.axaml",
+        "Length":  2584,
+        "SHA256":  "5AD4B8CF28727ABDDD108423FE6479B76B7FC1E77C5B8A44736B32EE686F8CB8"
+    },
+    {
+        "Path":  "src/DanmuApi.App/Views/ToolsView.axaml.cs",
+        "Length":  718,
+        "SHA256":  "3B0B0C69751B5C80436D2C23B2D0040594263EB05B2339DE18B0BB674EFBB598"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/ApplicationArchitecture.cs",
+        "Length":  827,
+        "SHA256":  "5D967C77882D2D5EAB948CAC14689589C61C022478EB6C43026E6A84556D6FFD"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/ApplicationUpdates/ApplicationUpdateService.cs",
+        "Length":  19458,
+        "SHA256":  "4ABC038C7FAD8BEF236C59F65D95447A8C0DA64F4E3C05AF19D0CFE6CA5ABA95"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/ApplicationUpdates/SemanticVersion.cs",
+        "Length":  2436,
+        "SHA256":  "653BF71B491F814D4A06DDA6CD6C2819AB51AF02885D79BCDFDB9CFEC6823282"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/ApplicationUpdates/UpdateCheckCadence.cs",
+        "Length":  1026,
+        "SHA256":  "BBF486C95868CBA262646E229D8D51EE21A0C1AEC583B6A32BC360879700E612"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/BackupBundle.cs",
+        "Length":  8630,
+        "SHA256":  "40B10F841082FA7F485703CF77B8898BFD43FF2A46F1963133183D6D24354925"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/BackupWebDavClient.cs",
+        "Length":  7180,
+        "SHA256":  "8C4B0C9FE33087E30D19059BD438B71A4C3A44772C4581AEE80AE5BA6413E14D"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/BundledNodeRuntime.cs",
+        "Length":  1843,
+        "SHA256":  "35A46188B24B669619C8A3EA890BEC6D4C1378FE20283707518593765D0654EB"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/Class1.cs",
+        "Length":  60,
+        "SHA256":  "0AA45611E0E5AFCFEF82C11EB8698B7D90ECE4C51D63380765C05FD6469FD63E"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/CoreDependencyProbe.mjs",
+        "Length":  9758,
+        "SHA256":  "E4D465AD63B6AAEB7280B2279692C317C972A7FD6D86B5BC01D4FF45EEB15008"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/CoreDependencyService.cs",
+        "Length":  24015,
+        "SHA256":  "1E9E9782241E654E8D31EC2BB55B522B7C3BA1E0A61081FB5B32BDF8AC170934"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/CoreEnvCatalog.cs",
+        "Length":  33723,
+        "SHA256":  "41A878310AC5CDA1B78200C740DFD08AB4B7A33DB638AFD943F5C82A8FE10B62"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/CoreEnvModels.cs",
+        "Length":  2408,
+        "SHA256":  "C00A8ECB2F2BB721E04F6C02B3671AB811F39780C0EF9B0FF38B5CD96E4F720C"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/CoreInstallationModels.cs",
+        "Length":  8006,
+        "SHA256":  "DBD6C5B156B6F07BAEBF0FD3F94024E19BF166870943FA73E6B47DC3D8EEB30D"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/CoreInstaller.cs",
+        "Length":  49018,
+        "SHA256":  "711F7A382109F37A8437A6AB86A3B517C470C31857E1689ED807E073A78202A0"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/CoreManifestStore.cs",
+        "Length":  13022,
+        "SHA256":  "61062F20209A20C0F2922209215B618A20EFB7100831FBBE0B50FC1EE1F6888F"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/CorePullRequestPresence.cs",
+        "Length":  12910,
+        "SHA256":  "3339F95C9C23AA3CBB7463432F97294F6117D238995492EABC854CC664485F8E"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/CoreUpdateCoordinator.cs",
+        "Length":  28366,
+        "SHA256":  "AE19280B516067E4DA554545640DFEBE5C26200FA2638D4BC44C4FEA90D95A99"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/CoreUpdateDiscovery.cs",
+        "Length":  1199,
+        "SHA256":  "0FF8B111619CC80E7A70A7547DA43F06C444D16B4E274782EF9E9A40350258CB"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/CoreUpdateScheduler.cs",
+        "Length":  13760,
+        "SHA256":  "E242900DD3D96E2BFEA28E78F87BEF5927D07B9992B1C11C55EADD2E57B59A26"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/CoreVersionReader.cs",
+        "Length":  3850,
+        "SHA256":  "9477DCE4453300DB9275ACE419B5DC68C804115DD705F30F559D516AC5D88FD7"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/DanmuApi.Core.csproj",
+        "Length":  568,
+        "SHA256":  "582D5EB215736C5EE0EDD06E474A52ED7F37C180590EFF53624D4270D94F1951"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/Frp/FrpAdminStatus.cs",
+        "Length":  13281,
+        "SHA256":  "7EB3A38A379C4E5998F9D4F7FEC80CA733857604D94C0E5E59364D729484F409"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/Frp/FrpConfigJson.cs",
+        "Length":  20863,
+        "SHA256":  "6F02958F1A98D5747615067BE5C2BDABCB734BBD0087B7794AC0B842D7EF60D6"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/Frp/FrpConfigText.cs",
+        "Length":  1535,
+        "SHA256":  "952CC7540B0920E246A6970160E7AF42EF8829FB82821CA3FCF314B71B2BD3EC"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/Frp/FrpConfigToml.cs",
+        "Length":  25044,
+        "SHA256":  "9AAE3CCAB4EAB67594E3E8C6DB238BD4754201B89D8D6041C07F9FAC4DA82D2E"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/Frp/FrpConfigWriter.cs",
+        "Length":  7177,
+        "SHA256":  "619864F5FDBA8A1BD11069DCD59BFD0F2C533238742A129C7141AB9F7AC1AFA0"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/Frp/FrpModels.cs",
+        "Length":  12479,
+        "SHA256":  "6126CC429BD6796FF4A4239DDDB89C04FD95E66AE047F9542FA1B6CF2F0EFE80"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/Frp/FrpNativeConfig.cs",
+        "Length":  27761,
+        "SHA256":  "ECFA42B11B032CD440EED38F141217C448B5CEBD49CA424186732C14C9B5A08F"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/Frp/FrpPublicAddress.cs",
+        "Length":  2804,
+        "SHA256":  "CF6A71BF0AC0A3F8CEDF78DB7A5C8FD2539AA502F5045823AB554F1EDB20F00B"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/Frp/FrpReleaseCatalog.cs",
+        "Length":  10979,
+        "SHA256":  "E20CC2F5763E05802D31E63AABA2C0D6BA096CCEDC12A98437742CFD9398A6AD"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/Frp/FrpSha256Checksums.cs",
+        "Length":  4879,
+        "SHA256":  "0E056AD106B830FD1DE9A1E419A421BC69CCE2F39E8374C535728BADA75E3184"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/GithubCoreRemote.cs",
+        "Length":  35512,
+        "SHA256":  "9784DEA92562809151DA85F409659C13BC0342AD582A7D41FB55506942AC07EA"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/GithubFileDownloader.cs",
+        "Length":  9040,
+        "SHA256":  "7767AB95F853973057A65C0C71A5D2A78B4570AC32282CFBB375BC5E6A1C44EE"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/GithubModels.cs",
+        "Length":  5714,
+        "SHA256":  "FE148C0DD119F1D59AE35718A0F34FFC4E284251A74A8641C66E8BD37B054AC8"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/GithubProxyCatalog.cs",
+        "Length":  3803,
+        "SHA256":  "CB1E11A287E025DBE5F0C8E7F87C089B5C03443850485ECE6B5C8A1A6F0F7756"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/GithubProxySpeedTester.cs",
+        "Length":  4464,
+        "SHA256":  "758A97DB6379AA2CA454FB58F167325566843957522973AF8DC7848DFD682318"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/GithubRepositoryReference.cs",
+        "Length":  5762,
+        "SHA256":  "0E2437A2D6548F82989FDF0C594557ED75DCEBB2AF118329DF1B03C43A1EB6E5"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/GithubRouteServices.cs",
+        "Length":  649,
+        "SHA256":  "FDAA909DA03C640BE5DEB67E75BA3EF746024167D1B7727696A1C4D7BAB15651"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/GithubTokenPolicy.cs",
+        "Length":  2678,
+        "SHA256":  "4CD7159C758ADD20BF3AB271261C34EFF8F80F13D41D942D5B47B3966DFAA10D"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/LogFilter.cs",
+        "Length":  4306,
+        "SHA256":  "04E750F0BEEEC104C32931D1FCF37844560A0500BFCFF650DE280D08B404B059"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/LogModels.cs",
+        "Length":  6289,
+        "SHA256":  "7A984F06A7F9350FE3BF4A93E0C28A2E11E5BD7D4BB9B334B8E3A3D432776309"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/LogTail.cs",
+        "Length":  2033,
+        "SHA256":  "C38311CDDF53D260CD5CBF28B460C9387A9F5E4812E36EE297156D62F2676FCB"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/NodeEngineRange.cs",
+        "Length":  5871,
+        "SHA256":  "C7607BFBB7AE8983A2A78E185EFA095062265F70DC2A0B85B65A3D98A8BD1257"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/packages.lock.json",
+        "Length":  65,
+        "SHA256":  "BEFF604DC90C4F4DE310B8C1C075156B758472FCA928F6B2B3029C5B013749C6"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/packages.lock.win-arm64.json",
+        "Length":  94,
+        "SHA256":  "CE6A0F41C03147723016483B44236B0DFE03CE5231EB5DD2643D79C6CA53E257"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/packages.lock.win-x64.json",
+        "Length":  92,
+        "SHA256":  "234F3DCC9C8B80BEA1DD1AD4B6E1239160FD2062959BDD22248E4B8D32F2B52D"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/packages.lock.win-x86.json",
+        "Length":  92,
+        "SHA256":  "4EF1CC143DC6B5CB0DDB4C50D370969135C52AC5BCBAC66932444C1C0F4F5265"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/SignedCoreDependencyPack.cs",
+        "Length":  16650,
+        "SHA256":  "93DF09C907E3D24EF81680B56F4B44158A8AF4D89AB91984D234A76968DC8F97"
+    },
+    {
+        "Path":  "src/DanmuApi.Core/UnifiedDiff.cs",
+        "Length":  1933,
+        "SHA256":  "B9379560AA999669557F78AB27EC6F4827322F019C68B334504E335147466DB4"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/ActiveCoreVariantStore.cs",
+        "Length":  1985,
+        "SHA256":  "3C2493BEB6AB7D7199989278258EC13EAA6FF93A68BA9C9EAE43465D51D5FFE5"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/AdminSessionStore.cs",
+        "Length":  3751,
+        "SHA256":  "1A0EA56FD19869CD9927DE125500779E6B9BB53C8B64353FA703A81300A01EB1"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/AppInstanceLock.cs",
+        "Length":  32342,
+        "SHA256":  "7159EE8CA2C0542F69DDE277BB0A58D4B4B1573AF0872A90993E87F57D599C26"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/AppPaths.cs",
+        "Length":  7892,
+        "SHA256":  "245BDF24B50929B9543465EF7D5BB3B6F3470C99F79562DAE8C0B7C7FF72399E"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/AutostartManager.cs",
+        "Length":  27558,
+        "SHA256":  "078CB8EBBBD46C46DFC82B4B60C6E86113F20039C100746D8CA24A601CE4ED1F"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/BackupLocalService.cs",
+        "Length":  9215,
+        "SHA256":  "43EF1D08C6B8582188A6539C1623A2086E6946DCFD7578A6CE4D9B4BB47BC625"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/BackupWebDavSettings.cs",
+        "Length":  811,
+        "SHA256":  "AC927A2F580E983CC695761F1145A168BB7CEF59BCE9F83FD4E6867FD35A6353"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/BundledRuntimePreparer.cs",
+        "Length":  43686,
+        "SHA256":  "73E161B679264AE2841A17968C57BBD2814762CAACD823D7046B1605F70A0DA0"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/BundledRuntimeStartup.cs",
+        "Length":  24038,
+        "SHA256":  "195C5B836B682979F4267AB47227B05A2DB8CA255CCE20CF784616B89BEBCA93"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/Class1.cs",
+        "Length":  64,
+        "SHA256":  "187BCBE3FFF480F657BD160C32FC142118763C497BFC1DC0C5385CA3851B52B1"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/DanmuApi.Platform.csproj",
+        "Length":  516,
+        "SHA256":  "95B73BE73849296662F59C48520453D4417C9875820E24D15186499FAF2D2CB5"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/Dpapi.cs",
+        "Length":  4647,
+        "SHA256":  "C461D746A62F753FF91C4CC52D47AE97CCDE390689A84F6EE4B27F401CE1A9FE"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/ExecutableImage.cs",
+        "Length":  1487,
+        "SHA256":  "98F7904FCD62E9179DFB6F2ED7343C162F9B59F403E22CB0E5BB11292DE914C8"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/FirewallManager.cs",
+        "Length":  10175,
+        "SHA256":  "49EF542F16EF2A2E7B9498FCEF67D4A645F79FF536A82F6C5FEF05D4684F6C96"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/Frp/FrpBinaryInstaller.cs",
+        "Length":  15754,
+        "SHA256":  "045241D8F823423B0FD5B2FE649F20D3B299E44EFC32050B64E7AD149AC8FEEC"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/LogFileTailReader.cs",
+        "Length":  4423,
+        "SHA256":  "D23C401D863495CBEAE354AC8C5FBD5A3BF785A2F88CDE575392BBDFFA0BAAE8"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/OptionalRedisStager.cs",
+        "Length":  8272,
+        "SHA256":  "9006A9F6117897F4161595EAC2103193F2AA3E6ECE93D1674C07F578221C6E7D"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/OutboundSettingsStore.cs",
+        "Length":  10374,
+        "SHA256":  "1CF1DB7057A7002894F37281E4F839A9910A396CF7AC560434711BE65FA19147"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/packages.lock.json",
+        "Length":  290,
+        "SHA256":  "B845863F9D4D9B92476D632B07DE507D2FDBE24657CFC5136C9B3EA9D4D5DFC1"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/packages.lock.win-arm64.json",
+        "Length":  330,
+        "SHA256":  "62A1CC2455B09B6C673A3693B6BF612D580C63B747A0347E97DDBE8F28E5003C"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/packages.lock.win-x64.json",
+        "Length":  328,
+        "SHA256":  "6286597809761214E726176A46DA81F1EE6BCFDE92CF19CA92BDF8E66F04746B"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/packages.lock.win-x86.json",
+        "Length":  328,
+        "SHA256":  "C0F48321C338537C67A8527F2C34DE01933A8A2A3BF6350BCA552D75473E66A7"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/PortableApplicationUpdate.cs",
+        "Length":  20392,
+        "SHA256":  "30835CEFBA75D2F4C485EAB9420B0A1492B21DE59981692C935F62E6F5E2C0EC"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/ProtectedDocumentStore.cs",
+        "Length":  4382,
+        "SHA256":  "ACD86292BA7C2FF5507440785F3A5386D962476886585C06B438D725DC4AA3FD"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/Resources/kotlin-preview-1.sha256",
+        "Length":  84244,
+        "SHA256":  "B4B6766366329066CD7D9CD9A1CFED3D0695988A349BB450B9444AADD03F3576"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/RuntimeNetworkAddressResolver.cs",
+        "Length":  10107,
+        "SHA256":  "A5B4FABD076E1A19FA9A46B0220E1206584F473A496284DA8CACC0FB9E952EBE"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/SettingsCoreUpdateDiscoveryStore.cs",
+        "Length":  4648,
+        "SHA256":  "71CFAD2D0AA527EAC934D2B9DE3BDF9CD6AC69706AACBC5479F836C1A4000549"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/SettingsCoreUpdatePolicyStore.cs",
+        "Length":  3761,
+        "SHA256":  "8DF0AD6B4619901A7E5F8226DAFF7738CC6CFCEE41BCD5EA11A22F8B008CB61F"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/SettingsCoreUpdateTimestampStore.cs",
+        "Length":  1338,
+        "SHA256":  "DEEDE63F512CAD0B6E3781DC84CD0113FA438364D32C4517ACBCAA264BC6CFB7"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/SettingsGithubRoutePreferenceStore.cs",
+        "Length":  2087,
+        "SHA256":  "BC247672EBB0E5B0F22D5B7567C9A92E03020CD69977FF7B4B40F82F0C5DF021"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/SystemPaths.cs",
+        "Length":  1108,
+        "SHA256":  "EFC514C350FB40C73417DC91BC85BC403F9EA61ABC1899C52B11467851807676"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/WindowsAutostartRegistryReader.cs",
+        "Length":  2605,
+        "SHA256":  "34753EC0F79601D52D6BB611A0B4AB90DA72F66BB59D63E9F20D935C56CD9756"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/WindowsGithubTokenStore.cs",
+        "Length":  4058,
+        "SHA256":  "7961C1D6F33A03164B519C1FAE0AAFBB6FB0D6C6CDC2F2914A0D674D218EC383"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/WindowsProcessArguments.cs",
+        "Length":  4434,
+        "SHA256":  "16A132F61B3FCB07BF10A6197F8948C34AC4B588A3FA5C9D883CF7F37F27C38D"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/WindowsProcessTerminator.cs",
+        "Length":  13551,
+        "SHA256":  "741EB6CA4D6F9B9BBD142EA76ACE2C99E2FB028050ECE0A87EB3DAA93C209F49"
+    },
+    {
+        "Path":  "src/DanmuApi.Platform/WindowsTcpPeerIdentity.cs",
+        "Length":  2810,
+        "SHA256":  "00B6CE12E3ED7EA2DC7343FB81DC82FD314196764E81B1884510BDA8C442B87F"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/Class1.cs",
+        "Length":  63,
+        "SHA256":  "4153F026F604DAD8D89EC982904CA015EE8756B588BE3468D46E24597FC3F6B6"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/CoreCacheAnimeClient.cs",
+        "Length":  22300,
+        "SHA256":  "85DFE876E40462429C499B516BA2A38FF044ED860A89C9F1E01D994FCF5393EB"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/CoreCacheClient.cs",
+        "Length":  14489,
+        "SHA256":  "8E12B5106A6AC0E134312265F03DC076981098901032EFF1C84B7741FA7E7BC9"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/CoreCredentialClient.cs",
+        "Length":  19348,
+        "SHA256":  "A77BD61A786CA1403618301034B4C97DA5DA6A273D2BDF557025372103589495"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/CoreEnvClient.cs",
+        "Length":  21439,
+        "SHA256":  "251D12DF2D664AD23B60D98A573E69B5614386AFD2699321B49FE3232B494354"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/CoreEnvRepository.cs",
+        "Length":  7966,
+        "SHA256":  "DA876405F0882F9D5F94056DD5DFD0E96FAD96C9FC0BB320B4AFA19A36F75FC4"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/CoreEnvStructuredValidation.cs",
+        "Length":  4460,
+        "SHA256":  "495E16C0E9A2EB3034426FB4FBC2CE1C50011618F0195A8A7FD3E58F25CF3518"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/CoreEnvStructuredValues.cs",
+        "Length":  29603,
+        "SHA256":  "2BC91BC69FF97B6D2F866D13A2C90CFE88612CFAE32A66EEA78ACF30E5B7F3B5"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/CoreLocalDanmuClient.cs",
+        "Length":  45170,
+        "SHA256":  "2CBA10C366E95205DC3D8D29D5AC3A9E4C3C83C51D6893A4A9304AB33EBBCC63"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/CoreLogClient.cs",
+        "Length":  6525,
+        "SHA256":  "A83BF67548D3ECFE91D7DCE0946CC32B3217D9E27B4557039BBA3751EBD85B76"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/CoreRequestRecordsClient.cs",
+        "Length":  10553,
+        "SHA256":  "68840832F78B791B0B2896C58448E044A1AAA5FA00EB9B26778DD0C993005C0C"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/DanmuApi.Runtime.csproj",
+        "Length":  323,
+        "SHA256":  "95BB5BA37AD12178DEE62A1EFC94B1C2C3EEFA2ED26036D82A0A9094CDDEC04D"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/DanmuApiClient.cs",
+        "Length":  62710,
+        "SHA256":  "6E135EDB96AA8A3E4580FBEC3B2D680DAB1120304884976D91BBF07CD9DF9C57"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/DanmuContracts.cs",
+        "Length":  10205,
+        "SHA256":  "D41D204C218438356B455E5312D9DCA509370585FE3D071C6167A655C9C0C350"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/DanmuDownloadExecution.cs",
+        "Length":  26023,
+        "SHA256":  "8DEA24C6F92AAE6F625A918CE8B7207E053B32DFFE55B985409E83F160B2C8C5"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/DanmuDownloadModels.cs",
+        "Length":  20812,
+        "SHA256":  "AAE96B9026FF4B31F87210CC8159F1EF4CB5BF3DEFFD0BADD29E9B692AA443A1"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/DanmuDownloadService.cs",
+        "Length":  35049,
+        "SHA256":  "D3DE30A3695FB911AF241EC92674DDFBEA4CC87C3AD633A9ACA1521F20B38FFB"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/DanmuDownloadStore.cs",
+        "Length":  15887,
+        "SHA256":  "5E73C9A789F85EE92FC43699908D0BB45F9CE744F53A570BA892100F3C66C92A"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/DotEnvFile.cs",
+        "Length":  24552,
+        "SHA256":  "A23001D8AE2E159CC05483546CF23E2656E3960C49EA4668703F4FAD9C7F0D4A"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/Frp/FrpContracts.cs",
+        "Length":  4030,
+        "SHA256":  "1DECE3DF2C2AB0FC8C44F5F90817B2437B507E06E2194A78A536B8AD92BFA8A3"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/Frp/FrpNativeVerifier.cs",
+        "Length":  9801,
+        "SHA256":  "C65BF1691A08BB61C85AD68D1BB9DB33C6363E53698CA8A6BFCA29DE7D199AFC"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/Frp/FrpSupervisor.cs",
+        "Length":  40562,
+        "SHA256":  "5052CC79259EC28ADEB105EB37FEC48010833EC0BE984DFE38F194C78100C4E3"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/IVerifiedProcessTerminator.cs",
+        "Length":  1455,
+        "SHA256":  "DD5B53BD369A28A67B531E4F160819390A8DBBC5B13A1977059A344C840E7412"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/LocalRequestRecordStore.cs",
+        "Length":  7046,
+        "SHA256":  "96F43D17402442C37E94F969DC5A2329C432DBF4BF7FF19F83037C612CEFB686"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/NodeSupervisor.cs",
+        "Length":  36587,
+        "SHA256":  "34715A79B00E208B3E5C6BF99A1EA8608120A7FAD550D35A70E94660CD8632F7"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/packages.lock.json",
+        "Length":  133,
+        "SHA256":  "BA71995B4B362C7BA2EF40420825B4EC6DE5A0818671D4286D7C82D24385AC45"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/packages.lock.win-arm64.json",
+        "Length":  162,
+        "SHA256":  "4832484A24CFCD95C4424C36D77D14A4D8FE9B24D59CC088F1C6DB04CDDB3366"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/packages.lock.win-x64.json",
+        "Length":  160,
+        "SHA256":  "13308999AC51591C043CCD1C4FF672B276B5722B5BABE1B8BBE8F960346AE5D1"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/packages.lock.win-x86.json",
+        "Length":  160,
+        "SHA256":  "BE30BC4E412F4AB48E41FE120E2A18A59FAE86A333F387A0EDD846F6DB12CCFC"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/PortAvailability.cs",
+        "Length":  6792,
+        "SHA256":  "7EC3EB8D0C20FB0E7885D3E061DDB148E05B3FB0E28322A920C3310BA419C3D2"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/RuntimeConfigResolver.cs",
+        "Length":  1908,
+        "SHA256":  "6ACCD1D975C827852077E2D8C875AC7B3EFB107FC8BDE450E70698FC044E1D06"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/RuntimeContracts.cs",
+        "Length":  2800,
+        "SHA256":  "2F99AD7E647DC37795F1B403B1E9EF23C3800A5543959159167C715840F18A32"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/RuntimeController.cs",
+        "Length":  20088,
+        "SHA256":  "7705DE792532853B3863EFCF6E8024363A60EF1063AB9531D3D10B8DFA9D9D21"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/RuntimeEndpointBuilder.cs",
+        "Length":  5831,
+        "SHA256":  "DD5EA69A06DF2659B7F290CD903AED136A2065506A20E67A6471164F45234687"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/RuntimeHealthClient.cs",
+        "Length":  9989,
+        "SHA256":  "EC80008C0AC2A9543F9C1212A96BD041FFF20506BE82B4AD0B7E13F6D8E2A64C"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/RuntimeManagementClient.cs",
+        "Length":  11419,
+        "SHA256":  "DE4C7CE2C82B42A937D47A72A3DC63A6F93CF7E20A64FDDE5D7CFD5E863387AF"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/RuntimeModels.cs",
+        "Length":  5252,
+        "SHA256":  "7774E825E7C94CD03C849BA840BD0EDB8C975878748C16CC9DCA1C05889E4518"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/RuntimeOwnership.cs",
+        "Length":  1177,
+        "SHA256":  "51D0E36D7ECCD257DFA1D0C7A389806D24A28A71D884951BCAF845259B916933"
+    },
+    {
+        "Path":  "src/DanmuApi.Runtime/RuntimeTokenResolver.cs",
+        "Length":  666,
+        "SHA256":  "B8D3753DBA1714EC68ACC5C3C6E0FDD08A3132AEE4B2AD62A476B939F8AE195E"
+    },
+    {
+        "Path":  "src/DanmuApi.sln",
+        "Length":  3008,
+        "SHA256":  "F8EA01EAE9386B0ADAC0A860A1C1C3B8CB632CDC1B5AA4B3D83ADBC163298F9D"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/AdminSessionServiceTests.cs",
+        "Length":  10244,
+        "SHA256":  "0DC66146DDCACFD52D6DF62FE7C4281B43EF741FE2D3370D8541F9A58880DF01"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/AdminWriteGateTests.cs",
+        "Length":  1557,
+        "SHA256":  "BA447859FD80F509AE15382278F6971EEE880BD6C36D5844478553F47BA27270"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/ApiDebugPageViewModelTests.cs",
+        "Length":  17271,
+        "SHA256":  "E990E521FCC70938AD448BB9243593AF1E6AA4FFDE2BDBCFAA4E9024ECEC6E72"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/AppInstanceLockTests.cs",
+        "Length":  10759,
+        "SHA256":  "5D74A39C02029D02735A6229B63855BF74B6ACE53415DBD506438801C66094FE"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/AppInstanceProcessBindingTests.cs",
+        "Length":  4324,
+        "SHA256":  "31FF84DEA74572EE691B51FFC81BA0D1864AEE95E73B402350486A05D897AC38"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/ApplicationInstallerDiagnosticsTests.cs",
+        "Length":  14568,
+        "SHA256":  "D8D698C0B46560CB63F8D07B760C8CC42C6A012CE5A8DCBC9061D9A419A8BF7E"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/ApplicationInstallerLaunchTests.cs",
+        "Length":  3138,
+        "SHA256":  "23FC9D7FAA3DF42A90FCD77DB29F4B3299CE206BB62810B5681CB2106EEB5248"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/ApplicationUpdateForegroundTests.cs",
+        "Length":  11330,
+        "SHA256":  "A9D3161A2CE07C20B6506AA31416DA3417ECDC3947CB5001C8BC7286979C4A9D"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/ApplicationUpdateHelperRecoveryTests.cs",
+        "Length":  2165,
+        "SHA256":  "051ECE65264B7BB9656C8AE77FB03B95602EF18A044278F62D2B623A821723BD"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/ApplicationUpdateServiceTests.cs",
+        "Length":  18055,
+        "SHA256":  "B31058BE48723AD735717DD85128C63121DE722A4B13B690ABF6BEAE0A75752D"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/ApplicationUpdateViewTests.cs",
+        "Length":  2772,
+        "SHA256":  "B55DFFB3B3F14796A95C0B8FDFF863FF702D247817F181982A8792663F731941"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/AppLifecycleShutdownTests.cs",
+        "Length":  5747,
+        "SHA256":  "D8A76D8A751AEB263BC65CFDAA59DFDC1D9B939BF322DF09AAB02670A1605A82"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/AppPathsTests.cs",
+        "Length":  1272,
+        "SHA256":  "A3788F1AFF62DBF6225661576D614665BDDEA1F3CC71297580DF3FFC7B3B402D"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/AutostartExactStateTests.cs",
+        "Length":  10530,
+        "SHA256":  "3D6E3FC3E05B1D659FF62B0C159FD0734C51117041EF9A277D2B3080E34D62AC"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/AutostartManagerTests.cs",
+        "Length":  8769,
+        "SHA256":  "12F8CB3F61256B000E66A778A6B9817F4E2FE41B9CD95997738FDBA5E851476C"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/AutostartStateViewModelTests.cs",
+        "Length":  2181,
+        "SHA256":  "7689665D00D3C9074795AD95FBD2039E80D6A43FCDBD74D7B26752E9668C897D"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/AvaloniaTestAssembly.cs",
+        "Length":  692,
+        "SHA256":  "C953845822D694BC268D2979FBF7D4552A5BDC538C679F63D0E6F16AED073CBF"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/BackupTests.cs",
+        "Length":  16469,
+        "SHA256":  "E61D243095FE8CEF60110DAAC494B0C264CFADDB31DB1D785BAB43F9F6D09373"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/BundledNodeRuntimePolicyTests.cs",
+        "Length":  5516,
+        "SHA256":  "37EB2C26D9D02C0EBA746F4B8A705E0DEB1443FFA7DAA7E50280F65E3085D802"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/BundledRuntimePreparerTests.cs",
+        "Length":  56543,
+        "SHA256":  "4CC602C49DC3A8ECF8A0A660A3AC97260C39DC2EEB6E65E842EB86BAFFF2DB33"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CacheManagerTests.cs",
+        "Length":  7703,
+        "SHA256":  "FACA16FB70FB0850A7BF22DFCA61CB286A5CA3CA8374E041875BF6E3C4A0EC04"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CompositionRootTests.cs",
+        "Length":  5559,
+        "SHA256":  "225B01F827D9AF376F18453D75FD9C7B95B70218FA71D0D8922D1C6A1D0D8709"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/ConfigurationEditorControlTests.cs",
+        "Length":  16565,
+        "SHA256":  "8BCA970629ABAF92ED0300E19F83C9A519C005632D0096686707294B5C1E76FB"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/ConfigurationPageViewModelTests.cs",
+        "Length":  28775,
+        "SHA256":  "428A36F238455B9305A5C8BA8369643CC919641F27D23A06BBAADB706D385AA3"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/ConfigurationViewRenderTests.cs",
+        "Length":  31841,
+        "SHA256":  "401A2E059AE3643E6E68AC0F9649300AD182B18A080A531522AD5140AF7FF8BA"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CoreCacheAnimeClientTests.cs",
+        "Length":  9709,
+        "SHA256":  "00CD7C6A1F7BFC4C7020BC9BD15C0AFC33EC85E17CCE092C962309692B4F7C55"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CoreCredentialClientTests.cs",
+        "Length":  8689,
+        "SHA256":  "240CF07A57E1A699D4A1A59E88379C3E7BC5CA12DB001E4FBEAE88403FABE1F4"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CoreDependencyServiceTests.cs",
+        "Length":  27933,
+        "SHA256":  "B5FDB0DE52A543992016937FA75F7A8DC9B118D1B0A52AECA5CD60DC05B7CD11"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CoreDependencyViewModelTests.cs",
+        "Length":  5136,
+        "SHA256":  "DAE3470C898847DCB7F492267D8466D07EA0F29E703DCBDC1AB9A052F5969FD1"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CoreEnvCatalogTests.cs",
+        "Length":  8175,
+        "SHA256":  "02CF00FDB843824162743DC3C2AE3E11436A21859D6F987DC3B5009483E15476"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CoreEnvClientTests.cs",
+        "Length":  8190,
+        "SHA256":  "94F9C763C654A1A7B3E1838D5E420547613187A92BF4A336CF114FC59D18481B"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CoreEnvRepositoryTests.cs",
+        "Length":  4140,
+        "SHA256":  "70B0C5E11FF1BCB700593E9C3738A31B895A28F765DD9DD310EFB5B447B893B9"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CoreEnvStructuredValidationTests.cs",
+        "Length":  2912,
+        "SHA256":  "5F5BA05AD1FA114E018E59A8F871EBF7364B65D3F737BE482C61F076DFA5234A"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CoreEnvStructuredValuesTests.cs",
+        "Length":  7579,
+        "SHA256":  "E1C98383F9C80B68D2EF7A06C5232D99352EA364671C87EC5FD88FC6F47906A4"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CoreFeedbackTests.cs",
+        "Length":  2321,
+        "SHA256":  "D291ACFE38A1EAA87372A63CE40E822EB4C492C6E6D0CC74AEEE94A4EDDC4F17"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CoreInstallationModelsTests.cs",
+        "Length":  3751,
+        "SHA256":  "CFDEC8C23A5597A914651F2FAE8A7CA742A6B7966F4B54EA7C6C100D8B6CCA35"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CoreInstallerTests.cs",
+        "Length":  32013,
+        "SHA256":  "EA0A545CCA9FEB1A8ECD24D51458F01B9443802036046E2946AE847EBDDB0248"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CoreLocalDanmuClientTests.cs",
+        "Length":  25989,
+        "SHA256":  "BF5860FD6380867F455ECEB9C12D9EE1004ED80EF850531C771BF3488D740A20"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CoreLogClientTests.cs",
+        "Length":  2920,
+        "SHA256":  "8669DB39312C09A3C6A1A3BED648286805EA91C87E6B97D468A4AFC6643D94A0"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CoreManagementServiceTests.cs",
+        "Length":  67490,
+        "SHA256":  "09BD8AC66E608112F25F73ED58F85EC5ACA4206BCFE9C60801E87D1DE34BFCB6"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CorePageViewModelTests.cs",
+        "Length":  95442,
+        "SHA256":  "468C81E92BCEFD7DF47E3470D4B8427BCF394DCECC0BB3E6DD9507825AA9564C"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CorePageViewTests.cs",
+        "Length":  22615,
+        "SHA256":  "ECFBAD60992C08642B03D58703594568EAA90702C3886C5AAB9FD4075C6AE720"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CorePageVocabularyTests.cs",
+        "Length":  4548,
+        "SHA256":  "A2020FD9DCB43BF7A960C44C35538AC29F50D6685A0BBEA38A8B4228CB6B5B7A"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CorePullRequestMergeServiceTests.cs",
+        "Length":  18506,
+        "SHA256":  "690DF87CBB9AE6041801139DCB0AB8567ED201EB6F6D63FEBCD77EDF79608095"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CorePullRequestPresenceTests.cs",
+        "Length":  16297,
+        "SHA256":  "B49316C67460DFF54E4A92A7E140E87EEFA35BD18030DFE0D5FE7A3BC9C6CFC2"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CoreRequestRecordsClientTests.cs",
+        "Length":  20130,
+        "SHA256":  "D09CE2F422CBA3ADEF3BF322A501C8A412CBD5394EB7782FFC966C2D7B1F59E3"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CoreSetupGuidanceTests.cs",
+        "Length":  15922,
+        "SHA256":  "EF9F75A284B41CB027D462A7A5DD1F20138BBA2F0AC23DDB16172C8EABDC7A4F"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CoreUpdateCoordinatorTests.cs",
+        "Length":  45946,
+        "SHA256":  "7B20F745D9BE1BE7E9CEA722FC0A9C819299297EC7000F4F2A095A35ECA6BF84"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CoreUpdateSchedulerTests.cs",
+        "Length":  19056,
+        "SHA256":  "3229200DE8789AC3AFD901D46380F32A9148822E579430B6467DD8A58264A3F9"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/CoreVersionReaderTests.cs",
+        "Length":  1875,
+        "SHA256":  "841E467EF90DB97462493393939C3140EC3BEE8B01389312741D728B9533B308"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/DanmuApi.Tests.csproj",
+        "Length":  1084,
+        "SHA256":  "359EE129321FC962EBF8389D1A56FC88644AFC66D6D566B170F15F1BCB5D6939"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/DanmuApiClientTests.cs",
+        "Length":  28392,
+        "SHA256":  "F57FA7DA8388254F735AD6504F6A2F13EB7C5F5F48FCB511197D3BBD32E8CB72"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/DanmuDownloadPageViewModelTests.cs",
+        "Length":  42116,
+        "SHA256":  "434C23142C42AA8E69AC97074288BFA560CDE083BC398DCBF5AD80999D3E9A56"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/DanmuDownloadServiceTests.cs",
+        "Length":  30098,
+        "SHA256":  "232EB3E11E6066C989EE2EC32BB3F1CA817EAC5BC5CFB7A2508233242FC3EF3C"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/DanmuPageViewModelTests.cs",
+        "Length":  36414,
+        "SHA256":  "1570901050B788FAAC4CA9213F0EA0E356FC17D6E8B5DEE4BEF01744DE63034C"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/DesktopNotificationServiceTests.cs",
+        "Length":  1640,
+        "SHA256":  "C49694B9E83F76DFCC813B11A4FB139CC239D56EEC28262C78B792E84407EAE7"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/DotEnvFileTests.cs",
+        "Length":  2857,
+        "SHA256":  "1790EEBCB7DADAB2FA7C996C029ADD1D408656F1C7CD04CB5E167FE7FBF483A7"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/DotEnvTransactionTests.cs",
+        "Length":  3027,
+        "SHA256":  "3B69568B7015B7265A92B6C1659EF0226CAA55D61D8E796A07F31562808DDB40"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/DotEnvValueCodecTests.cs",
+        "Length":  12102,
+        "SHA256":  "194B5A8E478A92551DDBE0564D8E0A4A3A92F5719C3475800A2F7F0B117B064A"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/EnterKeyCommandTests.cs",
+        "Length":  7775,
+        "SHA256":  "679485AECC5DAE4932349101E8D5AC8BE566785DB4E72080B1558BD534A93988"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/FirewallManagerTests.cs",
+        "Length":  7419,
+        "SHA256":  "878D6EDA214769A7CDF8AA99503A18AB10E9964682D54FEAD17D3B3D565C928D"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/FrpAdminStatusTests.cs",
+        "Length":  7115,
+        "SHA256":  "62365BC265DA47CF245B9D148E7252C3D1C20F999A13B4B4E06B212E2B8D4286"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/FrpBinaryInstallerNetworkTests.cs",
+        "Length":  7026,
+        "SHA256":  "E1946FC7AC3CE42F7588F4F66A2C66D012E23225A611CEEADB5971C5F8E786FB"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/FrpConfigJsonTests.cs",
+        "Length":  18403,
+        "SHA256":  "82D3C34186F54B3EECF2C5C34EDB328E78276A3E3FF732B7F324859DFAE62736"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/FrpConfigTextTests.cs",
+        "Length":  11018,
+        "SHA256":  "A96161789A69E144285A8CC0C61A181BCE9E81EDE7524AF868EE5DA9AA411F34"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/FrpConfigurationPersistenceTests.cs",
+        "Length":  14657,
+        "SHA256":  "4B55C5B958A9259D812D0394DBBE67185264FDD20DDE0D1D4146FA9422F6BC59"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/FrpConfigurationTests.cs",
+        "Length":  13882,
+        "SHA256":  "CFFD31B094A1EAC9C375E1C0FE9730BDA8BBCDEFEBEF87AA86A35BB640990B07"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/FrpLifecycleFailureTests.cs",
+        "Length":  10820,
+        "SHA256":  "730241509B94B46BD73B67ACF0E633C970AAB460EC58E77B050D2370CD3A646B"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/FrpMonitorRedesignTests.cs",
+        "Length":  12097,
+        "SHA256":  "B66A494C70EF63AE053F72FD9652BDC036472EDA24B3B65D43629D0B35C2031E"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/FrpNativeConfigTests.cs",
+        "Length":  40914,
+        "SHA256":  "280D0B75174A8EB83E89C8C0FCF682B1DF105CB4C3F8EA500035D4C7E5297597"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/FrpNativeProxyTests.cs",
+        "Length":  904,
+        "SHA256":  "613B3A14AED898F31A70D2151212DE9BAF762A16675BB2A81CBAED9C5096ECCF"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/FrpNativeVerifierDiagnosticTests.cs",
+        "Length":  1776,
+        "SHA256":  "9B834A4ABFB6713D5F6CE6E61A99A901F2F8871908A74759D709CED3C8CDFE3E"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/FrpNativeVerifierTests.cs",
+        "Length":  4105,
+        "SHA256":  "736A83CC615B505B17EB3D3CB11A046C30814E1B1A91B3AB0F287F2C6DC83F2F"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/FrpParallelModeReproTests.cs",
+        "Length":  1245,
+        "SHA256":  "9513E549B279549BA0D3B44EFBEEFA7CCC3A8F81D0D0A9BB792377350A07162C"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/FrpProviderSample.cs",
+        "Length":  1398,
+        "SHA256":  "D13E0B6D409315A6FDA67100DC102F732AE260ABDFE03B96FCBE6293C57DEE9D"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/FrpSettingsStoreTests.cs",
+        "Length":  14669,
+        "SHA256":  "A868806F13369C36D1C261F17E0F80EBC11D9F7E45A78AECDE995CFC1D6B2311"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/FrpStatusPresentationTests.cs",
+        "Length":  5418,
+        "SHA256":  "FD3204376E51C7D9F7EF67044278611F24E42556D3F0FAF6DF8E44EFF59D33B2"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/FrpStrictTomlTests.cs",
+        "Length":  7564,
+        "SHA256":  "DC93DD0DB37EAB80FF0D041FDF89EE3B98DCFB93B6C5B5226A6E7F679C3CF323"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/FrpSupervisorFailureTests.cs",
+        "Length":  17932,
+        "SHA256":  "3C6BD52F83CD6E7FE64E99C9021C936FAAEF4EE47109641E14220114CA0B257B"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/FrpSupervisorIntegrationTests.cs",
+        "Length":  40851,
+        "SHA256":  "37E92F6AFF878EFFBBE1EF81EA64B1545F2754715EF76F1D95FBA83FBB5176DF"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/FrpSurfaceFixture.cs",
+        "Length":  1283,
+        "SHA256":  "EC053263D8C64ACD58144A00B7B2B5B634D8F43E04B8289385EE6E50C73F6856"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/FrpTestDoubles.cs",
+        "Length":  8622,
+        "SHA256":  "03D0DBBDDCF54EEE34C9AFEB834AC9EF20D5F9AA935165E9D3CB92BBB4B4DC04"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/FrpTunnelServiceTests.cs",
+        "Length":  18283,
+        "SHA256":  "A9FC2DFA446305AB60C06DC75BF02DA9B8888A7942A608B0BE06389A8AAF17EB"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/FrpTunnelViewTests.cs",
+        "Length":  36730,
+        "SHA256":  "B68D20419F1376AABD34D818F1F2DCAF7FB156A67F89F3F706F7FBAB44FDF114"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/GithubCoreRemoteTests.cs",
+        "Length":  11816,
+        "SHA256":  "C824577777F91639E396A70CF4DF492F490872F6492335CC3CCB68DAFB32AD89"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/GithubDeadlineTests.cs",
+        "Length":  4399,
+        "SHA256":  "B5F79A120D1B6D5096A9F634E942C31A51D1306B4EAF03000A6BBFDA9128FE4A"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/GithubFileDownloaderTokenTests.cs",
+        "Length":  4060,
+        "SHA256":  "65EBD3F9D70D1A7ADBA5DEBF7A3F78A309D7CA0F202F9E20D52790FDD73AE9F2"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/GithubProxyCatalogTests.cs",
+        "Length":  1739,
+        "SHA256":  "C4F2672507DFF9FF5BAFC64341BFFC8299FBF01352376F94D5704F4F6E2DC1CC"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/GithubRepositoryReferenceTests.cs",
+        "Length":  2000,
+        "SHA256":  "AA331B607F02DF78E1EBB9A2F0693D66DD1C94B54D2A2E333C71020EEBFA1854"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/GithubTokenConfigurationServiceTests.cs",
+        "Length":  6625,
+        "SHA256":  "50E069177401D355EB41512D101599323F56062554E7296C144A99D35927838C"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/GithubTokenPolicyTests.cs",
+        "Length":  11241,
+        "SHA256":  "DD50C9C0FBAFC85AE3E1B2331F57BD2945522411DE4EE52422E4684FBDE11EBB"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/GoToolchainTests.cs",
+        "Length":  7060,
+        "SHA256":  "7ABD727C3F20923A1E778C0A17B24094806523CFB8ECDA74F2AC990A1C12D195"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/InstallerManualExitTests.cs",
+        "Length":  45754,
+        "SHA256":  "50F4992011859D11B6AD95F5A136CB804BF22001EF9205C1F0024C67CF6205F1"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/InstallerManualFlowTests.cs",
+        "Length":  10824,
+        "SHA256":  "00F2814333C511AABD6FBA2FAECA8CE66DBCDA5749C6293C25ED4503897D9CF9"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/InstallerRelayEnvironmentTests.cs",
+        "Length":  9674,
+        "SHA256":  "EF801B6442DF2406EEC50DA2BE54E2FFBD957C1153CF7AAAF96743BA910B258B"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/InstallerUpdateLeaseTests.cs",
+        "Length":  31986,
+        "SHA256":  "553238D53318A4B4346A040F01D6C8B7D0CEF704131C61492A0734B69E017C92"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/ListHoverContrastTests.cs",
+        "Length":  6305,
+        "SHA256":  "731873337D9E6301E0B9F029B56EDA238B7B891480321C1E08AA12D070A4336B"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/LocalCoreHistoryViewTests.cs",
+        "Length":  2730,
+        "SHA256":  "5EB1C85F4165C6424467F5A62ED27E526BBC731A7079FF11E0580695FF178CF1"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/LocalDanmuCacheReaderTests.cs",
+        "Length":  7514,
+        "SHA256":  "AE9DEC37536CCC581988855F24313A3A41206CBDE6ED6B38F545F2FF70FEDD95"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/LocalDanmuFilenameParserTests.cs",
+        "Length":  7991,
+        "SHA256":  "476B298BCC59BEF1901D0D9017F506868D521B9BE964C6DB71DEE5E25BF7154E"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/LocalDanmuPageViewModelTests.cs",
+        "Length":  58774,
+        "SHA256":  "9DF0B8FFC4CB63A62880AE48B9AA32604A3B51EBCF142CFF6FE474951906D8F6"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/LogParsingTests.cs",
+        "Length":  7490,
+        "SHA256":  "FEE60E3482C7B3D8434C262180FF4FB70831839DC63D376B1160E5726D6FEC79"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/LogsPageViewModelTests.cs",
+        "Length":  16672,
+        "SHA256":  "B34A83AAF472D83F82E7C527E8424F1B49C068B5ED65554B51C25429FCADD8C3"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/MainWindowPreparationTests.cs",
+        "Length":  5646,
+        "SHA256":  "5D9DC8A4BEC50AF971D659BDD6440153D6A9203CED734C8A48AB10AA2B2D5D50"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/MainWindowViewModelBehaviorTests.cs",
+        "Length":  53906,
+        "SHA256":  "55F1BE36311A4D29692E1E57200BAB7F8A8561F8ACC2E7BC82799ACB83ED09A4"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/MarkdownImageLoaderTests.cs",
+        "Length":  2656,
+        "SHA256":  "42EF0F6D9F4C672DD635E6255888C6EE3BFC754E09C9BF92B02899E2A30E44FE"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/MarkdownSurfaceTests.cs",
+        "Length":  4178,
+        "SHA256":  "256035910C5F09E07DB8E46365CD7C4F956FE14002D175220CCC71DAF70B6092"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/MarkdownViewTests.cs",
+        "Length":  17752,
+        "SHA256":  "C9C4A2B0E9C0C60E02C1E8B657B77B4465331D3E451A378FF31CA8887E21B3BD"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/MemoryCoreUpdateDiscoveryStore.cs",
+        "Length":  1104,
+        "SHA256":  "A5E7DA26DB5B0C7C1A1780915F9D2956F598C9DB99F8E74394F1F6D0663F3102"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/MergeEditorRegressionTests.cs",
+        "Length":  26466,
+        "SHA256":  "2C286195039DDCE234B39755AB569BAB8A0A15FF87D12B13844F748C9DBBA954"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/MultiArchitectureTests.cs",
+        "Length":  2600,
+        "SHA256":  "B0A3A3C5DC7F61643F375EE389D1548CA4E88864E0352435E733F1CD89F2C2D0"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/NativeNotificationTests.cs",
+        "Length":  5048,
+        "SHA256":  "976596E70F2BF14E7F8C502D8B1BE3FC77CE2A22BBDC3794B9B4F2098F5815CB"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/NodeSupervisorIntegrationTests.cs",
+        "Length":  11647,
+        "SHA256":  "6B1E3D903D2ED7D8E9B6661476D048DF95545ABE76512054562EC673998ACAE6"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/NodeSupervisorPreflightTests.cs",
+        "Length":  10145,
+        "SHA256":  "C371FDD2E4591C8CF13F9E9C6AF7861BAE31524FEC3B3E799A7766F083C78724"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/NotificationPreferenceTests.cs",
+        "Length":  21508,
+        "SHA256":  "6D3450DC06EA69BC5086936A581450A9792340ACCA3116A55193059971CE14B5"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/NotificationSettingsViewTests.cs",
+        "Length":  1671,
+        "SHA256":  "F42C6A7C3416231F7F597B23B63C33B3708B19822317AAAE86D23345FB42B82A"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/OptionalRedisStagerTests.cs",
+        "Length":  11670,
+        "SHA256":  "EDBE518753A8BFF7A523390834FCC3B05CE0FDF9D27F793E2069A7DE30D6977A"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/OutboundDirectServiceTests.cs",
+        "Length":  36578,
+        "SHA256":  "BBF799F7D33BF9D0A940F66F9A4887C19F9CA8C337C6280E97D8A74206A93379"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/OutboundDirectViewModelTests.cs",
+        "Length":  79051,
+        "SHA256":  "BE8559DA4EC6E35760819549A318AABA4BAACCDCD36290FD69DF8B9B2FC78C38"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/OutboundDirectViewTests.cs",
+        "Length":  31886,
+        "SHA256":  "152716B194419656FCF9AFA89A53A7AFEC14C9D0CC2E69E464EF6DE87DD48974"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/OutboundRuntimeBundleTests.cs",
+        "Length":  38304,
+        "SHA256":  "4373F66B23054C53EC9840823E88AB498AA34DD5B97288658BADC7624BA0E888"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/OutboundSettingsStoreTests.cs",
+        "Length":  9835,
+        "SHA256":  "E8BAF1B78451214BE62B147AB451161586BCD7D8C44E8F65B94B8CAECC87F59D"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/OutboundSupervisorIntegrationTests.cs",
+        "Length":  19447,
+        "SHA256":  "21B736FBB15C7D0B0026A8B0CAB43DA7A2FE57D1A8F4E4B85E3D149D539C1A42"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/OverviewAboutViewTests.cs",
+        "Length":  18605,
+        "SHA256":  "CE834F372DBE480B0DA7981539A89DF76D3B5163D04828C91C4DCEC5EEE4FFDC"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/OverviewAddressCardTests.cs",
+        "Length":  9871,
+        "SHA256":  "055B0D11D6481013B89AC72DCAF03A1676BC9D583889616DD87D7823DA3DC78C"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/OverviewDiagnosticsTests.cs",
+        "Length":  3541,
+        "SHA256":  "56E27DBB1F7FEC88F8527FC9F1FCD03AF98575F0E84143424C132BA5AF8A7D61"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/OverviewRequestStatsTests.cs",
+        "Length":  6896,
+        "SHA256":  "03B93EF3BA690985906E8741672CAFECD4C6CA67031A300A0919C8F6FFBABD5E"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/OverviewViewTests.cs",
+        "Length":  5445,
+        "SHA256":  "2D00DFBEC1DB435D092D94766EEA92514522486298CACDDA2532BB63D6BBD362"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/packages.lock.json",
+        "Length":  15988,
+        "SHA256":  "0A22C8945E88FFE6ECE2E8A35FB1DFA0184D62A01ABAC7EA55EF01C24657BD6F"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/packages.lock.win-arm64.json",
+        "Length":  18329,
+        "SHA256":  "DC9A355212427AD8F9BA979C54DD575B02F8A74DB0D881FD04B0FC48CC1479D7"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/packages.lock.win-x64.json",
+        "Length":  18327,
+        "SHA256":  "5664A329AF409E7DFA65DE9D82BFCF28F85F0E3F9820FAC6E6BB7271B5717A8A"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/packages.lock.win-x86.json",
+        "Length":  18327,
+        "SHA256":  "9E6EE49A9120A157E1959E4A3E0A7240D4D31942E60A6D2D4357FC1180D95A68"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/PortableApplicationUpdateJournalTests.cs",
+        "Length":  12982,
+        "SHA256":  "2AA27D5045497262AC64F65D7A9B26E7FDB8E04C1F1C8C30247F72DFC0B5C034"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/PortableApplicationUpdateTests.cs",
+        "Length":  5181,
+        "SHA256":  "37988B35D3A9D82E29DC23FBEB739B9F0EE0BBA24E74680D5A326AD92A685EDF"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/PortAvailabilityTests.cs",
+        "Length":  7337,
+        "SHA256":  "396E5B1B58C9C7564C2738396CCABF1AEBB8752F104B223E9A4CBFD7BB558DB8"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/PortTestHelpers.cs",
+        "Length":  1552,
+        "SHA256":  "0B22466F4C70E643F56CA69DDFC17E76CE2168E43F034DFEE818B885C16B7B8D"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/PosterImageServiceTests.cs",
+        "Length":  3310,
+        "SHA256":  "4E1FF32A32D6C4324E63C58486CA40186F7CBD6A209FC05EB84DAAC1A6302A76"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/ProcessCommandExecutorTests.cs",
+        "Length":  2498,
+        "SHA256":  "044E64195FB0FCB05BD7699656E0D2ECAC1E3AB6A472D13C2F712A63D217AC22"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/ProtectedDocumentStoreTests.cs",
+        "Length":  1924,
+        "SHA256":  "260AF65B20C502BC37C4AB9F2DFC5630AFA946E3332B3247FE6A2339E39C61FA"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/QuickUpdateDialogTests.cs",
+        "Length":  6501,
+        "SHA256":  "3012F316AA0A7D3E0A10A5AB17223DC33DDE98E62C4B83661E98083BDA58F62B"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/RecentDataPanelTests.cs",
+        "Length":  9117,
+        "SHA256":  "EBD96E33A46EF27A5AB716D8FB8CAE88546F3466DD38617A5707DEFEE2162BDC"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/RecordingDialogService.cs",
+        "Length":  13725,
+        "SHA256":  "AC3C78F893AF91C02B5C39CC015A2FB4CCAB5D7E9A816EC8F1292A171D04B4FC"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/RequestRateHistoryTests.cs",
+        "Length":  3482,
+        "SHA256":  "DAC9BDD1DA8D2F4E991A922118FEBA21E37A83BBFDD07708B6EF14FB17F90C1E"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/RunningInstanceExitTests.cs",
+        "Length":  13413,
+        "SHA256":  "89F808CB69CE0D508FF175A3215521D88E1CA46262555A46800EFD98FABE7328"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/RuntimeAdoptionTests.cs",
+        "Length":  11752,
+        "SHA256":  "CB394EF1C55DC92D004AF24C4E8762F761F4B85302C575586EA576BF72CEF195"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/RuntimeConfigTests.cs",
+        "Length":  2317,
+        "SHA256":  "156A1CD02D12FE54474653D77EA2CD8369D1D7385B0206832441CF751292F8BB"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/RuntimeControllerTests.cs",
+        "Length":  19184,
+        "SHA256":  "9426DC32AE68953FB7C2108A01C2483629B2D909C47A002866687F2EF5A58A52"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/RuntimeEndpointBuilderTests.cs",
+        "Length":  3873,
+        "SHA256":  "E6C107134DC8877128BB1496951D0DCA7ECB1AFA907A66FB55957EE538A47E47"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/RuntimeHealthClientTests.cs",
+        "Length":  2217,
+        "SHA256":  "C40FFF04319083BF110CBE60A1956641A3EF009880380AD1C6BCBCF4A32397B5"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/RuntimeMaintenanceTests.cs",
+        "Length":  17418,
+        "SHA256":  "7E0329C512CEDCDE0D690534CA3A87F3D8815F296BC490A0A3269D6F3A8385EE"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/RuntimeManagementClientTests.cs",
+        "Length":  8631,
+        "SHA256":  "7E2948478744D4C7BCFFFD18409FD8F13919C4A62348B7B2F88AFAB4BF4CBF63"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/RuntimeNetworkAddressResolverTests.cs",
+        "Length":  6847,
+        "SHA256":  "AEA875F93B3C21166D99EAAFC5E4BBBA4453D038C426AFC10C75ACA4951E60C2"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/RuntimeOwnershipTests.cs",
+        "Length":  761,
+        "SHA256":  "3520E0AD745C7D4B87AE2A47DD293A2AA809BF1DA03AE838961BE9BB0B7F2BB8"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/RuntimePreparationServiceTests.cs",
+        "Length":  3581,
+        "SHA256":  "E72851811AE486C644AA0AD02C4DEADCBE55D6E8BFF1AABB05A6DBB824C3220E"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/RuntimeShutdownBarrierTests.cs",
+        "Length":  5774,
+        "SHA256":  "EEBAC430AE9D099425F527A2F2264B9644D3A4AF19BA5406E9E8EBBD93DCDAF6"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/RuntimeVariantSwitchServiceTests.cs",
+        "Length":  8244,
+        "SHA256":  "C5C32333D4E34E27CF43055CFEA5BDD1DE2509031A64062D0354D0E64825FBF2"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/ServiceManagementPageViewModelTests.cs",
+        "Length":  16585,
+        "SHA256":  "2617D16E80B673FB74AAD52D9C3E0FC774B75376FBA2FA731F0B87C7C6815341"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/SettingsPageViewModelTests.cs",
+        "Length":  16222,
+        "SHA256":  "6AC275E52ABFF85E1979613ECAD8F7F6487A68CD569464118BF97818200A345E"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/SettingsStoreTests.cs",
+        "Length":  1532,
+        "SHA256":  "72EFB01EBDDFBB265848701EA58D1E35CBC9643DAF5388550BE03DAEBD66CCEA"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/SettingsViewRenderTests.cs",
+        "Length":  12565,
+        "SHA256":  "5FD549CC314B4B579C3AAAAB70B0EB40B51D2505068B0C7BAA76557C6ABCA764"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/StartupExitTests.cs",
+        "Length":  1257,
+        "SHA256":  "AE6152DE9E6019609D14BBB39D0CB515196C877555F4ADF4F1A06D004AEB5456"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/StartupWindowTests.cs",
+        "Length":  3156,
+        "SHA256":  "63397E40EA3565ED97260A6AB33F6ED59E3956D82AFBC7C6C1CCE22215D39C73"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/StubAdminSessionService.cs",
+        "Length":  1985,
+        "SHA256":  "27512C2B5DB6B56CF2FAD2718D365B13B338966EAFD625B1E913AECBFB21FB77"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/TagPickerTests.cs",
+        "Length":  2644,
+        "SHA256":  "BF2539A50D357D2E61F19C04836C382711B4CADE9316AE5B83BB63A370000A71"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/ThemeHeaderViewTests.cs",
+        "Length":  6735,
+        "SHA256":  "BC79F5277C5B2456FCED7E4746376ADDCE62BD21D4A506385AE1C38B75D84196"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/ThemeServiceTests.cs",
+        "Length":  5461,
+        "SHA256":  "836134B64A78BC9730A0C75E14766A39BE59301647DA4880F19838ADE4F4B72D"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/ToolWorkflowViewTests.cs",
+        "Length":  11706,
+        "SHA256":  "89B614F94C7222B5B92D1F3D5504C60EB4824F559653FFE13F5E3A08FB7BE933"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/TrayServiceTests.cs",
+        "Length":  3845,
+        "SHA256":  "86AE115569294D4449E98044C8C529464B30D25B8D9EBFED6FF76A0A804DB852"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/UnifiedDiffParserTests.cs",
+        "Length":  2077,
+        "SHA256":  "50F3736FADF71A4C123350F125BD9A03E227E5565F7A076389EE1A788A95863F"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/UnitTest1.cs",
+        "Length":  110,
+        "SHA256":  "DD104F470980F9870C72D94827407123CA634A9999CE5406A06F1FDBEB26E111"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/UpdatedServiceRestorerTests.cs",
+        "Length":  2687,
+        "SHA256":  "425B81D1D0451233AA0409B4657EBA0346D6955CAF6535639C5CD94B865EB0B5"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/WindowsGithubTokenStoreTests.cs",
+        "Length":  1565,
+        "SHA256":  "B98A91FB92D7D0B48A4EAEADA24EC26032C736852CC8249CCD14DB09D6520E08"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/WindowsProcessArgumentsTests.cs",
+        "Length":  2575,
+        "SHA256":  "61DF27BFDC765CD04CD594CCBD83DD1CF31F0800E89705556EE909D4E4BAABCA"
+    },
+    {
+        "Path":  "src/DanmuApi.Tests/WindowsProcessTerminatorTests.cs",
+        "Length":  2854,
+        "SHA256":  "7553277121A219F0B02F72195B7E0C5D74280884C112CB3AA6539155AC6DF280"
+    }
+]

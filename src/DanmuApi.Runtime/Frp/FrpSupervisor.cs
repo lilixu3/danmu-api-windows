@@ -76,6 +76,7 @@ public sealed class FrpSupervisor : IFrpSupervisor
                 throw new InvalidOperationException($"当前状态 {Snapshot.State} 不允许启动，请先停止穿透");
             }
 
+            _plan = plan;
             SetSnapshot(new(FrpTunnelState.Starting));
             try
             {
@@ -86,7 +87,7 @@ public sealed class FrpSupervisor : IFrpSupervisor
                 var cleaned = await CleanUpOwnOrphansAsync(plan, cancellationToken).ConfigureAwait(false);
                 if (cleaned > 0)
                 {
-                    _report?.Invoke($"已清理上次退出遗留的 {plan.ExecutableLabel}（{cleaned} 个），它占用了本地状态端口 {plan.AdminPort}");
+                    Report($"已清理上次退出遗留的 {plan.ExecutableLabel}（{cleaned} 个），它占用了本地状态端口 {plan.AdminPort}");
                 }
 
                 EnsureAdminPortFree(plan);
@@ -394,7 +395,7 @@ public sealed class FrpSupervisor : IFrpSupervisor
         var exitCode = ReadExitCode(process);
         var pid = process.Id;
         // 仍保留句柄/计划直到异步 Stop 把日志泵收尾，避免 liveness 路径遗失清理责任。
-        _report?.Invoke(reason);
+        Report(reason);
         return SetSnapshotState(new(FrpTunnelState.Failed, pid, Diagnostic: reason, ExitCode: exitCode, HasOwnedProcess: true));
     }
 
@@ -437,50 +438,51 @@ public sealed class FrpSupervisor : IFrpSupervisor
             var proxies = await _adminClient
                 .ReadClientStatusAsync(plan.AdminPort, plan.AdminUser, plan.AdminPassword, cancellationToken)
                 .ConfigureAwait(false);
-            var proxy = proxies.FirstOrDefault(item => string.Equals(item.Name, plan.ProxyName, StringComparison.Ordinal));
-            if (proxy is null)
+            var expected = plan.ExpectedProxies;
+            // Null is the old single-proxy supervisor contract, not a raw-mode fallback.
+            var targets = expected?.Select(item => (Name: item.AdminName, Type: (string?)item.Type)).ToArray()
+                ?? [(plan.ProxyName, (string?)null)];
+            if (targets.Length == 0)
+                return new ProbeResult(null, proxies, null, "配置没有可核验的代理，不能确认 Running", null, null);
+            var notes = new List<string>();
+            var failures = new List<string>();
+            var matched = new List<FrpProxyStatus>();
+            foreach (var target in targets)
             {
-                // 空对象 / 没有我们的代理 = frpc 还没登录成功，代理尚未被创建。
-                var note = proxies.Count == 0
-                    ? "frpc 尚未与服务器建立连接（管理接口还没有任何代理）"
-                    : $"管理接口里没有名为 {plan.ProxyName} 的代理（现有：{string.Join("、", proxies.Select(item => item.Name))}）";
-                return new ProbeResult(null, proxies, null, note, null, null);
+                var entries = proxies.Where(item => string.Equals(item.Name, target.Name, StringComparison.Ordinal)).ToArray();
+                if (entries.Length != 1)
+                {
+                    notes.Add(proxies.Count == 0 ? "frpc 尚未与服务器建立连接（管理接口还没有任何代理）"
+                        : $"管理接口里代理 {target.Name} {(entries.Length == 0 ? "缺失" : "重复，状态不可信")}");
+                    continue;
+                }
+                var proxy = entries[0];
+                if (target.Type is not null && !string.Equals(proxy.Type, target.Type, StringComparison.Ordinal))
+                {
+                    notes.Add($"代理 {target.Name} 类型不一致：配置 {target.Type}，管理接口 {proxy.Type}");
+                    continue;
+                }
+                matched.Add(proxy);
+                if (proxy.State == FrpProxyState.StartError)
+                    failures.Add($"代理 {proxy.Name} 启动失败：{(proxy.Error.Length == 0 ? "frp 未给出原因" : proxy.Error)}");
+                else if (proxy.State != FrpProxyState.Running)
+                    notes.Add($"代理 {proxy.Name} 当前状态：{proxy.Status}{(proxy.Error.Length == 0 ? string.Empty : $"（{proxy.Error}）")}");
             }
+            if (failures.Count > 0)
+                return new ProbeResult(new(FrpTunnelState.Failed, Proxies: proxies, Diagnostic: string.Join("；", failures)),
+                    proxies, null, null, null, null);
+            if (notes.Count > 0) return new ProbeResult(null, proxies, null, string.Join("；", notes.Distinct()), null, null);
 
-            switch (proxy.State)
-            {
-                case FrpProxyState.Running:
-                    var remote = string.IsNullOrWhiteSpace(proxy.RemoteAddress) ? null : proxy.RemoteAddress;
-                    var diagnostic = remote is null ? "frp 报告代理已运行，但没有返回远端地址" : null;
-                    return new ProbeResult(
-                        new(FrpTunnelState.Running, Pid: null, RemoteAddress: remote, Proxies: proxies, Diagnostic: diagnostic),
-                        proxies,
-                        remote,
-                        null,
-                        diagnostic,
-                        null);
-                case FrpProxyState.StartError:
-                    return new ProbeResult(
-                        new(
-                            FrpTunnelState.Failed,
-                            Pid: null,
-                            RemoteAddress: null,
-                            Proxies: proxies,
-                            Diagnostic: $"代理 {proxy.Name} 启动失败：{(proxy.Error.Length == 0 ? "frp 未给出原因" : proxy.Error)}"),
-                        proxies,
-                        null,
-                        null,
-                        null,
-                        null);
-                default:
-                    return new ProbeResult(
-                        null,
-                        proxies,
-                        null,
-                        $"代理 {proxy.Name} 当前状态：{proxy.Status}{(proxy.Error.Length == 0 ? string.Empty : $"（{proxy.Error}）")}",
-                        null,
-                        null);
-            }
+            FrpProxyStatus? eligible;
+            if (expected is null) eligible = matched.FirstOrDefault();
+            else eligible = matched.FirstOrDefault(proxy => expected.Any(target => target.AdminName == proxy.Name
+                && target.Type is "tcp" or "http" or "https"
+                && target.LocalPort > 0 && (plan.CoreServicePort is null || target.LocalPort == plan.CoreServicePort)
+                && IsLoopback(target.LocalAddress)));
+            var remote = string.IsNullOrWhiteSpace(eligible?.RemoteAddress) ? null : eligible.RemoteAddress;
+            var diagnostic = remote is null ? "全部代理已运行，但没有已确认指向本机弹幕服务的远端地址" : null;
+            return new ProbeResult(new(FrpTunnelState.Running, RemoteAddress: remote, Proxies: proxies, Diagnostic: diagnostic),
+                proxies, remote, null, diagnostic, null);
         }
 
         var server = await _adminClient
@@ -503,6 +505,9 @@ public sealed class FrpSupervisor : IFrpSupervisor
             Server = probe.Server ?? settled.Server,
             HasOwnedProcess = true,
         } : null;
+
+    private static bool IsLoopback(string address) => string.Equals(address, "localhost", StringComparison.OrdinalIgnoreCase)
+        || System.Net.IPAddress.TryParse(address, out var ip) && System.Net.IPAddress.IsLoopback(ip);
 
     private Process StartProcess(FrpRunPlan plan)
     {
@@ -532,8 +537,8 @@ public sealed class FrpSupervisor : IFrpSupervisor
         var baseName = plan.LogFileName;
         _stdoutPath = Path.Combine(plan.LogDirectory, $"{baseName}-stdout.log");
         _stderrPath = Path.Combine(plan.LogDirectory, $"{baseName}-stderr.log");
-        _stdoutPump = PumpAsync(process.StandardOutput, _stdoutPath, _lifetime.Token);
-        _stderrPump = PumpAsync(process.StandardError, _stderrPath, _lifetime.Token);
+        _stdoutPump = PumpAsync(process.StandardOutput, _stdoutPath, SecretsFor(plan), _lifetime.Token);
+        _stderrPump = PumpAsync(process.StandardError, _stderrPath, SecretsFor(plan), _lifetime.Token);
         return process;
     }
 
@@ -571,6 +576,20 @@ public sealed class FrpSupervisor : IFrpSupervisor
             throw new DirectoryNotFoundException($"frp 工作目录不存在：{plan.WorkingDirectory}");
         }
 
+        if (plan.ExpectedProxies is { } expected)
+        {
+            if (plan.Role == FrpRole.Client && expected.Count == 0) throw new ArgumentException("客户端运行计划没有预期代理");
+            if (expected.Any(proxy => string.IsNullOrWhiteSpace(proxy.Name) || string.IsNullOrWhiteSpace(proxy.AdminName) || string.IsNullOrWhiteSpace(proxy.Type))
+                || expected.Select(proxy => proxy.Name).Distinct(StringComparer.Ordinal).Count() != expected.Count
+                || expected.Select(proxy => proxy.AdminName).Distinct(StringComparer.Ordinal).Count() != expected.Count)
+                throw new ArgumentException("预期代理必须有唯一名称和明确类型");
+        }
+        var configDirectory = Path.GetDirectoryName(Path.GetFullPath(plan.ConfigPath));
+        if (plan.OwnedConfigPaths.Any(path => !string.Equals(Path.GetDirectoryName(Path.GetFullPath(path)), configDirectory, StringComparison.OrdinalIgnoreCase)
+            || Path.GetFileName(path) != (plan.Role == FrpRole.Client ? "frpc.toml" : "frps.toml")
+                && Path.GetFileName(path) != (plan.Role == FrpRole.Client ? "frpc.json" : "frps.json")))
+            throw new ArgumentException("遗留进程的已知配置路径必须是本角色同目录下的宿主固定文件");
+
         if (plan.StartupTimeout <= TimeSpan.Zero || plan.ShutdownTimeout <= TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(nameof(plan), "启停超时必须大于零");
@@ -594,33 +613,33 @@ public sealed class FrpSupervisor : IFrpSupervisor
             foreach (var candidate in candidates)
             {
                 if (candidate.Id == Environment.ProcessId || candidate.HasExited) continue;
-                ProcessTerminationResult result;
-                try
+                foreach (var ownedPath in new[] { plan.ConfigPath }.Concat(plan.OwnedConfigPaths).Distinct(StringComparer.OrdinalIgnoreCase))
                 {
-                    result = await _terminator.TerminateVerifiedAsync(
-                        candidate, plan.ExecutablePath, plan.ConfigPath, plan.ExecutableLabel,
-                        plan.ShutdownTimeout, cancellationToken).ConfigureAwait(false);
-                }
-                catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception)
-                {
-                    _report?.Invoke($"遗留进程检查拒绝 PID={candidate.Id}：{error.GetType().Name}, HResult=0x{error.HResult:X8}");
-                    continue;
-                }
-
-                if (result.Succeeded && candidate.HasExited)
-                {
-                    cleaned++;
-                }
-                else if (result.OwnershipVerified)
-                {
-                    // 已证明这是自己的遗留进程，终止失败不能丢掉句柄/PID 后再启动一个。
-                    _process = candidate;
-                    _plan = plan;
-                    throw new IOException($"清理自有遗留 PID={candidate.Id} 失败：{result.Diagnostic}");
-                }
-                else
-                {
-                    _report?.Invoke($"跳过清理 PID={candidate.Id} 的 {plan.ExecutableLabel}：{result.Diagnostic}");
+                    ProcessTerminationResult result;
+                    try
+                    {
+                        result = await _terminator.TerminateVerifiedAsync(
+                            candidate, plan.ExecutablePath, ownedPath, plan.ExecutableLabel,
+                            plan.ShutdownTimeout, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception)
+                    {
+                        Report($"遗留进程检查拒绝 PID={candidate.Id}：{error.GetType().Name}, HResult=0x{error.HResult:X8}");
+                        break;
+                    }
+                    if (result.Succeeded && candidate.HasExited)
+                    {
+                        cleaned++;
+                        break;
+                    }
+                    if (result.OwnershipVerified)
+                    {
+                        // Retain the EXACT verified old config path so a retry Stop can still establish ownership.
+                        _process = candidate;
+                        _plan = plan with { ConfigPath = ownedPath };
+                        throw new IOException($"清理自有遗留 PID={candidate.Id} 失败：{result.Diagnostic}");
+                    }
+                    Report($"跳过清理 PID={candidate.Id} 的 {plan.ExecutableLabel}：{result.Diagnostic}");
                 }
             }
         }
@@ -688,6 +707,7 @@ public sealed class FrpSupervisor : IFrpSupervisor
 
     private async Task<FrpSnapshot> FailAsync(string reason, Process? process)
     {
+        reason = Safe(reason);
         if (process is null && _process is not null) return SetFailure(reason, _process);
         if (process is not null)
         {
@@ -707,13 +727,14 @@ public sealed class FrpSupervisor : IFrpSupervisor
             reason += $"；日志泵收尾失败: {pumpDiagnostic}";
             return SetFailure(reason, process);
         }
+        reason = Safe(reason);
 
         if (process is not null)
         {
             var exitCode = ReadExitCode(process);
             ClearProcess(process);
             _plan = null;
-            _report?.Invoke(reason);
+            Report(reason);
             return SetSnapshotState(new(FrpTunnelState.Failed, ExitCode: exitCode, Diagnostic: reason));
         }
 
@@ -766,7 +787,7 @@ public sealed class FrpSupervisor : IFrpSupervisor
     private FrpSnapshot SetFailure(string reason, Process? process = null)
     {
         process ??= _process;
-        _report?.Invoke(reason);
+        Report(reason);
         return SetSnapshotState(new(
             FrpTunnelState.Failed,
             process?.Id ?? Snapshot.Pid,
@@ -787,8 +808,35 @@ public sealed class FrpSupervisor : IFrpSupervisor
         process.Dispose();
     }
 
+    private static string?[] SecretsFor(FrpRunPlan plan) => plan.Secrets.Append(plan.AdminPassword)
+        .Append(Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(plan.AdminUser + ":" + plan.AdminPassword)))
+        .ToArray();
+
+    private string Safe(string message) => _plan is { } plan ? RuntimeManagementClient.Redact(message, SecretsFor(plan)) : message;
+    private void Report(string message) => _report?.Invoke(Safe(message));
+
     private FrpSnapshot SetSnapshotState(FrpSnapshot snapshot)
     {
+        if (_plan is { } plan)
+        {
+            snapshot = snapshot with
+            {
+                Diagnostic = snapshot.Diagnostic is null ? null : Safe(snapshot.Diagnostic),
+                RemoteAddress = snapshot.RemoteAddress is null ? null : Safe(snapshot.RemoteAddress),
+                Proxies = snapshot.Proxies?.Select(proxy => proxy with
+                {
+                    Name = Safe(proxy.Name), Status = proxy.State == FrpProxyState.Unknown ? Safe(proxy.Status) : proxy.Status, Error = Safe(proxy.Error),
+                    LocalAddress = Safe(proxy.LocalAddress), RemoteAddress = Safe(proxy.RemoteAddress),
+                }).ToArray(),
+                ActiveSettings = snapshot.RequiresStop ? plan.CapturedSettings : null,
+                ExpectedProxies = snapshot.RequiresStop ? plan.ExpectedProxies?.Select(target => target with
+                {
+                    Name = Safe(target.Name), AdminName = Safe(target.AdminName),
+                    LocalAddress = Safe(target.LocalAddress),
+                }).ToArray() ?? [] : [],
+                CoreServicePort = snapshot.RequiresStop ? plan.CoreServicePort : null,
+            };
+        }
         lock (this)
         {
             _snapshot = snapshot;
@@ -806,7 +854,7 @@ public sealed class FrpSupervisor : IFrpSupervisor
                 catch (Exception error)
                 {
                     // 订阅方出错不能影响状态机本身；但也绝不能悄悄消失。
-                    _report?.Invoke($"穿透状态订阅者抛出异常: {error.Message}");
+                    Report($"穿透状态订阅者抛出异常: {error.Message}");
                 }
             }
         }
@@ -843,7 +891,7 @@ public sealed class FrpSupervisor : IFrpSupervisor
         }
     }
 
-    private static async Task PumpAsync(StreamReader reader, string path, CancellationToken cancellationToken)
+    private static async Task PumpAsync(StreamReader reader, string path, string?[] secrets, CancellationToken cancellationToken)
     {
         await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read, 16 * 1024, useAsync: true);
         await using var writer = new StreamWriter(stream, System.Text.Encoding.UTF8) { AutoFlush = true };
@@ -855,7 +903,8 @@ public sealed class FrpSupervisor : IFrpSupervisor
                 break;
             }
 
-            await writer.WriteLineAsync(line.AsMemory(), cancellationToken).ConfigureAwait(false);
+            var safe = RuntimeManagementClient.Redact(line, secrets);
+            await writer.WriteLineAsync(safe.AsMemory(), cancellationToken).ConfigureAwait(false);
         }
     }
 

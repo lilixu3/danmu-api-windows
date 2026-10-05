@@ -50,7 +50,7 @@ public sealed partial class FrpTunnelPageViewModel : ViewModelBase, IAsyncDispos
         TabOptions =
         [
             new(FrpTunnelTab.Monitor, "监控", "穿透状态、外网地址与启停操作"),
-            new(FrpTunnelTab.Configuration, "配置", "服务器、代理与高级选项，支持 JSON 导入导出"),
+            new(FrpTunnelTab.Configuration, "配置", "可视化 / 原生 JSON 两种独立配置方式"),
             new(FrpTunnelTab.Logs, "日志", "frp 进程输出，用于排障"),
         ];
         _selectedTabOption = TabOptions[0];

@@ -51,6 +51,20 @@ internal sealed class FakeFrpInstaller : IFrpBinaryInstaller
     public IReadOnlyList<string> RemoveOtherVersions(string keepVersion) => [];
 }
 
+internal sealed class FakeFrpNativeVerifier : IFrpNativeVerifier
+{
+    public int Calls { get; private set; }
+    public FrpRunPlan? LastPlan { get; private set; }
+    public FrpNativeVerificationResult Result { get; set; } = new(true, "frpc.exe 原生校验通过（测试替身）");
+    public Task<FrpNativeVerificationResult> VerifyAsync(FrpRunPlan plan, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        Calls++;
+        LastPlan = plan;
+        return Task.FromResult(Result);
+    }
+}
+
 internal sealed class FakeFrpSupervisor : IFrpSupervisor
 {
     public FrpSnapshot Snapshot { get; private set; } = new(FrpTunnelState.Stopped);
@@ -169,6 +183,8 @@ internal sealed class FrpTestHarness : IDisposable
 
     public required FakeFrpSupervisor Supervisor { get; init; }
 
+    public required FakeFrpNativeVerifier Verifier { get; init; }
+
     public required FrpTestDiagnostics Diagnostics { get; init; }
 
     public required FakeRuntimeController Runtime { get; init; }
@@ -187,9 +203,11 @@ internal sealed class FrpTestHarness : IDisposable
         var store = new FrpSettingsStore(
             settings,
             new WindowsProtectedStringStore(paths.FrpTokenFile, "DanmuApi.Windows.FrpToken.v1"),
-            new WindowsProtectedStringStore(paths.FrpAdminPasswordFile, "DanmuApi.Windows.FrpAdminPassword.v1"));
+            new WindowsProtectedStringStore(paths.FrpAdminPasswordFile, "DanmuApi.Windows.FrpAdminPassword.v1"),
+            new WindowsProtectedDocumentStore(paths.FrpConfigTextFile));
         var installer = new FakeFrpInstaller { BinaryDirectory = paths.FrpBinaryDirectory };
         var supervisor = new FakeFrpSupervisor();
+        var verifier = new FakeFrpNativeVerifier();
         var diagnostics = new FrpTestDiagnostics();
         var runtime = new FakeRuntimeController();
         return new FrpTestHarness
@@ -198,9 +216,10 @@ internal sealed class FrpTestHarness : IDisposable
             Store = store,
             Installer = installer,
             Supervisor = supervisor,
+            Verifier = verifier,
             Diagnostics = diagnostics,
             Runtime = runtime,
-            Service = new FrpTunnelService(store, installer, supervisor, paths, diagnostics, runtime, () => localPort),
+            Service = new FrpTunnelService(store, installer, supervisor, paths, diagnostics, runtime, () => localPort, verifier),
             Directory = root,
         };
     }

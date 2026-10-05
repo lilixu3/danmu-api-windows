@@ -296,9 +296,9 @@
           "Avalonia.Fonts.Inter": "[11.3.11, )",
           "Avalonia.Themes.Fluent": "[11.3.11, )",
           "CommunityToolkit.Mvvm": "[8.4.0, )",
-          "DanmuApi.Core": "[0.5.12, )",
-          "DanmuApi.Platform": "[0.5.12, )",
-          "DanmuApi.Runtime": "[0.5.12, )",
+          "DanmuApi.Core": "[0.5.27, )",
+          "DanmuApi.Platform": "[0.5.27, )",
+          "DanmuApi.Runtime": "[0.5.27, )",
           "Markdig": "[1.4.0, )",
           "Microsoft.Extensions.DependencyInjection": "[8.0.1, )",
           "QRCoder": "[1.6.0, )"
@@ -310,14 +310,14 @@
       "danmuapi.platform": {
         "type": "Project",
         "dependencies": {
-          "DanmuApi.Core": "[0.5.12, )",
-          "DanmuApi.Runtime": "[0.5.12, )"
+          "DanmuApi.Core": "[0.5.27, )",
+          "DanmuApi.Runtime": "[0.5.27, )"
         }
       },
       "danmuapi.runtime": {
         "type": "Project",
         "dependencies": {
-          "DanmuApi.Core": "[0.5.12, )"
+          "DanmuApi.Core": "[0.5.27, )"
         }
       },
       "Avalonia": {

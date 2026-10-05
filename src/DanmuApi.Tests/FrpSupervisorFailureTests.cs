@@ -89,6 +89,92 @@ public sealed class FrpSupervisorFailureTests
         finally { await CleanOwnedChildAsync(child); }
     }
 
+    [SkippableTheory]
+    [InlineData("missing")]
+    [InlineData("unknown")]
+    [InlineData("wrong-type")]
+    [InlineData("start-error")]
+    public async Task MultiProxyRequiresEveryRegisteredNameAndTypeAndClearsAddress(string condition)
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "仅 Windows 临时进程测试");
+        using var directory = new TemporaryDirectory();
+        using var child = StartOwnedChild();
+        var one = new FrpProxyStatus("account.one", "tcp", "running", "", "127.0.0.1:9321", "remote.invalid:19321");
+        var two = new FrpProxyStatus("account.two", condition == "wrong-type" ? "tcp" : "udp",
+            condition == "unknown" ? "unrecognized" : condition == "start-error" ? "start error" : "running",
+            condition == "start-error" ? "raw-secret denied" : "", "127.0.0.1:9355", "remote.invalid:19355");
+        var admin = new ControlledAdminClient { Status = condition == "missing" ? [one] : [one, two] };
+        var supervisor = InjectSupervisor(child, directory.Path, new OwnedChildTerminator(child), out var plan, admin);
+        plan = plan with
+        {
+            ExpectedProxies = [new("account.one", "tcp", "127.0.0.1", 9321), new("account.two", "udp", "127.0.0.1", 9355)],
+            CoreServicePort = 9321,
+            Secrets = ["raw-secret"],
+        };
+        SetField(supervisor, "_plan", plan);
+        try
+        {
+            var refreshed = await supervisor.RefreshAsync();
+            Assert.Equal(FrpTunnelState.Reconnecting, refreshed.State);
+            Assert.Null(refreshed.RemoteAddress);
+            Assert.NotEmpty(refreshed.Diagnostic!);
+            Assert.DoesNotContain("raw-secret", refreshed.Diagnostic!, StringComparison.Ordinal);
+            Assert.DoesNotContain("raw-secret", string.Join(" ", refreshed.ProxyList.Select(proxy => proxy.Error)), StringComparison.Ordinal);
+            await supervisor.DisposeAsync();
+        }
+        finally { await CleanOwnedChildAsync(child); }
+    }
+
+    [SkippableTheory]
+    [InlineData("tcp", "127.0.0.1", 9321, true)]
+    [InlineData("http", "localhost", 9321, true)]
+    [InlineData("udp", "127.0.0.1", 9321, false)]
+    [InlineData("tcp", "127.0.0.1", 9333, false)]
+    [InlineData("tcp", "192.0.2.1", 9321, false)]
+    [InlineData("tcp", "", 0, false)]
+    public async Task AllProxiesRunningSelectsOnlyAnEligibleCoreServiceAddress(string type, string local, int port, bool hasAddress)
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "仅 Windows 临时进程测试");
+        using var directory = new TemporaryDirectory();
+        using var child = StartOwnedChild();
+        var admin = new ControlledAdminClient
+        {
+            Status = [new("user.api", type, "running", "", $"{local}:{port}", "remote.invalid:19321"),
+                new("user.other", "udp", "running", "", "127.0.0.1:9355", "remote.invalid:19355")],
+        };
+        var supervisor = InjectSupervisor(child, directory.Path, new OwnedChildTerminator(child), out var plan, admin);
+        SetField(supervisor, "_plan", plan with
+        {
+            CoreServicePort = 9321,
+            ExpectedProxies = [new("user.api", type, local, port), new("user.other", "udp", "127.0.0.1", 9355)],
+        });
+        try
+        {
+            var refreshed = await supervisor.RefreshAsync();
+            Assert.Equal(FrpTunnelState.Running, refreshed.State);
+            Assert.Equal(hasAddress ? "remote.invalid:19321" : null, refreshed.RemoteAddress);
+            await supervisor.DisposeAsync();
+        }
+        finally { await CleanOwnedChildAsync(child); }
+    }
+
+    [Fact]
+    public async Task LogPumpRedactsNativeSecretsBeforeTheyReachDisk()
+    {
+        using var directory = new TemporaryDirectory();
+        var path = Path.Combine(directory.Path, "stdout.log");
+        var source = "auth.token=raw-secret; password=random-admin-secret\nAuthorization=raw-secret\n";
+        using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(source));
+        using var reader = new StreamReader(stream);
+        var pump = (Task)typeof(FrpSupervisor).GetMethod("PumpAsync", BindingFlags.NonPublic | BindingFlags.Static)!
+            .Invoke(null, [reader, path, new string[] { "raw-secret", "random-admin-secret" }, CancellationToken.None])!;
+        await pump;
+        var saved = File.ReadAllText(path);
+        Assert.DoesNotContain("raw-secret", saved, StringComparison.Ordinal);
+        Assert.DoesNotContain("random-admin-secret", saved, StringComparison.Ordinal);
+        Assert.Contains("***", saved, StringComparison.Ordinal);
+    }
+
     [SkippableFact]
     public async Task RefreshMustRecheckLivenessBeforePublishingRunning()
     {

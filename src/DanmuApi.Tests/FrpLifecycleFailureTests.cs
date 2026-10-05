@@ -41,6 +41,7 @@ public sealed class FrpLifecycleFailureTests
     public async Task FailedDrainResumeBeforeGateContinuationCannotReviveOldStartRequests(string operation)
     {
         using var fixture = FrpTestHarness.Create();
+        await fixture.Service.DisposeAsync();
         fixture.Runtime.SetState(DesktopRuntimeState.Running);
         fixture.Installer.Version = "0.71.0";
         var settings = FrpSettings.Default(9321) with
@@ -139,11 +140,14 @@ public sealed class FrpLifecycleFailureTests
     public async Task ShutdownDrainsInFlightStartBlocksQueuedStartsAndKeepsCleanupRetryable()
     {
         using var fixture = FrpTestHarness.Create();
+        // This test substitutes its own supervisor/service; only that service may subscribe to this runtime.
+        await fixture.Service.DisposeAsync();
         fixture.Installer.Version = "0.71.0";
         fixture.Store.Save(FrpSettings.Default(9321) with
         { InstalledVersion = "0.71.0", FollowService = true, Client = FrpSettings.Default(9321).Client with { ServerAddress = "unused.invalid" } });
         fixture.Runtime.SetState(DesktopRuntimeState.Running);
         var started = new TaskCompletionSource<FrpSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var enteredStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var snapshot = new FrpSnapshot(FrpTunnelState.Stopped);
         var starts = 0;
         var stops = 0;
@@ -161,6 +165,9 @@ public sealed class FrpLifecycleFailureTests
         });
         var service = new FrpTunnelService(fixture.Store, fixture.Installer, supervisor, fixture.Paths, fixture.Diagnostics, fixture.Runtime);
         var firstStart = service.StartTunnelAsync();
+        var firstCompleted = await Task.WhenAny(firstStart, enteredStart.Task).WaitAsync(TimeSpan.FromSeconds(5));
+        if (firstCompleted == firstStart)
+            Assert.True((await firstStart).Succeeded, (await firstStart).Message + "；" + string.Join("；", fixture.Diagnostics.Messages));
         Assert.Equal(1, starts);
         var queuedStart = service.StartTunnelAsync();
         var shutdown = service.ShutdownAsync();
@@ -185,7 +192,7 @@ public sealed class FrpLifecycleFailureTests
         Assert.False(service.HasOwnedProcess);
         await service.DisposeAsync();
 
-        Task<FrpSnapshot> BeginStart() { starts++; return started.Task; }
+        Task<FrpSnapshot> BeginStart() { starts++; enteredStart.TrySetResult(); return started.Task; }
         Task<FrpSnapshot> Stop()
         {
             stops++;

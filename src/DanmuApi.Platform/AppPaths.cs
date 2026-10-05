@@ -31,6 +31,7 @@ public sealed class AppPaths
     public string AdminSessionFile => Path.Combine(SettingsDirectory, "admin-session.dat");
     public string FrpTokenFile => Path.Combine(SettingsDirectory, "frp-token.dat");
     public string FrpAdminPasswordFile => Path.Combine(SettingsDirectory, "frp-admin-password.dat");
+    public string FrpConfigTextFile => Path.Combine(SettingsDirectory, "frp-config-text.dat");
     public string IdentityFile => Path.Combine(SettingsDirectory, "instance-id");
     public string InstanceLockFile => Path.Combine(SettingsDirectory, "instance.lock");
     public string InstanceEndpointFile => Path.Combine(SettingsDirectory, "instance.endpoint");

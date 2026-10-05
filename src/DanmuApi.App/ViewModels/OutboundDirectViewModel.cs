@@ -621,10 +621,13 @@ public sealed partial class OutboundDirectViewModel : ViewModelBase, IDisposable
     [RelayCommand(CanExecute = nameof(CanCancel))]
     private void Cancel()
     {
+        var operation = _operation;
+        if (_disposed || !IsDiagnosing || operation is null || operation.IsCancellationRequested) return;
         try
         {
-            _operation?.Cancel();
+            // Cancellation callbacks may finish DiagnoseAsync inline and publish its terminal status.
             DiagnosticStatus = "已请求取消，正在等待当前连接检查结束…";
+            operation.Cancel();
             NotifyCommands();
         }
         catch (Exception error) { SetDiagnosticFailure("取消增强直连测速失败", error); }

@@ -18,8 +18,9 @@ public sealed record FrpConfigJsonImport(
 }
 
 /// <summary>
-/// Native frp JSON, excluding this machine's management credentials. Import replaces the described role,
-/// preserves the opposite role and host settings, and never writes storage. A successful null Token means clear auth.
+/// frp 原生 JSON（不含本机管理接口凭据）。导入会整份替换对应角色、保留另一角色与本机设置，且从不写盘；
+/// 导入成功但 Token 为 null 表示"清除认证"。TOML 粘贴走 <see cref="FrpConfigText"/>，最终落到这里的
+/// <see cref="ImportDocument"/>，两种格式共用同一份契约。
 /// </summary>
 public static class FrpConfigJson
 {
@@ -38,6 +39,7 @@ public static class FrpConfigJson
             var client = settings.Client;
             root["serverAddr"] = client.ServerAddress;
             root["serverPort"] = client.ServerPort;
+            if (client.User.Length > 0) root["user"] = client.User;
             root["loginFailExit"] = false;
             root["transport"] = new JsonObject { ["tls"] = new JsonObject { ["enable"] = client.TransportTls } };
             var proxy = new JsonObject
@@ -97,31 +99,39 @@ public static class FrpConfigJson
 
         using (parsed)
         {
-            var document = parsed.RootElement;
-            if (document.ValueKind != JsonValueKind.Object)
-                return FrpConfigJsonImport.Failure("JSON 根节点必须是一个对象");
-            var problems = new List<string>();
-            var unsupported = new List<string>();
-            var defaults = new List<string>();
-            CheckDuplicateKeys(document, string.Empty, problems);
-            var hasServer = document.TryGetProperty("bindPort", out _);
-            var hasClient = document.TryGetProperty("serverAddr", out _) || document.TryGetProperty("proxies", out _);
-            if (hasServer == hasClient)
-            {
-                problems.Add(hasServer
-                    ? "这份 JSON 同时含 frps 的 bindPort 与 frpc 的 serverAddr/proxies，无法判断是客户端还是服务端配置"
-                    : "这份 JSON 既没有 bindPort（服务端）也没有 serverAddr/proxies（客户端）");
-                return new(null, null, problems, unsupported, defaults);
-            }
-
-            var token = ImportAuth(document, problems, unsupported, defaults);
-            ImportLog(document, problems, unsupported, defaults);
-            var settings = hasClient
-                ? current with { Role = FrpRole.Client, Client = ImportClient(document, current.Client.ProxyKind, problems, unsupported, defaults) }
-                : current with { Role = FrpRole.Server, Server = ImportServer(document, problems, unsupported, defaults) };
-            problems.AddRange(settings.Validate());
-            return new(problems.Count == 0 ? settings : null, token.Length == 0 ? null : token, problems, unsupported, defaults);
+            return ImportDocument(parsed.RootElement, current);
         }
+    }
+
+    /// <summary>
+    /// 文档级导入。TOML 粘贴路径（<see cref="FrpConfigText"/>）先把 TOML 子集解析成 JSON 文档再走这里，
+    /// 两种格式因此共用同一套 Problems / Unsupported / AppliedDefaults 契约，不会各说一套。
+    /// </summary>
+    internal static FrpConfigJsonImport ImportDocument(JsonElement document, FrpSettings current)
+    {
+        if (document.ValueKind != JsonValueKind.Object)
+            return FrpConfigJsonImport.Failure("根节点必须是一个对象（frp 的 JSON/TOML 配置都是键值结构）");
+        var problems = new List<string>();
+        var unsupported = new List<string>();
+        var defaults = new List<string>();
+        CheckDuplicateKeys(document, string.Empty, problems);
+        var hasServer = document.TryGetProperty("bindPort", out _);
+        var hasClient = document.TryGetProperty("serverAddr", out _) || document.TryGetProperty("proxies", out _);
+        if (hasServer == hasClient)
+        {
+            problems.Add(hasServer
+                ? "这份配置同时含 frps 的 bindPort 与 frpc 的 serverAddr/proxies，无法判断是客户端还是服务端配置"
+                : "这份配置既没有 bindPort（服务端）也没有 serverAddr/proxies（客户端）");
+            return new(null, null, problems, unsupported, defaults);
+        }
+
+        var token = ImportAuth(document, problems, unsupported, defaults);
+        ImportLog(document, problems, unsupported, defaults);
+        var settings = hasClient
+            ? current with { Role = FrpRole.Client, Client = ImportClient(document, current.Client.ProxyKind, problems, unsupported, defaults) }
+            : current with { Role = FrpRole.Server, Server = ImportServer(document, problems, unsupported, defaults) };
+        problems.AddRange(settings.Validate());
+        return new(problems.Count == 0 ? settings : null, token.Length == 0 ? null : token, problems, unsupported, defaults);
     }
 
     private static FrpClientSettings ImportClient(JsonElement document, FrpProxyKind currentKind,
@@ -130,6 +140,8 @@ public static class FrpConfigJson
         var baseline = FrpSettings.Default(9321).Client;
         var address = ReadString(document, "serverAddr", "", problems, defaults, required: true);
         var port = ReadPort(document, "serverPort", FrpClientSettings.DefaultServerPort, problems, defaults);
+        // 服务商面板的账号标识。缺失即按"清除原值"处理并列入 AppliedDefaults，不静默继承旧值。
+        var user = ReadString(document, "user", "", problems, defaults);
         var tls = baseline.TransportTls;
         if (ReadObject(document, "transport", problems, out var transport))
         {
@@ -151,7 +163,7 @@ public static class FrpConfigJson
         else Default(defaults, "loginFailExit", "false（宿主重连策略）");
 
         var adminPort = ImportWebServer(document, baseline.AdminPort, problems, unsupported, defaults);
-        var client = baseline with { ServerAddress = address, ServerPort = port, TransportTls = tls, AdminPort = adminPort };
+        var client = baseline with { ServerAddress = address, ServerPort = port, User = user, TransportTls = tls, AdminPort = adminPort };
         if (!document.TryGetProperty("proxies", out var proxies) || proxies.ValueKind != JsonValueKind.Array || proxies.GetArrayLength() == 0)
         {
             problems.Add("客户端配置必须包含至少一个 proxies 条目（对象数组）");
@@ -175,7 +187,7 @@ public static class FrpConfigJson
                 index++;
             }
         }
-        ReportUnknown(document, ["serverAddr", "serverPort", "loginFailExit", "auth", "log", "transport", "webServer", "proxies"], "", unsupported);
+        ReportUnknown(document, ["serverAddr", "serverPort", "user", "loginFailExit", "auth", "log", "transport", "webServer", "proxies"], "", unsupported);
         return client;
     }
 

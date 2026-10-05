@@ -226,20 +226,22 @@ public sealed class RunningInstanceExitTests
     }
 
     [Fact]
-    public void InstallerOnlyExecutesExtractedPackageRelayAsOriginalUserAndChecksItsExitCode()
+    public void InstallerOnlyExecutesProtectedPackageManualHelperAndChecksItsNativeExitCode()
     {
         var root = new DirectoryInfo(AppContext.BaseDirectory);
         while (root is not null && !File.Exists(Path.Combine(root.FullName, "installer", "DanmuApi.iss"))) root = root.Parent;
         Assert.NotNull(root);
         var script = File.ReadAllText(Path.Combine(root!.FullName, "installer", "DanmuApi.iss"));
-        Assert.Contains("DestName: \"DanmuApi.ExitRelay.exe\"; Flags: dontcopy", script);
-        Assert.Contains("ExtractTemporaryFile('DanmuApi.ExitRelay.exe')", script);
-        Assert.Contains("ExecAsOriginalUser(ExpandConstant('{tmp}\\DanmuApi.ExitRelay.exe')", script);
+        Assert.Contains("DestName: \"DanmuApi.InstallExit.exe\"; Flags: dontcopy", script);
+        Assert.Contains("ExtractTemporaryFile('DanmuApi.InstallExit.exe')", script);
+        Assert.Contains("Started := CreateProcess(RelayPath, CommandLine", script);
+        Assert.DoesNotContain("ExecAsOriginalUser", script);
         Assert.DoesNotContain("ReadRunningExecutable", script);
         Assert.DoesNotContain("Exec(ExePath", script);
-        Assert.DoesNotContain("{userappdata}\\DanmuApi\\instance.lock", script);
-        Assert.Contains("if ExitCode <> 0 then begin", script);
-        Assert.Contains("--installer-instance-probe", script);
+        Assert.Contains("GetExitCodeProcess(ManualExitHandle, Code)", script);
+        Assert.Contains("if Code <> ExpectedCode then begin", script);
+        Assert.Contains("--installer-manual-exit", script);
+        Assert.DoesNotContain("--installer-update-lease", script);
         Assert.Contains("0.5.13", script);
     }
 

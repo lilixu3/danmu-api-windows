@@ -51,7 +51,7 @@ public sealed class FrpTunnelViewTests
     private static Model CreateModel(int localPort = 9321)
     {
         var harness = FrpTestHarness.Create(localPort);
-        var dialogs = new RecordingDialogService();
+        var dialogs = new RecordingDialogService { Confirmation = true };
         FrpTunnelMonitorViewModel? monitor = null;
         FrpTunnelConfigViewModel? config = null;
         FrpTunnelLogViewModel? logs = null;
@@ -109,6 +109,14 @@ public sealed class FrpTunnelViewTests
             // 配置页与日志页也各出一张，便于人工复核版式。
             model.Page.SelectTab(FrpTunnelTab.Configuration);
             RenderPreview(window, "frp-config-light");
+            // 配置文本页签同样出图：它是本轮新增的同级页签，版式要能被人眼复核。
+            model.Config.SelectedSectionOption = model.Config.SectionOptions.Single(option => option.Value == FrpConfigSection.Text);
+            model.Config.ConfigText = """
+                {"serverAddr":"frp.example.com","serverPort":7000,
+                 "proxies":[{"name":"danmu-api","type":"tcp","localIP":"127.0.0.1","localPort":9321,"remotePort":19321}]}
+                """;
+            RenderPreview(window, "frp-config-text-light");
+            model.Config.SelectedSectionOption = model.Config.SectionOptions.Single(option => option.Value == FrpConfigSection.Visual);
             model.Page.SelectTab(FrpTunnelTab.Logs);
             RenderPreview(window, "frp-logs-light");
             model.Page.SelectTab(FrpTunnelTab.Monitor);
@@ -120,6 +128,52 @@ public sealed class FrpTunnelViewTests
         {
             window.Close();
         }
+    }
+
+    [AvaloniaFact]
+    public void ParallelConfigPagesRenderAtDesktopAndNarrowWidths()
+    {
+        using var model = CreateModel();
+        model.Page.SelectTab(FrpTunnelTab.Configuration);
+        model.Config.ServerAddress = "frp.example.com";
+        model.Config.User = "panel-user";
+        var view = new FrpTunnelView { DataContext = model.Page };
+        var window = new Window { Width = 1020, Height = 800, Content = view };
+        window.Show();
+        try
+        {
+            RenderPreview(window, "frp-parallel-visual-light");
+            model.Config.SelectedSectionOption = model.Config.SectionOptions.Single(option => option.Value == FrpConfigSection.Text);
+            model.Config.ConfigText = """
+                {
+                  "serverAddr": "frp.example.com",
+                  "serverPort": 1210,
+                  "user": "panel-user",
+                  "proxies": [
+                    {
+                      "name": "danmu-api",
+                      "type": "tcp",
+                      "localIP": "127.0.0.1",
+                      "localPort": 9321,
+                      "remotePort": 19321,
+                      "transport": { "useEncryption": true, "useCompression": true }
+                    }
+                  ]
+                }
+                """;
+            RenderPreview(window, "frp-parallel-json-light");
+            window.RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Dark;
+            RenderPreview(window, "frp-parallel-json-dark");
+            model.Config.SelectedSectionOption = model.Config.SectionOptions.Single(option => option.Value == FrpConfigSection.Visual);
+            RenderPreview(window, "frp-parallel-visual-dark");
+            window.Width = 700;
+            window.Height = 680;
+            window.RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Light;
+            RenderPreview(window, "frp-parallel-visual-narrow");
+            model.Config.SelectedSectionOption = model.Config.SectionOptions.Single(option => option.Value == FrpConfigSection.Text);
+            RenderPreview(window, "frp-parallel-json-narrow");
+        }
+        finally { window.Close(); }
     }
 
     [AvaloniaFact]
@@ -197,27 +251,28 @@ public sealed class FrpTunnelViewTests
     }
 
     [AvaloniaFact]
-    public async Task ExportingJsonCopiesItAndShowsTheSameDocument()
+    public async Task GeneratingConfigTextCreatesAnIndependentUnsavedTextDraft()
     {
         using var model = CreateModel();
         model.Config.ServerAddress = "frp.example.com";
         model.Config.SelectedProxyKindOption = model.Config.ProxyKindOptions.Single(option => option.Value == FrpProxyKind.Tcp);
 
-        await model.Config.ExportJsonCommand.ExecuteAsync(null);
+        await model.Config.GenerateConfigTextCommand.ExecuteAsync(null);
 
-        var copied = Assert.IsType<string>(model.Dialogs.CopiedText);
-        Assert.Contains("\"serverAddr\": \"frp.example.com\"", copied, StringComparison.Ordinal);
-        // 弹窗里显示的必须是同一份文档（用户看到的就是他复制到的）。
-        var prompt = Assert.Single(model.Dialogs.MultilineTextPrompts);
-        Assert.True(prompt.ReadOnly);
-        Assert.Equal(copied, prompt.Initial);
+        Assert.Contains("\"serverAddr\": \"frp.example.com\"", model.Config.ConfigText, StringComparison.Ordinal);
+        Assert.True(model.Config.IsTextSection);
+        Assert.Null(model.Dialogs.CopiedText);
+        Assert.Contains("尚未保存", model.Config.ConfigTextMessage, StringComparison.Ordinal);
+        Assert.False(model.Config.ConfigTextFailed);
+        Assert.Equal(FrpConfigMode.Visual, model.Harness.Store.Read(9321).Settings.ConfigMode);
     }
 
     [AvaloniaFact]
-    public async Task ImportingJsonFillsTheFormAndListsUnsupportedFields()
+    public async Task SavingConfigTextPreservesFieldsWithoutFillingTheForm()
     {
         using var model = CreateModel();
-        model.Dialogs.MultilineTextResult = """
+        model.Config.SelectedSectionOption = model.Config.SectionOptions.Single(option => option.Value == FrpConfigSection.Text);
+        model.Config.ConfigText = """
         {
           "serverAddr": "1.2.3.4",
           "serverPort": 7000,
@@ -229,29 +284,99 @@ public sealed class FrpTunnelViewTests
         }
         """;
 
-        await model.Config.ImportJsonCommand.ExecuteAsync(null);
+        await model.Config.SaveCommand.ExecuteAsync(null);
 
-        Assert.Equal("1.2.3.4", model.Config.ServerAddress);
-        Assert.Equal(FrpProxyKind.Http, model.Config.SelectedProxyKindOption.Value);
-        Assert.Equal("danmu.example.com", model.Config.CustomDomainsText);
-        Assert.Equal("pasted-token", model.Config.TokenInput);
-        // 认得出但不管理的字段必须逐条列出来，不能悄悄丢掉。
-        Assert.Contains("dnsServer", model.Config.ImportWarningText, StringComparison.Ordinal);
-        Assert.Contains("proxies[0].healthCheck", model.Config.ImportWarningText, StringComparison.Ordinal);
-        // 导入只填表单：磁盘上还没变。
-        Assert.Equal(string.Empty, model.Harness.Store.Read(9321).Settings.Client.ServerAddress);
+        Assert.Equal(string.Empty, model.Config.ServerAddress);
+        Assert.Equal(FrpProxyKind.Tcp, model.Config.SelectedProxyKindOption.Value);
+        Assert.Null(model.Config.TokenInput);
+        Assert.False(model.Config.ConfigTextFailed, model.Config.ConfigTextMessage);
+        var saved = model.Harness.Store.Read(9321).Settings;
+        Assert.Equal(FrpConfigMode.Text, saved.ConfigMode);
+        Assert.Equal(model.Config.ConfigText, saved.RawConfig);
+        var native = FrpNativeConfig.Parse(saved.RawConfig);
+        var runtime = native.CreateRuntimeConfig("admin", "machine-password");
+        Assert.Contains("dnsServer", runtime, StringComparison.Ordinal);
+        Assert.Contains("healthCheck", runtime, StringComparison.Ordinal);
+        Assert.Contains("pasted-token", runtime, StringComparison.Ordinal);
+        Assert.Equal("1.2.3.4", native.ServerAddress);
+        Assert.Equal(string.Empty, saved.Client.ServerAddress);
     }
 
     [AvaloniaFact]
-    public async Task ImportingBrokenJsonReportsWhyInsteadOfGuessing()
+    public async Task SavingBrokenTextReportsOnlyTheTextFailureAndLeavesSavedModeUnchanged()
     {
         using var model = CreateModel();
-        model.Dialogs.MultilineTextResult = """{ "serverAddr": "1.2.3.4" }""";
+        // 先把表单填成一份能保存的配置：这样"有没有问题"只反映导入这件事，而不是表单本身还没填。
+        model.Config.ServerAddress = "frp.example.com";
+        model.Config.SelectedSectionOption = model.Config.SectionOptions.Single(option => option.Value == FrpConfigSection.Text);
+        model.Config.ConfigText = """{ "serverAddr": "1.2.3.4" }""";
 
-        await model.Config.ImportJsonCommand.ExecuteAsync(null);
+        await model.Config.SaveCommand.ExecuteAsync(null);
 
-        Assert.True(model.Config.HasProblems);
-        Assert.Contains("proxies", model.Config.ValidationText + model.Config.ImportWarningText, StringComparison.Ordinal);
+        Assert.True(model.Config.ConfigTextFailed);
+        Assert.Contains("proxies", model.Config.ConfigTextMessage, StringComparison.Ordinal);
+        Assert.False(model.Config.HasProblems);
+        Assert.Equal(string.Empty, model.Config.ValidationText);
+        Assert.Equal(FrpConfigMode.Visual, model.Harness.Store.Read(9321).Settings.ConfigMode);
+    }
+
+    [AvaloniaFact]
+    public async Task PastingProviderTomlCanSaveDirectlyWithAnEmptyVisualForm()
+    {
+        using var model = CreateModel();
+        model.Config.SelectedSectionOption = model.Config.SectionOptions.Single(option => option.Value == FrpConfigSection.Text);
+        model.Config.ConfigText = FrpProviderSample.ClientToml;
+
+        await model.Config.SaveCommand.ExecuteAsync(null);
+
+        Assert.False(model.Config.ConfigTextFailed, model.Config.ConfigTextMessage);
+        Assert.Equal(string.Empty, model.Config.ServerAddress);
+        Assert.False(model.Config.ShowVisualProblems);
+        Assert.Contains("已保存", model.Config.OperationMessage, StringComparison.Ordinal);
+        var saved = model.Harness.Store.Read(9321).Settings;
+        Assert.Equal(FrpConfigMode.Text, saved.ConfigMode);
+        Assert.Equal(FrpProviderSample.ClientToml, saved.RawConfig);
+        var native = FrpNativeConfig.Parse(saved.RawConfig);
+        Assert.Equal(FrpProviderSample.ServerAddress, native.ServerAddress);
+        Assert.Equal(1210, native.ServerPort);
+        Assert.Equal(FrpProviderSample.User, native.User);
+        Assert.Equal(FrpProviderSample.User + "." + FrpProviderSample.ProxyName, native.Proxies.Single().Name);
+        Assert.Equal(9321, native.Proxies.Single().LocalPort);
+    }
+
+    [AvaloniaFact]
+    public void ConfigPageSplitsIntoVisualAndTextTabsWithoutLosingEither()
+    {
+        using var model = CreateModel();
+        var view = new FrpTunnelConfigView { DataContext = model.Config };
+        var window = new Window { Width = 1100, Height = 900, Content = view };
+        window.Show();
+        try
+        {
+            Dispatcher.UIThread.RunJobs();
+            var textBox = Assert.Single(view.GetVisualDescendants().OfType<TextBox>(), box => box.Name == "FrpConfigTextBox");
+
+            // 默认是可视化表单：文本页签的输入框不该占着版面（用户要求两个页签同级切换，而不是上下堆叠）。
+            Assert.True(model.Config.IsVisualSection);
+            Assert.False(textBox.IsEffectivelyVisible);
+            model.Config.ServerAddress = "unsaved.example.com";
+
+            model.Config.SelectedSectionOption = model.Config.SectionOptions.Single(option => option.Value == FrpConfigSection.Text);
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(model.Config.IsTextSection);
+            Assert.True(textBox.IsEffectivelyVisible);
+            model.Config.ConfigText = "# 未保存的草稿";
+
+            model.Config.SelectedSectionOption = model.Config.SectionOptions.Single(option => option.Value == FrpConfigSection.Visual);
+            Dispatcher.UIThread.RunJobs();
+            Assert.False(textBox.IsEffectivelyVisible);
+            Assert.Equal("unsaved.example.com", model.Config.ServerAddress);
+            Assert.Equal("# 未保存的草稿", model.Config.ConfigText);
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 
     [AvaloniaFact]
@@ -337,27 +462,28 @@ public sealed class FrpTunnelViewTests
     }
 
     [AvaloniaFact]
-    public async Task ExportUsesKeepSetAndClearTokenDraftAndClearDoesNotWriteBeforeSave()
+    public async Task GenerateUsesKeepSetAndClearTokenDraftAndClearDoesNotWriteBeforeSave()
     {
         using var model = CreateModel();
         model.Harness.Store.SaveToken("saved-token");
         await model.Config.ReloadCommand.ExecuteAsync(null);
         model.Config.ServerAddress = "frp.example.com";
-        await model.Config.ExportJsonCommand.ExecuteAsync(null);
-        Assert.Contains("saved-token", model.Dialogs.CopiedText!, StringComparison.Ordinal);
+        await model.Config.GenerateConfigTextCommand.ExecuteAsync(null);
+        Assert.Contains("saved-token", model.Config.ConfigText, StringComparison.Ordinal);
         model.Config.TokenInput = "new-draft-token";
         Assert.Equal(FrpTokenEditIntent.Set, model.Config.TokenIntent);
-        await model.Config.ExportJsonCommand.ExecuteAsync(null);
-        Assert.Contains("new-draft-token", model.Dialogs.CopiedText!, StringComparison.Ordinal);
-        Assert.DoesNotContain("saved-token", model.Dialogs.CopiedText!, StringComparison.Ordinal);
+        await model.Config.GenerateConfigTextCommand.ExecuteAsync(null);
+        Assert.Contains("new-draft-token", model.Config.ConfigText, StringComparison.Ordinal);
+        Assert.DoesNotContain("saved-token", model.Config.ConfigText, StringComparison.Ordinal);
         Assert.Equal("saved-token", model.Harness.Store.ReadToken());
         model.Dialogs.Confirmation = true;
         await model.Config.ClearTokenCommand.ExecuteAsync(null);
         Assert.Equal(FrpTokenEditIntent.Clear, model.Config.TokenIntent);
         Assert.Equal("saved-token", model.Harness.Store.ReadToken());
         Assert.Equal("", model.Harness.Store.Read(9321).Settings.Client.ServerAddress);
-        await model.Config.ExportJsonCommand.ExecuteAsync(null);
-        Assert.DoesNotContain("\"auth\"", model.Dialogs.CopiedText!, StringComparison.Ordinal);
+        await model.Config.GenerateConfigTextCommand.ExecuteAsync(null);
+        Assert.DoesNotContain("\"auth\"", model.Config.ConfigText, StringComparison.Ordinal);
+        model.Config.SelectedSectionOption = model.Config.SectionOptions.Single(option => option.Value == FrpConfigSection.Visual);
         await model.Config.SaveCommand.ExecuteAsync(null);
         Assert.False(model.Harness.Store.HasToken());
         Assert.Equal(FrpTokenEditIntent.Keep, model.Config.TokenIntent);
@@ -379,12 +505,12 @@ public sealed class FrpTunnelViewTests
         Assert.Null(model.Config.TokenInput);
         Assert.False(model.Config.HasTokenEdit);
         Assert.Equal("unsaved.example.com", model.Config.ServerAddress);
-        await model.Config.ExportJsonCommand.ExecuteAsync(null);
-        Assert.Contains("saved-token", model.Dialogs.CopiedText!, StringComparison.Ordinal);
+        await model.Config.GenerateConfigTextCommand.ExecuteAsync(null);
+        Assert.Contains("saved-token", model.Config.ConfigText, StringComparison.Ordinal);
     }
 
     [AvaloniaFact]
-    public async Task WholeImportWithoutAuthStagesClearAndPreservesOppositeRoleDraft()
+    public async Task RawServerSavePreservesTheVisualRoleFieldsAndTokenDraft()
     {
         using var model = CreateModel();
         model.Harness.Store.SaveToken("saved-token");
@@ -392,26 +518,25 @@ public sealed class FrpTunnelViewTests
         model.Config.ServerAddress = "unsaved-opposite.example.com";
         model.Config.TransportTls = false;
         model.Config.TokenInput = "old-draft-token";
-        model.Dialogs.MultilineTextResult = "{\"bindPort\":7001}";
-        await model.Config.ImportJsonCommand.ExecuteAsync(null);
-        Assert.True(model.Config.IsServerRole);
+        model.Config.SelectedSectionOption = model.Config.SectionOptions.Single(option => option.Value == FrpConfigSection.Text);
+        model.Config.ConfigText = "{\"bindPort\":7001}";
+        await model.Config.SaveCommand.ExecuteAsync(null);
+        Assert.False(model.Config.ConfigTextFailed, model.Config.ConfigTextMessage);
+        Assert.True(model.Config.IsClientRole);
         Assert.Equal("unsaved-opposite.example.com", model.Config.ServerAddress);
         Assert.False(model.Config.TransportTls);
-        Assert.Equal("0", model.Config.VhostHttpPortText);
-        Assert.Equal("", model.Config.SubdomainHost);
-        Assert.Equal(FrpTokenEditIntent.Clear, model.Config.TokenIntent);
-        Assert.Null(model.Config.TokenInput);
+        Assert.Equal("old-draft-token", model.Config.TokenInput);
         Assert.Equal("saved-token", model.Harness.Store.ReadToken());
-        await model.Config.ExportJsonCommand.ExecuteAsync(null);
-        Assert.DoesNotContain("\"auth\"", model.Dialogs.CopiedText!, StringComparison.Ordinal);
-        // Import is unsaved even if the only difference is Token intent.
-        model.Harness.Store.Save(model.Harness.Store.Read(9321).Settings with { Server = new FrpServerSettings(7002, 8080, "external.example.com", 7500) });
-        await model.Harness.Service.ReloadSettingsAsync();
-        Assert.Equal("7001", model.Config.BindPortText);
-        Assert.Equal(FrpTokenEditIntent.Clear, model.Config.TokenIntent);
+        Assert.Equal(FrpRole.Server, model.Harness.Service.EffectiveSettings.Role);
+        Assert.Equal(7001, model.Harness.Service.EffectiveSettings.Server.BindPort);
+
+        model.Config.SelectedSectionOption = model.Config.SectionOptions.Single(option => option.Value == FrpConfigSection.Visual);
         await model.Config.SaveCommand.ExecuteAsync(null);
-        Assert.False(model.Harness.Store.HasToken());
-        Assert.Equal(7001, model.Harness.Store.Read(9321).Settings.Server.BindPort);
+        var saved = model.Harness.Store.Read(9321).Settings;
+        Assert.Equal(FrpConfigMode.Visual, saved.ConfigMode);
+        Assert.Equal("unsaved-opposite.example.com", saved.Client.ServerAddress);
+        Assert.Equal("{\"bindPort\":7001}", saved.RawConfig);
+        Assert.Equal("old-draft-token", model.Harness.Store.ReadToken());
     }
 
     [AvaloniaFact]
@@ -446,7 +571,101 @@ public sealed class FrpTunnelViewTests
     }
 
     [AvaloniaFact]
-    public void StartingWithoutTheServiceRunningIsRefusedWithTheReason()
+    public async Task EachModeKeepsItsOwnSavedContentAndCanBecomeActiveIndependently()
+    {
+        using var model = CreateModel();
+        model.Config.ServerAddress = "visual.example.com";
+        await model.Config.SaveCommand.ExecuteAsync(null);
+        model.Config.SelectedSectionOption = model.Config.SectionOptions.Single(option => option.Value == FrpConfigSection.Text);
+        model.Config.ConfigText = "{\"bindPort\":7200}";
+        await model.Config.SaveCommand.ExecuteAsync(null);
+        Assert.Equal(FrpConfigMode.Text, model.Harness.Service.Settings.ConfigMode);
+        Assert.Equal("visual.example.com", model.Config.ServerAddress);
+        model.Config.SelectedSectionOption = model.Config.SectionOptions.Single(option => option.Value == FrpConfigSection.Visual);
+        model.Config.ServerAddress = "visual-updated.example.com";
+        await model.Config.SaveCommand.ExecuteAsync(null);
+        Assert.Equal(FrpConfigMode.Visual, model.Harness.Service.Settings.ConfigMode);
+        Assert.Equal("{\"bindPort\":7200}", model.Harness.Service.Settings.RawConfig);
+        Assert.Equal("{\"bindPort\":7200}", model.Config.ConfigText);
+        model.Config.SelectedSectionOption = model.Config.SectionOptions.Single(option => option.Value == FrpConfigSection.Text);
+        await model.Config.SaveCommand.ExecuteAsync(null);
+        Assert.Equal(FrpConfigMode.Text, model.Harness.Service.Settings.ConfigMode);
+        Assert.Equal("visual-updated.example.com", model.Harness.Service.Settings.Client.ServerAddress);
+    }
+
+    [AvaloniaFact]
+    public async Task ExternalUpdatesDoNotOverwriteAnUnsavedRawDraft()
+    {
+        using var model = CreateModel();
+        model.Config.ConfigText = "{\"bindPort\":7200}";
+        await model.Harness.Service.SaveTextAsync("{\"bindPort\":7300}");
+        Assert.Equal("{\"bindPort\":7200}", model.Config.ConfigText);
+        Assert.Contains("未自动覆盖", model.Config.OperationMessage, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task GeneratingFromVisualMustConfirmBeforeReplacingText()
+    {
+        using var model = CreateModel();
+        model.Config.ServerAddress = "visual.example.com";
+        model.Config.ConfigText = "{\"bindPort\":7200}";
+        model.Dialogs.Confirmation = false;
+        await model.Config.GenerateConfigTextCommand.ExecuteAsync(null);
+        Assert.Equal("{\"bindPort\":7200}", model.Config.ConfigText);
+        model.Dialogs.Confirmation = true;
+        await model.Config.GenerateConfigTextCommand.ExecuteAsync(null);
+        Assert.Contains("visual.example.com", model.Config.ConfigText, StringComparison.Ordinal);
+        Assert.True(model.Config.IsTextSection);
+        Assert.Equal(FrpConfigMode.Visual, model.Harness.Service.Settings.ConfigMode);
+    }
+
+    [AvaloniaFact]
+    public async Task RawMonitorDoesNotAttachApiTokenToUnrelatedOrUdpTargets()
+    {
+        using var model = CreateModel();
+        model.Harness.Installer.Version = "0.71.0";
+        model.Harness.Runtime.SetState(DesktopRuntimeState.Running);
+        const string raw = """
+            {"serverAddr":"frp.example.com","proxies":[
+              {"name":"udp-api","type":"udp","localIP":"127.0.0.1","localPort":9321,"remotePort":19321},
+              {"name":"unrelated","type":"tcp","localIP":"127.0.0.1","localPort":9999,"remotePort":19322}]}
+            """;
+        var saved = await model.Harness.Service.SaveTextAsync(raw);
+        Assert.True(saved.Succeeded, saved.Message);
+        var native = FrpNativeConfig.Parse(raw);
+        model.Harness.Supervisor.StartResult = new DanmuApi.Runtime.Frp.FrpSnapshot(FrpTunnelState.Running,
+            Pid: 4321, RemoteAddress: "203.0.113.10:19322", Proxies:
+            [
+                new FrpProxyStatus("udp-api", "udp", "running", "", "127.0.0.1:9321", "203.0.113.10:19321"),
+                new FrpProxyStatus("unrelated", "tcp", "running", "", "127.0.0.1:9999", "203.0.113.10:19322"),
+            ]) { ExpectedProxies = native.Proxies };
+        var started = await model.Harness.Service.StartTunnelAsync();
+        Assert.True(started.Succeeded, started.Message);
+        Assert.False(model.Monitor.HasPublicAddress);
+        Assert.Equal(2, model.Monitor.ProxyItems.Count);
+        Assert.Contains("原生", model.Monitor.TokenStateText, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task ReloadConfirmsDiscardAndSavedSecretTextIsHiddenByDefault()
+    {
+        using var model = CreateModel();
+        model.Config.SelectedSectionOption = model.Config.SectionOptions.Single(option => option.Value == FrpConfigSection.Text);
+        model.Config.ConfigText = "{\"bindPort\":7200,\"auth\":{\"token\":\"private-secret\"}}";
+        await model.Config.SaveCommand.ExecuteAsync(null);
+        model.Config.ConfigText = "{\"bindPort\":7300}";
+        model.Dialogs.Confirmation = false;
+        await model.Config.ReloadCommand.ExecuteAsync(null);
+        Assert.Equal("{\"bindPort\":7300}", model.Config.ConfigText);
+        model.Dialogs.Confirmation = true;
+        await model.Config.ReloadCommand.ExecuteAsync(null);
+        Assert.Contains("private-secret", model.Config.ConfigText, StringComparison.Ordinal);
+        Assert.False(model.Config.ShowConfigText);
+        Assert.False(model.Config.HasUnsavedEdits);
+    }
+
+    [AvaloniaFact]
+    public async Task StartingWithoutTheServiceRunningIsRefusedWithTheReason()
     {
         using var model = CreateModel();
         model.Harness.Installer.Version = "0.71.0";
@@ -457,7 +676,7 @@ public sealed class FrpTunnelViewTests
         });
         model.Page.SelectTab(FrpTunnelTab.Monitor);
 
-        model.Monitor.StartTunnelCommand.Execute(null);
+        await model.Monitor.StartTunnelCommand.ExecuteAsync(null);
         Dispatcher.UIThread.RunJobs();
 
         Assert.Contains("弹幕服务未运行", model.Monitor.OperationMessage, StringComparison.Ordinal);

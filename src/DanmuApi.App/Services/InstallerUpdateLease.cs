@@ -235,7 +235,7 @@ internal static class InstallerUpdateLease
         { throw new LeaseException("jobinvalid", error); }
     }
 
-    private static string FullPath(string path)
+    internal static string FullPath(string path)
     {
         if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path) || path.StartsWith(@"\\", StringComparison.Ordinal) ||
             path.IndexOf(':', 2) >= 0) throw Failure("pathinvalid");
@@ -575,7 +575,7 @@ internal static class InstallerUpdateLease
         file.Flush(flushToDisk: true);
     }
 
-    private static FileStream OpenPlainRead(string path)
+    internal static FileStream OpenPlainRead(string path)
     {
         RejectReparse(path);
         var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -583,14 +583,14 @@ internal static class InstallerUpdateLease
         catch { file.Dispose(); throw; }
     }
 
-    private static bool PlainExists(string path)
+    internal static bool PlainExists(string path)
     {
         try { RejectReparse(path); return true; }
         catch (FileNotFoundException) { return false; }
         catch (DirectoryNotFoundException) { return false; }
     }
 
-    private static void RejectReparse(string path, bool optional = false)
+    internal static void RejectReparse(string path, bool optional = false)
     {
         try
         {
@@ -643,7 +643,7 @@ internal static class InstallerUpdateLease
         Native.EnsureNoUserWrite(pin, token);
     }
 
-    private static class Native
+    internal static class Native
     {
         private const uint TokenQueryDuplicate = 0x0008 | 0x0002;
         private const uint DirectoryMutation = 0x0002 | 0x0004 | 0x0010 | 0x0040 | 0x0100;

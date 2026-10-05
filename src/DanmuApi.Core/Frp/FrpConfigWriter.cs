@@ -25,6 +25,11 @@ public static class FrpConfigWriter
         var builder = new StringBuilder(Header);
         Line(builder, "serverAddr", Quote(client.ServerAddress));
         Line(builder, "serverPort", Number(client.ServerPort));
+        // 服务商面板的账号标识：写出去之后 frpc 登记的代理名是 {user}.{name}，少了它服务器会拒绝登记。
+        if (client.User.Length > 0)
+        {
+            Line(builder, "user", Quote(client.User));
+        }
         // 默认值 true 会让 frpc 在服务器暂时不可达时直接退出（进程消失、界面只剩"启动失败"）。
         // 设为 false 后 frpc 自己重试，界面据管理接口把"正在连接服务器"如实显示出来，
         // 连接成功与否仍然以代理 running 为准，不做任何乐观判定。

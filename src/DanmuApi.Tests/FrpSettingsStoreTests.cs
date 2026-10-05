@@ -32,9 +32,103 @@ public sealed class FrpSettingsStoreTests
             new FrpSettingsStore(
                 settings,
                 new WindowsProtectedStringStore(Path.Combine(directory, "frp-token.dat"), "DanmuApi.Windows.FrpToken.v1"),
-                new WindowsProtectedStringStore(Path.Combine(directory, "frp-admin.dat"), "DanmuApi.Windows.FrpAdminPassword.v1")),
+                new WindowsProtectedStringStore(Path.Combine(directory, "frp-admin.dat"), "DanmuApi.Windows.FrpAdminPassword.v1"),
+                new WindowsProtectedDocumentStore(Path.Combine(directory, "frp-config-text.dat"))),
             settings,
             directory);
+    }
+
+    private const string RawServer = " \r\n{\"bindPort\":7100}\r\n ";
+
+    [Fact]
+    public void TextTransactionPreservesEveryVisualKeyAndFollowKeepsDocumentAndMode()
+    {
+        using var fixture = Create();
+        fixture.Store.Save(FrpSettings.Default(9321) with { Role = FrpRole.Server });
+        var before = fixture.Settings.Read();
+        var saved = fixture.Store.SaveText(RawServer, 9321);
+        Assert.True(saved.Succeeded, string.Join("；", saved.Problems));
+        Assert.Equal(FrpConfigMode.Text, saved.Settings.ConfigMode);
+        Assert.Equal(RawServer, saved.Settings.RawConfig);
+        var after = fixture.Settings.Read();
+        foreach (var pair in before.Where(pair => pair.Key != FrpSettingsStore.ConfigModeKey)) Assert.Equal(pair.Value, after[pair.Key]);
+        var followed = fixture.Store.SetFollowService(true, 9321);
+        Assert.True(followed.Succeeded);
+        Assert.Equal(FrpConfigMode.Text, followed.Settings.ConfigMode);
+        Assert.Equal(RawServer, followed.Settings.RawConfig);
+        fixture.Store.Save(followed.Settings with { ConfigMode = FrpConfigMode.Visual });
+        Assert.Equal(RawServer, fixture.Store.Read(9321).Settings.RawConfig);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FailedModeMetadataWriteRestoresOldDocumentEvenInSameTextMode(bool sameMode)
+    {
+        using var directory = new TemporaryDirectory();
+        var values = new FailMetadataStore(new SettingsStore(Path.Combine(directory.Path, "settings.properties")));
+        var store = new FrpSettingsStore(values, new MemorySecretStore(), new MemorySecretStore(),
+            new WindowsProtectedDocumentStore(Path.Combine(directory.Path, "frp-config-text.dat")));
+        store.Save(FrpSettings.Default(9321) with { Role = FrpRole.Server });
+        if (sameMode) store.SaveText(RawServer, 9321);
+        var before = store.Read(9321).Settings;
+        var beforeValues = values.Read();
+        values.FailWrites = 1;
+        var error = Assert.Throws<IOException>(() => store.SaveText("{\"bindPort\":7200}", 9321));
+        Assert.Contains("injected metadata failure", error.Message, StringComparison.Ordinal);
+        var after = store.Read(9321);
+        Assert.True(after.Succeeded, string.Join("；", after.Problems));
+        Assert.Equal(before.ConfigMode, after.Settings.ConfigMode);
+        Assert.Equal(before.RawConfig, after.Settings.RawConfig);
+        Assert.Equal(beforeValues.OrderBy(pair => pair.Key), values.Read().OrderBy(pair => pair.Key));
+    }
+
+    [Fact]
+    public void RollbackFailureIsNotSwallowedAndIncompleteTransactionBlocksReads()
+    {
+        using var directory = new TemporaryDirectory();
+        var values = new FailMetadataStore(new SettingsStore(Path.Combine(directory.Path, "settings.properties")));
+        var store = new FrpSettingsStore(values, new MemorySecretStore(), new MemorySecretStore(),
+            new WindowsProtectedDocumentStore(Path.Combine(directory.Path, "frp-config-text.dat")));
+        values.FailWrites = 2;
+        var error = Assert.Throws<IOException>(() => store.SaveText(RawServer, 9321));
+        Assert.Contains("回滚也失败", error.Message, StringComparison.Ordinal);
+        // Both failed writes below deliberately occur AFTER atomic properties replacement. This restores mode but
+        // still reports the rollback write failure instead of silently claiming the operation completed.
+        Assert.IsType<AggregateException>(error.InnerException);
+    }
+
+    [Fact]
+    public void VisualOnlyLegacyConstructionCannotActivateTextWithoutProtectedStore()
+    {
+        var values = new FailMetadataStore(new SettingsStore(Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".properties")));
+        var store = new FrpSettingsStore(values, new MemorySecretStore(), new MemorySecretStore());
+        Assert.Equal(FrpConfigMode.Visual, store.Read(9321).Settings.ConfigMode);
+        Assert.Throws<IOException>(() => store.SaveText(RawServer, 9321));
+        Assert.Empty(values.Read());
+    }
+
+    private sealed class MemorySecretStore : IProtectedStringStore
+    {
+        private string? _value;
+        public string? Load() => _value;
+        public void Save(string value) => _value = value;
+        public void Clear() => _value = null;
+    }
+
+    private sealed class FailMetadataStore(ISettingsStore inner) : ISettingsStore
+    {
+        public int FailWrites { get; set; }
+        public IReadOnlyDictionary<string, string> Read() => inner.Read();
+        public void Write(IReadOnlyDictionary<string, string?> changes)
+        {
+            inner.Write(changes);
+            if (FailWrites > 0 && changes.ContainsKey(FrpSettingsStore.ConfigTextHashKey))
+            {
+                FailWrites--;
+                throw new IOException("injected metadata failure after replacement");
+            }
+        }
     }
 
     [Fact]
@@ -68,6 +162,7 @@ public sealed class FrpSettingsStoreTests
             {
                 ServerAddress = "frp.example.com",
                 ServerPort = 7100,
+                User = "panel-user",
                 ProxyName = "my-danmu",
                 ProxyKind = FrpProxyKind.Http,
                 LocalAddress = "127.0.0.1",
@@ -93,6 +188,7 @@ public sealed class FrpSettingsStoreTests
         Assert.Equal(settings.InstalledVersion, read.Settings.InstalledVersion);
         Assert.Equal(settings.Client.ServerAddress, read.Settings.Client.ServerAddress);
         Assert.Equal(settings.Client.ServerPort, read.Settings.Client.ServerPort);
+        Assert.Equal(settings.Client.User, read.Settings.Client.User);
         Assert.Equal(settings.Client.ProxyName, read.Settings.Client.ProxyName);
         Assert.Equal(settings.Client.ProxyKind, read.Settings.Client.ProxyKind);
         Assert.Equal(settings.Client.LocalAddress, read.Settings.Client.LocalAddress);

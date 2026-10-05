@@ -3,195 +3,247 @@
              xmlns:vm="using:DanmuApi.App.ViewModels"
              x:Class="DanmuApi.App.Views.FrpTunnelConfigView"
              x:DataType="vm:FrpTunnelConfigViewModel">
-  <!-- 配置页只有表单：状态与日志都不在这里。
-       按「填什么」分区成卡片，保存/校验固定在顶部与底部各一次，填错立即在页面内报出，不用等点保存。 -->
-  <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-    <StackPanel Margin="0" Spacing="16" HorizontalAlignment="Stretch" IsEnabled="{Binding !IsBusy}">
-      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+  <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="12" IsEnabled="{Binding !IsBusy}">
+    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+      <StackPanel Spacing="4">
+        <TextBlock Text="穿透配置" Classes="section" />
+        <TextBlock Text="选择一种方式独立配置，保存后即可在监控页启动。" Classes="cap" TextWrapping="Wrap" />
+      </StackPanel>
+      <Button Grid.Column="1" Content="{Binding SaveButtonText}" Classes="primary"
+              Command="{Binding SaveCommand}" VerticalAlignment="Center" />
+    </Grid>
+
+    <StackPanel Grid.Row="1" Spacing="8">
+      <ListBox x:Name="FrpConfigSectionSelector" Classes="rail-list"
+               ItemsSource="{Binding SectionOptions}"
+               SelectedItem="{Binding SelectedSectionOption, Mode=TwoWay}"
+               Background="Transparent" BorderThickness="0"
+               ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+        <ListBox.ItemsPanel>
+          <ItemsPanelTemplate><UniformGrid Columns="2" /></ItemsPanelTemplate>
+        </ListBox.ItemsPanel>
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:FrpConfigSectionOption">
+            <StackPanel Spacing="3" Margin="10,6">
+              <TextBlock Text="{Binding Title}" Classes="rail-title" />
+              <TextBlock Text="{Binding Description}" Classes="rail-caption" TextWrapping="Wrap" />
+            </StackPanel>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+      <Border Classes="inset">
         <StackPanel Spacing="3">
-          <TextBlock Text="穿透配置" Classes="section" />
-          <TextBlock Text="{Binding ConfigPathText, StringFormat='生成到：{0}'}" Classes="cap" TextWrapping="Wrap" />
+          <TextBlock x:Name="FrpSavedMode" Text="{Binding SavedModeText}" FontWeight="SemiBold" />
+          <TextBlock Text="{Binding DraftHint}" Classes="cap" TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+    </StackPanel>
+
+    <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Spacing="12" Margin="0,0,4,4">
+        <StackPanel Spacing="12" IsVisible="{Binding IsVisualSection}">
+          <Border Classes="card" IsVisible="{Binding ShowVisualProblems}"
+                  Background="{DynamicResource DangerSoftBrush}" BorderBrush="{DynamicResource DangerBorderBrush}">
+            <StackPanel Spacing="4">
+              <TextBlock Text="请修正可视化配置" FontWeight="SemiBold" Foreground="{DynamicResource DangerBrush}" />
+              <TextBlock Text="{Binding ValidationText}" Classes="cap" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+
+          <Border Classes="card">
+            <StackPanel Spacing="8">
+              <TextBlock Text="运行角色" Classes="section" />
+              <ComboBox ItemsSource="{Binding RoleOptions}" SelectedItem="{Binding SelectedRoleOption, Mode=TwoWay}"
+                        HorizontalAlignment="Stretch" />
+              <TextBlock Text="{Binding RoleHint}" Classes="cap" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+
+          <Border Classes="card" IsVisible="{Binding IsClientRole}">
+            <StackPanel Spacing="12">
+              <TextBlock Text="服务器" Classes="section" />
+              <Grid ColumnDefinitions="*,150" ColumnSpacing="12">
+                <StackPanel Spacing="5">
+                  <TextBlock Text="地址（域名或 IP）" Classes="overline" />
+                  <TextBox Text="{Binding ServerAddress}" Classes="field" Watermark="frp.example.com" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Spacing="5">
+                  <TextBlock Text="服务端口" Classes="overline" />
+                  <TextBox Text="{Binding ServerPortText}" Classes="field" />
+                </StackPanel>
+              </Grid>
+              <StackPanel Spacing="5">
+                <TextBlock Text="用户标识 user（可选）" Classes="overline" />
+                <TextBox Text="{Binding User}" Classes="field" Watermark="服务商配置中有 user 时照填，否则留空" />
+                <TextBlock Text="用于 frpc 的代理名称前缀，不等同于 auth.token；保留服务商给出的值。"
+                           Classes="cap" TextWrapping="Wrap" />
+              </StackPanel>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="card">
+            <StackPanel Spacing="6">
+              <TextBlock Text="认证 Token" Classes="section" />
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <TextBox Text="{Binding TokenInput}" Classes="field" PasswordChar="●"
+                         Watermark="已保存时留空保持不变；服务商未要求时可留空" />
+                <Button Grid.Column="1" Content="清除" Classes="secondary" Command="{Binding ClearTokenCommand}"
+                        IsEnabled="{Binding CanClearToken}" />
+              </Grid>
+              <TextBlock Text="{Binding TokenHint}" Classes="cap" TextWrapping="Wrap" />
+              <Button Content="撤销 Token 修改" Classes="secondary" Command="{Binding KeepTokenCommand}"
+                      IsVisible="{Binding HasTokenEdit}" HorizontalAlignment="Left" />
+            </StackPanel>
+          </Border>
+
+          <Border Classes="card" IsVisible="{Binding IsClientRole}">
+            <StackPanel Spacing="12">
+              <TextBlock Text="端口映射" Classes="section" />
+              <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+                <StackPanel Spacing="5">
+                  <TextBlock Text="隧道名称" Classes="overline" />
+                  <TextBox Text="{Binding ProxyName}" Classes="field" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Spacing="5">
+                  <TextBlock Text="映射类型" Classes="overline" />
+                  <ComboBox ItemsSource="{Binding ProxyKindOptions}" SelectedItem="{Binding SelectedProxyKindOption, Mode=TwoWay}"
+                            HorizontalAlignment="Stretch" />
+                </StackPanel>
+              </Grid>
+              <Grid ColumnDefinitions="*,150" ColumnSpacing="12">
+                <StackPanel Spacing="5">
+                  <TextBlock Text="本地服务地址" Classes="overline" />
+                  <TextBox Text="{Binding LocalAddress}" Classes="field" Watermark="127.0.0.1" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Spacing="5">
+                  <TextBlock Text="本地端口" Classes="overline" />
+                  <TextBox Text="{Binding LocalPortText}" Classes="field" />
+                </StackPanel>
+              </Grid>
+              <Button Content="使用当前弹幕服务端口" Classes="secondary" Command="{Binding UseCurrentServicePortCommand}"
+                      HorizontalAlignment="Left" />
+              <StackPanel Spacing="5" IsVisible="{Binding ShowTcpFields}">
+                <TextBlock Text="公网端口（服务商分配的端口）" Classes="overline" />
+                <TextBox Text="{Binding RemotePortText}" Classes="field" Watermark="19321" />
+              </StackPanel>
+              <StackPanel Spacing="5" IsVisible="{Binding ShowDomainFields}">
+                <TextBlock Text="访问域名（多个用逗号分隔）" Classes="overline" />
+                <TextBox Text="{Binding CustomDomainsText}" Classes="field" Watermark="danmu.example.com" />
+                <TextBlock Text="域名需解析到 frps，并由服务端启用对应的 HTTP / HTTPS 端口。" Classes="cap" TextWrapping="Wrap" />
+              </StackPanel>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="card" IsVisible="{Binding IsClientRole}">
+            <Expander Header="高级设置 · 传输与本地状态接口" HorizontalAlignment="Stretch">
+              <StackPanel Spacing="10" Margin="0,10,0,0">
+                <CheckBox IsChecked="{Binding TransportTls}" Content="传输层 TLS" />
+                <CheckBox IsChecked="{Binding UseCompression}" Content="压缩" />
+                <CheckBox IsChecked="{Binding UseEncryption}" Content="代理加密" />
+                <StackPanel Spacing="5">
+                  <TextBlock Text="本地状态端口" Classes="overline" />
+                  <TextBox Text="{Binding ClientAdminPortText}" Classes="field" />
+                  <TextBlock Text="状态接口只监听 127.0.0.1，用于核实每条代理是否真的连通；不能与本地服务端口冲突。"
+                             Classes="cap" TextWrapping="Wrap" />
+                </StackPanel>
+              </StackPanel>
+            </Expander>
+          </Border>
+
+          <Border Classes="card" IsVisible="{Binding IsServerRole}">
+            <StackPanel Spacing="12">
+              <TextBlock Text="服务端监听" Classes="section" />
+              <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+                <StackPanel Spacing="5">
+                  <TextBlock Text="穿透端口" Classes="overline" />
+                  <TextBox Text="{Binding BindPortText}" Classes="field" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Spacing="5">
+                  <TextBlock Text="本地状态端口" Classes="overline" />
+                  <TextBox Text="{Binding ServerAdminPortText}" Classes="field" />
+                </StackPanel>
+              </Grid>
+              <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+                <StackPanel Spacing="5">
+                  <TextBlock Text="HTTP 域名端口（0 为关闭）" Classes="overline" />
+                  <TextBox Text="{Binding VhostHttpPortText}" Classes="field" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Spacing="5">
+                  <TextBlock Text="泛域名（可选）" Classes="overline" />
+                  <TextBox Text="{Binding SubdomainHost}" Classes="field" Watermark="example.com" />
+                </StackPanel>
+              </Grid>
+              <TextBlock Text="需要公网 IP 或端口映射，并放行穿透端口；客户端与服务端的认证需一致。"
+                         Classes="cap" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+
+        <StackPanel Spacing="12" IsVisible="{Binding IsTextSection}">
+          <Border Classes="card">
+            <StackPanel Spacing="10">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <StackPanel Spacing="4">
+                  <TextBlock Text="原生配置" Classes="section" />
+                  <TextBlock Text="JSON 或服务商提供的 TOML · 保存后直接作为启动配置，无需填写可视化表单。"
+                             Classes="cap" TextWrapping="Wrap" />
+                </StackPanel>
+                <Button Grid.Column="1" Content="校验配置" Classes="secondary"
+                        Command="{Binding ValidateConfigTextCommand}" VerticalAlignment="Top" />
+              </Grid>
+              <CheckBox Content="显示配置文本（可能含认证凭据）" IsChecked="{Binding ShowConfigText}" />
+              <Border Classes="inset" IsVisible="{Binding !ShowConfigText}">
+                <TextBlock Text="配置内容已隐藏。勾选上方选项后可查看、修改或粘贴配置。" Classes="cap" TextWrapping="Wrap" />
+              </Border>
+              <TextBox x:Name="FrpConfigTextBox" Text="{Binding ConfigText, Mode=TwoWay}"
+                       IsVisible="{Binding ShowConfigText}" Classes="field"
+                       AcceptsReturn="True" TextWrapping="NoWrap"
+                       FontFamily="Consolas,Menlo,monospace" FontSize="13"
+                       MinHeight="320" MaxHeight="560" VerticalContentAlignment="Top"
+                       ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                       ScrollViewer.VerticalScrollBarVisibility="Auto"
+                       Watermark="将完整 JSON / frpc.toml / frps.toml 粘贴到这里，然后保存当前配置" />
+              <TextBlock x:Name="FrpConfigTextSummary" Text="{Binding ConfigTextSummary}"
+                         Classes="cap" TextWrapping="Wrap" />
+              <WrapPanel>
+                <Button Content="复制文本" Classes="secondary" Margin="0,0,10,6"
+                        Command="{Binding CopyConfigTextCommand}" IsEnabled="{Binding HasConfigText}" />
+                <Button Content="从可视化草稿生成 JSON…" Classes="secondary" Margin="0,0,0,6"
+                        Command="{Binding GenerateConfigTextCommand}" />
+              </WrapPanel>
+              <Border Classes="inset" IsVisible="{Binding HasConfigTextMessage}">
+                <StackPanel Spacing="4">
+                  <TextBlock Text="配置操作失败" IsVisible="{Binding ConfigTextFailed}"
+                             Foreground="{DynamicResource DangerBrush}" FontWeight="SemiBold" />
+                  <TextBlock x:Name="FrpConfigTextMessage" Text="{Binding ConfigTextMessage}" Classes="cap" TextWrapping="Wrap" />
+                </StackPanel>
+              </Border>
+            </StackPanel>
+          </Border>
+          <Border Classes="inset">
+            <StackPanel Spacing="5">
+              <TextBlock Text="原始配置与运行时副本分离" FontWeight="SemiBold" />
+              <TextBlock Text="{Binding HostOverlayHint}" Classes="cap" TextWrapping="Wrap" />
+              <TextBlock Text="原始文本使用本机加密存储；复制或分享配置前，请检查其中的 Token、密码和密钥。"
+                         Classes="cap" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </StackPanel>
+    </ScrollViewer>
+
+    <Border Grid.Row="3" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource HairlineBrush}" Padding="0,10,0,0">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+        <StackPanel Spacing="3" VerticalAlignment="Center">
+          <TextBlock Text="{Binding OperationMessage}" Classes="cap" TextWrapping="Wrap" MaxLines="3" />
+          <TextBlock Text="{Binding ConfigPathText, StringFormat='运行时文件：{0}'}" Classes="cap"
+                     TextTrimming="CharacterEllipsis" />
         </StackPanel>
         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
           <Button Content="重新读取" Classes="secondary" Command="{Binding ReloadCommand}" />
-          <Button Content="保存设置" Classes="primary" Command="{Binding SaveCommand}" />
+          <Button Content="{Binding SaveButtonText}" Classes="primary" Command="{Binding SaveCommand}" />
         </StackPanel>
       </Grid>
-
-      <Border Classes="card" IsVisible="{Binding HasProblems}">
-        <StackPanel Spacing="6">
-          <TextBlock Text="这份配置还不能保存" Classes="section" />
-          <TextBlock Text="{Binding ValidationText}" Classes="cap" TextWrapping="Wrap" />
-        </StackPanel>
-      </Border>
-
-      <Border Classes="card">
-        <StackPanel Spacing="10">
-          <TextBlock Text="穿透模式" Classes="section" />
-          <ComboBox ItemsSource="{Binding RoleOptions}" SelectedItem="{Binding SelectedRoleOption, Mode=TwoWay}" HorizontalAlignment="Stretch">
-            <ComboBox.ItemTemplate>
-              <DataTemplate x:DataType="vm:FrpRoleOption">
-                <StackPanel Spacing="2" Margin="0,4">
-                  <TextBlock Text="{Binding Title}" />
-                  <TextBlock Text="{Binding Description}" Classes="cap" TextWrapping="Wrap" />
-                </StackPanel>
-              </DataTemplate>
-            </ComboBox.ItemTemplate>
-          </ComboBox>
-          <TextBlock Text="{Binding RoleHint}" Classes="cap" TextWrapping="Wrap" />
-        </StackPanel>
-      </Border>
-
-      <!-- Authentication belongs to both roles; clearing is a draft until explicit save. -->
-      <Border Classes="card">
-        <StackPanel Spacing="6">
-          <TextBlock Text="认证 Token（客户端 / 服务端）" Classes="section" />
-          <TextBlock Text="客户端与服务端的 auth.token 必须一致。新值或清除只暂存到表单，保存后生效。" Classes="cap" TextWrapping="Wrap" />
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-            <TextBox Text="{Binding TokenInput}" Classes="field" PasswordChar="●"
-                     Watermark="已保存 Token 时留空即保持不变" />
-            <Button Grid.Column="1" Content="清除" Classes="secondary" VerticalAlignment="Stretch"
-                    Command="{Binding ClearTokenCommand}" IsEnabled="{Binding CanClearToken}" />
-          </Grid>
-          <TextBlock Text="{Binding TokenHint}" Classes="cap" TextWrapping="Wrap" />
-          <Button Content="保持已保存 Token（撤销 Token 修改）" Classes="secondary" HorizontalAlignment="Left"
-                  Command="{Binding KeepTokenCommand}" IsVisible="{Binding HasTokenEdit}" />
-        </StackPanel>
-      </Border>
-
-      <!-- 客户端 -->
-      <Border Classes="card" IsVisible="{Binding IsClientRole}">
-        <StackPanel Spacing="14">
-          <TextBlock Text="服务器（frps）" Classes="section" />
-          <Grid ColumnDefinitions="*,16,160" ColumnSpacing="0">
-            <StackPanel Spacing="6">
-              <TextBlock Text="服务器地址（域名或 IP）" Classes="overline" />
-              <TextBox Text="{Binding ServerAddress}" Classes="field" Watermark="例如 frp.example.com" />
-            </StackPanel>
-            <StackPanel Grid.Column="2" Spacing="6">
-              <TextBlock Text="服务器端口" Classes="overline" />
-              <TextBox Text="{Binding ServerPortText}" Classes="field" />
-            </StackPanel>
-          </Grid>
-        </StackPanel>
-      </Border>
-
-      <Border Classes="card" IsVisible="{Binding IsClientRole}">
-        <StackPanel Spacing="14">
-          <TextBlock Text="代理：把哪个本地服务送出去" Classes="section" />
-          <StackPanel Spacing="6">
-            <TextBlock Text="代理类型" Classes="overline" />
-            <ComboBox ItemsSource="{Binding ProxyKindOptions}" SelectedItem="{Binding SelectedProxyKindOption, Mode=TwoWay}" HorizontalAlignment="Stretch">
-              <ComboBox.ItemTemplate>
-                <DataTemplate x:DataType="vm:FrpProxyKindOption">
-                  <StackPanel Spacing="2" Margin="0,4">
-                    <TextBlock Text="{Binding Title}" />
-                    <TextBlock Text="{Binding Description}" Classes="cap" TextWrapping="Wrap" />
-                  </StackPanel>
-                </DataTemplate>
-              </ComboBox.ItemTemplate>
-            </ComboBox>
-          </StackPanel>
-
-          <Grid ColumnDefinitions="*,16,160" ColumnSpacing="0">
-            <StackPanel Spacing="6">
-              <TextBlock Text="本地服务地址" Classes="overline" />
-              <TextBox Text="{Binding LocalAddress}" Classes="field" Watermark="127.0.0.1" />
-            </StackPanel>
-            <StackPanel Grid.Column="2" Spacing="6">
-              <TextBlock Text="本地服务端口" Classes="overline" />
-              <TextBox Text="{Binding LocalPortText}" Classes="field" />
-            </StackPanel>
-          </Grid>
-          <Button Content="使用当前弹幕服务端口" Classes="secondary" HorizontalAlignment="Left"
-                  Command="{Binding UseCurrentServicePortCommand}" />
-
-          <StackPanel Spacing="6" IsVisible="{Binding ShowTcpFields}">
-            <TextBlock Text="服务器上的公网端口" Classes="overline" />
-            <TextBox Text="{Binding RemotePortText}" Classes="field" Watermark="例如 19321" />
-            <TextBlock Text="外网访问 http://服务器地址:该端口/TOKEN" Classes="cap" TextWrapping="Wrap" />
-          </StackPanel>
-
-          <StackPanel Spacing="6" IsVisible="{Binding ShowDomainFields}">
-            <TextBlock Text="访问域名（多个用逗号分隔）" Classes="overline" />
-            <TextBox Text="{Binding CustomDomainsText}" Classes="field" Watermark="例如 danmu.example.com" />
-            <TextBlock Text="需要 frps 配好 vhostHTTPPort / vhostHTTPSPort，并把这些域名解析到服务器。" Classes="cap" TextWrapping="Wrap" />
-          </StackPanel>
-        </StackPanel>
-      </Border>
-
-      <Border Classes="card" IsVisible="{Binding IsClientRole}">
-        <StackPanel Spacing="12">
-          <TextBlock Text="高级" Classes="section" />
-          <CheckBox IsChecked="{Binding TransportTls}" Content="传输层 TLS（frpc 与 frps 之间加密，双方默认都开）" />
-          <CheckBox IsChecked="{Binding UseCompression}" Content="压缩（流量大、内容可压缩时更省带宽）" />
-          <CheckBox IsChecked="{Binding UseEncryption}" Content="应用层加密（适用于 TCP / HTTP / HTTPS 代理）" />
-          <Grid ColumnDefinitions="*,16,160" ColumnSpacing="0">
-            <StackPanel Spacing="6">
-              <TextBlock Text="代理名称" Classes="overline" />
-              <TextBox Text="{Binding ProxyName}" Classes="field" />
-            </StackPanel>
-            <StackPanel Grid.Column="2" Spacing="6">
-              <TextBlock Text="本地状态端口" Classes="overline" />
-              <TextBox Text="{Binding ClientAdminPortText}" Classes="field" />
-            </StackPanel>
-          </Grid>
-          <TextBlock Classes="cap" TextWrapping="Wrap"
-                     Text="本地状态端口是 frpc 只监听 127.0.0.1 的管理接口，本应用靠它判定穿透是否真的通了；被别的程序占用时必须改端口。" />
-        </StackPanel>
-      </Border>
-
-      <!-- 服务端 -->
-      <Border Classes="card" IsVisible="{Binding IsServerRole}">
-        <StackPanel Spacing="14">
-          <TextBlock Text="穿透服务端（frps）" Classes="section" />
-          <Grid ColumnDefinitions="*,16,160" ColumnSpacing="0">
-            <StackPanel Spacing="6">
-              <TextBlock Text="穿透端口（客户端连接的端口）" Classes="overline" />
-              <TextBox Text="{Binding BindPortText}" Classes="field" />
-            </StackPanel>
-            <StackPanel Grid.Column="2" Spacing="6">
-              <TextBlock Text="本地状态端口" Classes="overline" />
-              <TextBox Text="{Binding ServerAdminPortText}" Classes="field" />
-            </StackPanel>
-          </Grid>
-          <Grid ColumnDefinitions="*,16,*">
-            <StackPanel Spacing="6">
-              <TextBlock Text="HTTP 域名端口（0 = 不启用）" Classes="overline" />
-              <TextBox Text="{Binding VhostHttpPortText}" Classes="field" />
-            </StackPanel>
-            <StackPanel Grid.Column="2" Spacing="6">
-              <TextBlock Text="泛域名（可选）" Classes="overline" />
-              <TextBox Text="{Binding SubdomainHost}" Classes="field" Watermark="例如 example.com" />
-            </StackPanel>
-          </Grid>
-          <TextBlock Classes="cap" TextWrapping="Wrap"
-                     Text="服务端需要公网 IP 或已做端口映射，并在防火墙/安全组放行穿透端口与 HTTP 域名端口。Token 与客户端保持一致。" />
-        </StackPanel>
-      </Border>
-
-      <!-- JSON 导入导出 -->
-      <Border Classes="card">
-        <StackPanel Spacing="12">
-          <TextBlock Text="JSON 配置（导入 / 导出）" Classes="section" />
-          <TextBlock Classes="cap" TextWrapping="Wrap"
-                     Text="导出的是 frp 原生 JSON：既能贴回本应用，也能改名 frpc.json 交给官方 frpc 运行。导入同样接受 frp 原生 JSON（客户端看 serverAddr/proxies，服务端看 bindPort），导入只填表单，点「保存设置」后才生效。" />
-          <WrapPanel>
-            <Button Content="导出并复制 JSON" Classes="secondary" Margin="0,0,10,8" Command="{Binding ExportJsonCommand}" />
-            <Button Content="粘贴 JSON 导入" Classes="secondary" Margin="0,0,10,8" Command="{Binding ImportJsonCommand}" />
-          </WrapPanel>
-          <Border Classes="inset" IsVisible="{Binding HasImportWarning}">
-            <TextBlock Text="{Binding ImportWarningText}" Classes="cap" TextWrapping="Wrap" />
-          </Border>
-          <TextBlock Text="导出的 JSON 含 frp 的 auth.token，请勿公开分享。" Classes="cap" TextWrapping="Wrap" />
-        </StackPanel>
-      </Border>
-
-      <WrapPanel HorizontalAlignment="Right">
-        <Button Content="重新读取" Classes="secondary" Margin="0,0,10,0" Command="{Binding ReloadCommand}" />
-        <Button Content="保存设置" Classes="primary" Command="{Binding SaveCommand}" />
-      </WrapPanel>
-      <TextBlock Text="{Binding OperationMessage}" Classes="cap" TextWrapping="Wrap" />
-    </StackPanel>
-  </ScrollViewer>
+    </Border>
+  </Grid>
 </UserControl>

@@ -16,6 +16,7 @@ public sealed class FrpConfigJsonTests
         {
             ServerAddress = "frp.example.com",
             ServerPort = 7100,
+            User = "panel-user",
             ProxyName = "my-danmu",
             LocalPort = 9321,
             RemotePort = 19321,
@@ -38,6 +39,8 @@ public sealed class FrpConfigJsonTests
 
         Assert.Contains("\"serverAddr\": \"frp.example.com\"", json, StringComparison.Ordinal);
         Assert.Contains("\"serverPort\": 7100", json, StringComparison.Ordinal);
+        // 服务商面板的 user 是配置的一部分（frpc 用它登记 {user}.{proxy}），必须跟着走。
+        Assert.Contains("\"user\": \"panel-user\"", json, StringComparison.Ordinal);
         Assert.Contains("\"token\": \"server-token\"", json, StringComparison.Ordinal);
         Assert.Contains("\"loginFailExit\": false", json, StringComparison.Ordinal);
         Assert.Contains("\"disablePrintColor\": true", json, StringComparison.Ordinal);
@@ -51,7 +54,8 @@ public sealed class FrpConfigJsonTests
         Assert.Contains("\"webServer\"", json, StringComparison.Ordinal);
         Assert.Contains("\"addr\": \"127.0.0.1\"", json, StringComparison.Ordinal);
         Assert.DoesNotContain("\"password\"", json, StringComparison.Ordinal);
-        Assert.DoesNotContain("\"user\"", json, StringComparison.Ordinal);
+        // 整份文档里只能有一处 user：客户端那个，绝不是 webServer.user。
+        Assert.Equal(1, json.Split("\"user\":", StringSplitOptions.None).Length - 1);
     }
 
     [Fact]
@@ -81,6 +85,7 @@ public sealed class FrpConfigJsonTests
         Assert.Equal(FrpRole.Client, settings.Role);
         Assert.Equal("frp.example.com", settings.Client.ServerAddress);
         Assert.Equal(7100, settings.Client.ServerPort);
+        Assert.Equal("panel-user", settings.Client.User);
         Assert.Equal("my-danmu", settings.Client.ProxyName);
         Assert.Equal(19321, settings.Client.RemotePort);
         Assert.True(settings.Client.UseCompression);

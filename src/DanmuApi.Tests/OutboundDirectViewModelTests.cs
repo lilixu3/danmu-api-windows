@@ -1,10 +1,11 @@
 using DanmuApi.App.Services;
 using DanmuApi.App.ViewModels;
 using DanmuApi.Platform;
+using Xunit.Abstractions;
 
 namespace DanmuApi.Tests;
 
-public sealed class OutboundDirectViewModelTests
+public sealed class OutboundDirectViewModelTests(ITestOutputHelper output)
 {
     [Theory]
     [InlineData(false, "已关闭")]
@@ -942,6 +943,151 @@ public sealed class OutboundDirectViewModelTests
         Assert.Equal("—", model.RecentFailedCount);
     }
 
+    [Theory]
+    [InlineData("cancelled-task", true)]
+    [InlineData("cancelled-run", true)]
+    [InlineData("failed-task", true)]
+    [InlineData("failed-run", true)]
+    [InlineData("cancelled-task", false)]
+    [InlineData("cancelled-run", false)]
+    [InlineData("failed-task", false)]
+    [InlineData("failed-run", false)]
+    public async Task CancellationCompletionKeepsTerminalStatusAndCompletedHistory(string outcome, bool completeInline)
+    {
+        var service = new OutboundUiTestService(OutboundSettings.Default with { Enabled = true }) { Rows = CompletedRows() };
+        service.Publish(OutboundUiTestService.Ready(service.Settings));
+        service.SaveAction = (settings, _) =>
+        {
+            service.Settings = settings;
+            service.Publish(OutboundUiTestService.Ready(settings));
+            return Task.FromResult(new OutboundOperationResult(true, "已保存。"));
+        };
+        var clock = new OutboundTestClock(new DateTimeOffset(2026, 10, 1, 12, 34, 56, TimeSpan.Zero));
+        service.Clock = clock;
+        var diagnostics = new OutboundUiTestDiagnostics();
+        using var model = new OutboundDirectViewModel(service, diagnostics, clock);
+        await model.DiagnoseCommand.ExecuteAsync(null);
+        var completedSummary = model.RecentTestSummary;
+        var completedTime = model.RecentTestTime;
+        var rows = model.DiagnosticRows.ToArray();
+        var selected = model.SelectedDiagnostic;
+        await model.ToggleSourceCommand.ExecuteAsync("animeko");
+        var changedSummary = model.RecentTestSummary;
+        Assert.Equal(completedSummary + " · 上次测试，配置已更改", changedSummary);
+        clock.Now = clock.Now.AddHours(1);
+
+        // No asynchronous continuation option: completion must run the VM continuation inside the callback.
+        var response = new TaskCompletionSource<OutboundDiagnosticRun>();
+        var ordering = new List<string>();
+        var cancellationRequested = false;
+        var completedInsideCallback = false;
+        var statusInsideCallback = string.Empty;
+        var token = CancellationToken.None;
+        CancellationTokenRegistration registration = default;
+        model.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(model.DiagnosticStatus)) ordering.Add("status: " + model.DiagnosticStatus);
+        };
+        service.DiagnoseAction = cancellationToken =>
+        {
+            token = cancellationToken;
+            registration = token.Register(() =>
+            {
+                ordering.Add("callback: enter");
+                cancellationRequested = true;
+                if (completeInline) CompleteCancellationResponse(response, token, outcome);
+                completedInsideCallback = !model.IsDiagnosing && !model.IsBusy;
+                statusInsideCallback = model.DiagnosticStatus;
+                ordering.Add($"callback: return; completed={completedInsideCallback}; status={statusInsideCallback}");
+            });
+            return response.Task;
+        };
+        Task pending;
+        var previous = SynchronizationContext.Current;
+        try
+        {
+            SynchronizationContext.SetSynchronizationContext(new InlineContext());
+            pending = model.DiagnoseCommand.ExecuteAsync(null);
+            Assert.False(pending.IsCompleted);
+            Assert.True(model.CanCancel);
+            ordering.Add("cancel: enter");
+            model.CancelCommand.Execute(null);
+            ordering.Add("cancel: return; status=" + model.DiagnosticStatus);
+            output.WriteLine(string.Join(Environment.NewLine, ordering));
+            Assert.True(cancellationRequested);
+            Assert.Equal(completeInline, completedInsideCallback);
+            Assert.False(model.CanCancel);
+            Assert.False(model.CancelCommand.CanExecute(null));
+            if (completeInline)
+            {
+                Assert.True(pending.IsCompletedSuccessfully);
+                Assert.Equal(statusInsideCallback, model.DiagnosticStatus);
+            }
+            else
+            {
+                Assert.False(pending.IsCompleted);
+                Assert.True(model.IsDiagnosing);
+                Assert.True(model.IsBusy);
+                Assert.Equal("已请求取消，正在等待当前连接检查结束…", model.DiagnosticStatus);
+                Assert.Empty(model.DiagnosticError);
+                Assert.Equal(changedSummary, model.RecentTestSummary);
+                Assert.Equal(completedTime, model.RecentTestTime);
+                Assert.Equal("1", model.RecentNormalCount);
+                Assert.Equal("1", model.RecentNeedsKeyCount);
+                Assert.Equal("1", model.RecentFailedCount);
+                CompleteCancellationResponse(response, token, outcome);
+                Assert.True(pending.IsCompletedSuccessfully);
+                output.WriteLine("deferred: completed; status=" + model.DiagnosticStatus);
+            }
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previous);
+            registration.Dispose();
+        }
+        await pending;
+        var failed = outcome.StartsWith("failed-", StringComparison.Ordinal);
+        Assert.StartsWith(failed ? "测速失败；" : "测速已取消；", model.DiagnosticStatus);
+        Assert.DoesNotContain("正在等待", model.DiagnosticStatus);
+        Assert.DoesNotContain("测速完成", model.DiagnosticStatus);
+        Assert.True(model.HasDiagnosticError);
+        if (outcome != "cancelled-task") Assert.Contains("取消回调", model.DiagnosticError);
+        Assert.Contains(model.DiagnosticError, diagnostics.Messages);
+        Assert.DoesNotContain("test-secret", model.DiagnosticError + string.Join(" ", diagnostics.Messages));
+        Assert.Empty(model.Diagnostic);
+        Assert.False(model.IsDiagnosing);
+        Assert.False(model.IsBusy);
+        Assert.True(model.HasRecentTest);
+        Assert.Equal(changedSummary, model.RecentTestSummary);
+        Assert.Equal(completedTime, model.RecentTestTime);
+        Assert.Equal("1", model.RecentNormalCount);
+        Assert.Equal("1", model.RecentNeedsKeyCount);
+        Assert.Equal("1", model.RecentFailedCount);
+        Assert.Equal(rows, model.DiagnosticRows);
+        Assert.Same(selected, model.SelectedDiagnostic);
+        Assert.Equal(2, service.DiagnoseCalls);
+        await model.ToggleSourceCommand.ExecuteAsync("animeko");
+        Assert.Equal(completedSummary, model.RecentTestSummary);
+        Assert.Equal(completedTime, model.RecentTestTime);
+    }
+
+    private static void CompleteCancellationResponse(TaskCompletionSource<OutboundDiagnosticRun> response,
+        CancellationToken token, string outcome)
+    {
+        switch (outcome)
+        {
+            case "cancelled-task": response.SetCanceled(token); break;
+            case "cancelled-run":
+                response.SetResult(new(OutboundDiagnosticRunStatus.Cancelled, null, [], null, "取消回调返回取消结果。"));
+                break;
+            case "failed-task": response.SetException(new IOException("取消回调内连接检查失败 token=test-secret")); break;
+            case "failed-run":
+                response.SetResult(new(OutboundDiagnosticRunStatus.Failed, null, [], null, "取消回调返回失败 token=test-secret"));
+                break;
+            default: throw new ArgumentOutOfRangeException(nameof(outcome));
+        }
+    }
+
     [Fact]
     public async Task TestExceptionCannotReplaceAConcurrentMainDialogFailure()
     {
@@ -1236,6 +1382,11 @@ public sealed class OutboundDirectViewModelTests
             Assert.Equal(2, model.Snapshot.RuntimeEpoch);
             Assert.True(model.IsEngineReady);
         }
+    }
+
+    private sealed class InlineContext : SynchronizationContext
+    {
+        public override void Post(SendOrPostCallback callback, object? state) => callback(state);
     }
 
     private sealed class QueuedContext : SynchronizationContext

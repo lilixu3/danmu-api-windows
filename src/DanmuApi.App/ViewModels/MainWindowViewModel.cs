@@ -458,11 +458,12 @@ public partial class MainWindowViewModel : ViewModelBase, IAsyncDisposable
 
     private FrpSurfaceInput FrpSurface => new(
         _frp!.Snapshot.State,
-        _frp.Snapshot.RemoteAddress,
+        FrpEndpointMetadata.ApiKind(_frp.Snapshot, _frp.EffectiveSettings, Runtime.Port) is not null
+            ? _frp.Snapshot.RemoteAddress : null,
         _frp.Snapshot.Diagnostic,
-        _frp.Settings.Role,
-        _frp.Settings.Client.ProxyKind,
-        _frp.Settings.Server.BindPort,
+        _frp.EffectiveSettings.Role,
+        FrpEndpointMetadata.ApiKind(_frp.Snapshot, _frp.EffectiveSettings, Runtime.Port) ?? _frp.EffectiveSettings.Client.ProxyKind,
+        _frp.EffectiveSettings.Server.BindPort,
         Installed: _frp.InstalledVersion is not null,
         ServiceRunning: IsServiceRunning,
         CoreToken: _token);

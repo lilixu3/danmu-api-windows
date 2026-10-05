@@ -7,6 +7,13 @@ public enum FrpRole
     Server,
 }
 
+/// <summary>可视化配置与原生配置文本是独立保存、独立运行的两种模式。</summary>
+public enum FrpConfigMode
+{
+    Visual,
+    Text,
+}
+
 /// <summary>frpc 代理类型。tcp 走 remotePort，http/https 走 customDomains（由 frps 的 vhost 端口承载）。</summary>
 public enum FrpProxyKind
 {
@@ -52,10 +59,14 @@ public static class FrpProxyKindExtensions
 /// <summary>
 /// frpc 侧配置。<see cref="AdminPort"/> 是本机回环上的 frpc 管理接口端口：状态判定、公网地址都来自它，
 /// 因此它不是可选项（不配就没有任何权威的"穿透成功"证据）。
+/// <see cref="User"/> 是 frp 的 <c>user</c>：frpc 会用它把代理名登记为 <c>{user}.{proxy}</c>，
+/// 公共穿透服务商（面板生成的配置）普遍用它做账号标识，因此必须原样透传；它只属于客户端
+/// （官方 frps 会以 <c>unknown field "user"</c> 拒绝同名键，实测 0.71.0）。
 /// </summary>
 public sealed record FrpClientSettings(
     string ServerAddress,
     int ServerPort,
+    string User,
     string ProxyName,
     FrpProxyKind ProxyKind,
     string LocalAddress,
@@ -84,7 +95,8 @@ public sealed record FrpServerSettings(
 }
 
 /// <summary>
-/// 落盘在 settings.properties 的 FRP 设置（Token 不在这里：它单独走 DPAPI 保护的秘密存储）。
+/// FRP 设置。可视化非秘密字段落盘在 settings.properties；Token 与原生配置文本单独走 DPAPI。
+/// <see cref="RawConfig"/> 是敏感的内存文档，禁止写入 properties、日志或记录的调试输出。
 /// <see cref="InstalledVersion"/> 是已安装二进制目录对应的版本号，空串表示未安装。
 /// <see cref="FollowService"/> 控制"弹幕服务起来时自动把穿透也拉起来"；**停止方向不受它控制**——
 /// 服务一停，穿透必定跟着停（隧道指向一个已经关掉的本地端口没有任何意义，地址也是假的）。
@@ -98,12 +110,21 @@ public sealed record FrpSettings(
 {
     public const string DefaultProxyName = "danmu-api";
 
+    public FrpConfigMode ConfigMode { get; init; } = FrpConfigMode.Visual;
+
+    /// <summary>完整的原生 JSON/TOML（可能包含任意认证秘密）；仅由独立秘密存储持久化。</summary>
+    public string RawConfig { get; init; } = string.Empty;
+
+    // A record's generated ToString would otherwise dump RawConfig, including native authentication fields.
+    public override string ToString() => $"FrpSettings {{ ConfigMode = {ConfigMode}, Role = {Role}, FollowService = {FollowService} }}";
+
     public static FrpSettings Default(int localPort) => new(
         FrpRole.Client,
         FollowService: false,
         new FrpClientSettings(
             ServerAddress: string.Empty,
             ServerPort: FrpClientSettings.DefaultServerPort,
+            User: string.Empty,
             ProxyName: DefaultProxyName,
             ProxyKind: FrpProxyKind.Tcp,
             LocalAddress: FrpClientSettings.DefaultLocalAddress,
@@ -121,10 +142,34 @@ public sealed record FrpSettings(
             AdminPort: FrpServerSettings.DefaultAdminPort),
         InstalledVersion: string.Empty);
 
-    /// <summary>当前角色下真正生效的那份配置需要校验的问题清单；空列表表示可以启动。</summary>
-    public IReadOnlyList<string> Validate() => Role == FrpRole.Client
-        ? FrpSettingsValidation.ValidateClient(Client)
-        : FrpSettingsValidation.ValidateServer(Server);
+    /// <summary>只校验当前运行模式的配置；另一模式的未完成草稿绝不阻止保存或启动。</summary>
+    public IReadOnlyList<string> Validate()
+    {
+        switch (ConfigMode)
+        {
+            case FrpConfigMode.Text:
+                try
+                {
+                    _ = FrpNativeConfig.Parse(RawConfig);
+                    return [];
+                }
+                catch (FrpConfigurationException error)
+                {
+                    return error.Problems;
+                }
+            case FrpConfigMode.Visual:
+                return Role switch
+                {
+                    FrpRole.Client when Client is not null => FrpSettingsValidation.ValidateClient(Client),
+                    FrpRole.Server when Server is not null => FrpSettingsValidation.ValidateServer(Server),
+                    FrpRole.Client => ["客户端可视化配置不能为空"],
+                    FrpRole.Server => ["服务端可视化配置不能为空"],
+                    _ => ["未知的 frp 角色（只能是 Client 或 Server）"],
+                };
+            default:
+                return ["未知的 frp 配置模式（只能是 Visual 或 Text）"];
+        }
+    }
 
     public void EnsureValid()
     {
@@ -180,7 +225,11 @@ public static class FrpSettingsValidation
         }
 
         ValidatePort(client.LocalPort, "本地服务端口", problems);
-        if (client.ProxyKind.RequiresRemotePort())
+        if (!Enum.IsDefined(client.ProxyKind))
+        {
+            problems.Add("未知的 frp 代理类型（可视化配置只能是 tcp、http 或 https）");
+        }
+        else if (client.ProxyKind.RequiresRemotePort())
         {
             ValidatePort(client.RemotePort, "公网端口", problems);
             if (client.RemotePort == client.AdminPort || client.RemotePort == client.ServerPort)

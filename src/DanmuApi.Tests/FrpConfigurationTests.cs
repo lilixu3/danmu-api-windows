@@ -18,9 +18,11 @@ public sealed class FrpConfigWriterTests
         IReadOnlyList<string>? domains = null,
         bool encryption = false,
         bool compression = false,
-        bool tls = true) => new(
+        bool tls = true,
+        string user = "") => new(
         ServerAddress: address,
         ServerPort: 7000,
+        User: user,
         ProxyName: "danmu-api",
         ProxyKind: kind,
         LocalAddress: "127.0.0.1",
@@ -135,7 +137,7 @@ public sealed class FrpConfigWriterTests
 public sealed class FrpSettingsValidationTests
 {
     private static FrpClientSettings ValidClient() => new(
-        "frp.example.com", 7000, "danmu-api", FrpProxyKind.Tcp, "127.0.0.1", 9321, 19321, [], false, false, true, 7400);
+        "frp.example.com", 7000, "", "danmu-api", FrpProxyKind.Tcp, "127.0.0.1", 9321, 19321, [], false, false, true, 7400);
 
     [Fact]
     public void AcceptsACompleteTcpClientConfiguration()

@@ -1,0 +1,27 @@
+﻿{
+    "Version":  "0.5.27",
+    "Tag":  "v0.5.27",
+    "EmbeddedBuildGitBase":  "c1607deee183843555429312ed2ecce8883b776d",
+    "TagSourceContainsFrozenInputFiles":  579,
+    "SourceFingerprint":  "27ABDA09238EE15D2D939F79209BB35EEECCDBAD2BF7547502BB530A97818C9F",
+    "ArtifactsBuiltBeforeSourceCommit":  true,
+    "OriginalPreparedAssetBytesUsed":  true,
+    "RebuiltOrResignedForPublication":  false,
+    "GitBlobsMatchSnapshotOrDeclaredCRLFNormalization":  true,
+    "DeclaredLineEndingNormalization":  "existing core.autocrlf=true; per-path byte-exact or CRLF-only normalization is independently checked and recorded",
+    "LineEndingBindingRecords":  "v0.5.27-source-binding.json",
+    "Debug":  {
+                  "Passed":  2732,
+                  "Failed":  0,
+                  "Skipped":  14
+              },
+    "Release":  {
+                    "Passed":  2732,
+                    "Failed":  0,
+                    "Skipped":  14
+                },
+    "ActualForcedLockedRestores":  8,
+    "NativeArm64RuntimeAccepted":  false,
+    "ProductionInstallerAndUacMatrixAccepted":  false,
+    "PublicNetworkMatrixAccepted":  false
+}

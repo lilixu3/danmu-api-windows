@@ -624,7 +624,9 @@ public partial class App : Application
         services.AddSingleton<FrpSettingsStore>(provider => new FrpSettingsStore(
             provider.GetRequiredService<ISettingsStore>(),
             new WindowsProtectedStringStore(paths.FrpTokenFile, "DanmuApi.Windows.FrpToken.v1"),
-            new WindowsProtectedStringStore(paths.FrpAdminPasswordFile, "DanmuApi.Windows.FrpAdminPassword.v1")));
+            new WindowsProtectedStringStore(paths.FrpAdminPasswordFile, "DanmuApi.Windows.FrpAdminPassword.v1"),
+            new WindowsProtectedDocumentStore(paths.FrpConfigTextFile)));
+        services.AddSingleton<IFrpNativeVerifier>(_ => new FrpNativeVerifier());
         services.AddSingleton<IFrpBinaryInstaller>(provider => new FrpBinaryInstaller(
             provider.GetRequiredService<AppPaths>(),
             provider.GetRequiredService<IGithubFileDownloader>(),
@@ -649,7 +651,8 @@ public partial class App : Application
             provider.GetRequiredService<IRuntimeController>(),
             () => DesktopConfigReader.Read(
                 provider.GetRequiredService<ISettingsStore>(),
-                provider.GetRequiredService<AppPaths>().NodeProjectDirectory).Port));
+                provider.GetRequiredService<AppPaths>().NodeProjectDirectory).Port,
+            provider.GetRequiredService<IFrpNativeVerifier>()));
         services.AddSingleton<Func<FrpTunnelPageViewModel>>(provider => () =>
         {
             // 监控页底部的「去配置」要切到同一个页签容器里的「配置」页签。

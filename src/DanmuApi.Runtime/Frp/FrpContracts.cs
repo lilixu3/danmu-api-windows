@@ -22,6 +22,17 @@ public sealed record FrpRunPlan(
     public string LogFileName => Role == FrpRole.Client ? "frpc" : "frps";
 
     public string ExecutableLabel => Role == FrpRole.Client ? "frpc.exe" : "frps.exe";
+
+    /// <summary>Actual registered names (including user prefix), and all expected types/local targets.</summary>
+    public IReadOnlyList<FrpNativeProxy>? ExpectedProxies { get; init; }
+    public IReadOnlyList<string> Secrets { get; init; } = [];
+    /// <summary>Only these exact host-owned paths may be used when cleaning an old mode's orphan.</summary>
+    public IReadOnlyList<string> OwnedConfigPaths { get; init; } = [];
+    public FrpSettings? CapturedSettings { get; init; }
+    public int? CoreServicePort { get; init; }
+
+    // Do not let diagnostic interpolation expose credentials or the raw source in the generated record output.
+    public override string ToString() => $"FrpRunPlan {{ Role = {Role}, AdminPort = {AdminPort} }}";
 }
 
 /// <summary>
@@ -39,6 +50,13 @@ public sealed record FrpSnapshot(
     bool HasOwnedProcess = false)
 {
     public IReadOnlyList<FrpProxyStatus> ProxyList => Proxies ?? [];
+
+    /// <summary>Immutable source metadata/targets for this process, not the settings saved for the next start.</summary>
+    public FrpSettings? ActiveSettings { get; init; }
+    public IReadOnlyList<FrpNativeProxy> ExpectedProxies { get; init; } = [];
+    public int? CoreServicePort { get; init; }
+
+    public override string ToString() => $"FrpSnapshot {{ State = {State}, Pid = {Pid}, HasOwnedProcess = {HasOwnedProcess} }}";
 
     public bool IsActive => State is FrpTunnelState.Starting or FrpTunnelState.Running
         or FrpTunnelState.Reconnecting or FrpTunnelState.Stopping;

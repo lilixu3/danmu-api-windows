@@ -25,6 +25,12 @@ public interface IFrpTunnelService : IAsyncDisposable
 {
     FrpSettings Settings { get; }
 
+    /// <summary>Saved-source metadata, or the captured source for an active owned process.</summary>
+    FrpSettings EffectiveSettings { get; }
+
+    Task<FrpOperationResult> SaveTextAsync(string text, CancellationToken cancellationToken = default);
+    Task<FrpOperationResult> ValidateTextAsync(string text, CancellationToken cancellationToken = default);
+
     IReadOnlyList<string> SettingsProblems { get; }
 
     bool HasToken { get; }
@@ -97,6 +103,7 @@ public sealed class FrpTunnelService : IFrpTunnelService
     private readonly FrpSettingsStore _store;
     private readonly IFrpBinaryInstaller _installer;
     private readonly IFrpSupervisor _supervisor;
+    private readonly IFrpNativeVerifier _nativeVerifier;
     private readonly IAppDiagnostics _diagnostics;
     private readonly AppPaths _paths;
     private readonly Func<int> _defaultLocalPort;
@@ -115,6 +122,7 @@ public sealed class FrpTunnelService : IFrpTunnelService
     public bool HasOwnedProcess => _supervisor.HasOwnedProcess;
     private Task _pendingLifecycleTask = Task.CompletedTask;
     private FrpSettings _settings;
+    private FrpSettings _effectiveSettings;
     private IReadOnlyList<string> _settingsProblems = [];
     private FrpSnapshot _snapshot = new(FrpTunnelState.Stopped);
     private FrpRunPlan? _lastPlan;
@@ -126,11 +134,13 @@ public sealed class FrpTunnelService : IFrpTunnelService
         AppPaths paths,
         IAppDiagnostics diagnostics,
         IRuntimeController runtime,
-        Func<int>? defaultLocalPort = null)
+        Func<int>? defaultLocalPort = null,
+        IFrpNativeVerifier? nativeVerifier = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _installer = installer ?? throw new ArgumentNullException(nameof(installer));
         _supervisor = supervisor ?? throw new ArgumentNullException(nameof(supervisor));
+        _nativeVerifier = nativeVerifier ?? new FrpNativeVerifier();
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
         _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
@@ -138,6 +148,7 @@ public sealed class FrpTunnelService : IFrpTunnelService
         _supervisor.SnapshotChanged += OnSupervisorSnapshotChanged;
         _runtime.SnapshotChanged += OnRuntimeSnapshotChanged;
         _settings = FrpSettings.Default(RuntimeDefaults.Port);
+        _effectiveSettings = _settings;
     }
 
     public bool IsServiceRunning => _runtime.Snapshot.State == DesktopRuntimeState.Running;
@@ -149,6 +160,18 @@ public sealed class FrpTunnelService : IFrpTunnelService
             lock (_sync)
             {
                 return _settings;
+            }
+        }
+    }
+
+    public FrpSettings EffectiveSettings
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _snapshot.RequiresStop && _lastPlan?.CapturedSettings is { } captured
+                    ? captured : _effectiveSettings;
             }
         }
     }
@@ -203,9 +226,21 @@ public sealed class FrpTunnelService : IFrpTunnelService
 
     public string ConfigDirectory => _paths.FrpConfigDirectory;
 
-    public string ConfigPath => Path.Combine(
-        _paths.FrpConfigDirectory,
-        Settings.Role == FrpRole.Server ? FrpConfigWriter.ServerFileName : FrpConfigWriter.ClientFileName);
+    public string ConfigPath
+    {
+        get
+        {
+            lock (_sync)
+            {
+                if (_snapshot.RequiresStop && _lastPlan is not null) return _lastPlan.ConfigPath;
+                return ConfigFilePath(_effectiveSettings.Role, _settings.ConfigMode);
+            }
+        }
+    }
+
+    private string ConfigFilePath(FrpRole role, FrpConfigMode mode) => Path.Combine(_paths.FrpConfigDirectory,
+        mode == FrpConfigMode.Text ? role == FrpRole.Server ? "frps.json" : "frpc.json"
+            : role == FrpRole.Server ? FrpConfigWriter.ServerFileName : FrpConfigWriter.ClientFileName);
 
     public event EventHandler<FrpSnapshot>? Changed;
 
@@ -259,7 +294,13 @@ public sealed class FrpTunnelService : IFrpTunnelService
                 return FrpOperationResult.Failure("新的 Token 不能为空；保持不变请不传入 Token，清除请明确选择清除。");
             }
 
-            var normalized = settings with { FollowService = Settings.FollowService, InstalledVersion = Settings.InstalledVersion };
+            var normalized = settings with
+            {
+                ConfigMode = FrpConfigMode.Visual,
+                RawConfig = Settings.RawConfig,
+                FollowService = Settings.FollowService,
+                InstalledVersion = Settings.InstalledVersion,
+            };
             var problems = normalized.Validate();
             if (problems.Count > 0)
             {
@@ -278,15 +319,17 @@ public sealed class FrpTunnelService : IFrpTunnelService
                     _store.SaveToken(newToken);
                 }
             }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException or FormatException or ArgumentException or System.Security.Cryptography.CryptographicException)
+            catch (Exception error) when (IsStorageError(error))
             {
-                _diagnostics.Record("保存穿透设置失败", error);
-                return FrpOperationResult.Failure($"保存穿透设置失败：{error.Message}");
+                var safe = RuntimeManagementClient.Redact(error.Message, newToken);
+                _diagnostics.Record($"保存穿透设置失败：{safe}");
+                return FrpOperationResult.Failure($"保存穿透设置失败：{safe}");
             }
 
             lock (_sync)
             {
                 _settings = normalized;
+                _effectiveSettings = normalized with { RawConfig = string.Empty };
                 _settingsProblems = [];
             }
 
@@ -302,6 +345,128 @@ public sealed class FrpTunnelService : IFrpTunnelService
             _operationGate.Release();
         }
     }
+
+    public async Task<FrpOperationResult> SaveTextAsync(string text, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var reload = ReloadCore();
+            if (!reload.Succeeded) return FrpOperationResult.Failure($"保存配置文本前读取失败：{reload.Message}");
+            FrpOperationResult? verification = null;
+            try
+            {
+                var saved = await Task.Run(() => _store.SaveTextAsync(text, _defaultLocalPort(),
+                    async (persisted, token) =>
+                    {
+                        verification = await ValidateNativeTextCoreAsync(persisted, token).ConfigureAwait(false);
+                        if (!verification.Succeeded) throw new IOException(verification.Message);
+                    }, cancellationToken), cancellationToken).ConfigureAwait(false);
+                var effective = FrpNativeConfig.Parse(saved.Settings.RawConfig).Describe(saved.Settings);
+                lock (_sync)
+                {
+                    _settings = saved.Settings with { InstalledVersion = _settings.InstalledVersion };
+                    _effectiveSettings = effective with { InstalledVersion = _settings.InstalledVersion, RawConfig = string.Empty };
+                    _settingsProblems = [];
+                }
+                NotifyChanged();
+                var restart = Snapshot.RequiresStop ? " 当前穿透不会重启；新文本将在下一次启动时生效。" : string.Empty;
+                return FrpOperationResult.Success($"配置文本已保存（本机加密保护），已激活文本模式。{verification!.Message}{restart}");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (FrpConfigurationException error)
+            {
+                return FrpOperationResult.Failure(string.Join("；", error.Problems));
+            }
+            catch (Exception error) when (IsStorageError(error))
+            {
+                _diagnostics.Record($"保存配置文本失败：{error.Message}");
+                return FrpOperationResult.Failure($"保存配置文本失败：{error.Message}");
+            }
+            catch (Exception error)
+            {
+                var diagnostic = SafeUnexpected("保存配置文本失败", error);
+                _diagnostics.Record(diagnostic);
+                return FrpOperationResult.Failure(diagnostic);
+            }
+        }
+        finally { _operationGate.Release(); }
+    }
+
+    public Task<FrpOperationResult> ValidateTextAsync(string text, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        return RunGuardedAsync(async token =>
+        {
+            try { return await ValidateNativeTextCoreAsync(text, token).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+            catch (Exception error)
+            {
+                var diagnostic = SafeUnexpected("配置文本校验/清理失败", error);
+                _diagnostics.Record(diagnostic);
+                return FrpOperationResult.Failure(diagnostic);
+            }
+        }, cancellationToken);
+    }
+
+    private Task<FrpOperationResult> ValidateNativeTextCoreAsync(string text, CancellationToken cancellationToken) =>
+        Task.Run(async () =>
+        {
+            string? temporary = null;
+            try
+            {
+                var native = FrpNativeConfig.Parse(text);
+                if (!IsSupportedPlatform) return FrpOperationResult.Failure(PlatformDiagnostic);
+                var version = _installer.InstalledVersion;
+                if (string.IsNullOrEmpty(version))
+                    return FrpOperationResult.Success("文本结构校验通过；尚未安装 frp，尚未通过原生校验，启动前必须安装并通过原生校验。");
+                version = FrpReleaseCatalog.NormalizeVersion(version);
+                if (!_installer.IsInstalled(version)) return FrpOperationResult.Failure("已记录的 frp 二进制不完整，请重新安装后进行原生校验。");
+                var password = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(24));
+                var metadata = native.Describe(Settings with { ConfigMode = FrpConfigMode.Text, RawConfig = text });
+                temporary = Path.Combine(EnsureDirectory(_paths.FrpConfigDirectory), $"verify-{Guid.NewGuid():N}.json");
+                WriteConfigAtomically(temporary, native.CreateRuntimeConfig(FrpSettingsStore.AdminUser, password));
+                var plan = new FrpRunPlan(native.Role, _installer.ExecutablePath(version, native.Role == FrpRole.Server),
+                    temporary, EnsureDirectory(_paths.FrpDirectory), _paths.FrpLogsDirectory, native.AdminPort,
+                    FrpSettingsStore.AdminUser, password, "verify", TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(5))
+                {
+                    ExpectedProxies = native.Proxies.ToArray(),
+                    Secrets = native.Secrets.Append(password).ToArray(),
+                    CapturedSettings = MetadataOnly(metadata),
+                };
+                var result = await _nativeVerifier.VerifyAsync(plan, cancellationToken).ConfigureAwait(false);
+                return result.Succeeded ? FrpOperationResult.Success(Sanitize(result.Diagnostic, plan))
+                    : FrpOperationResult.Failure(Sanitize(result.Diagnostic, plan));
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (FrpConfigurationException error) { return FrpOperationResult.Failure(string.Join("；", error.Problems)); }
+            catch (Exception error) when (IsStorageError(error))
+            {
+                return FrpOperationResult.Failure($"配置文本校验失败：{error.GetType().Name}, HResult=0x{error.HResult:X8}");
+            }
+            finally
+            {
+                // Validation artifacts contain credentials: never keep them or silently ignore deletion failure.
+                if (temporary is not null && File.Exists(temporary)) File.Delete(temporary);
+            }
+        }, cancellationToken);
+
+    private static FrpSettings MetadataOnly(FrpSettings settings) => settings with
+    {
+        RawConfig = string.Empty,
+        Client = settings.Client with { User = string.Empty, CustomDomains = settings.Client.CustomDomains.ToArray() },
+    };
+
+    private static string SafeUnexpected(string prefix, Exception error) =>
+        $"{prefix}：{error.GetType().Name}, HResult=0x{error.HResult:X8}" +
+        (error.StackTrace is { } stack ? $"；堆栈：{stack[..Math.Min(stack.Length, 4000)]}" : string.Empty);
+
+    private static bool IsStorageError(Exception error) => error is IOException or UnauthorizedAccessException
+        or FormatException or ArgumentException or System.Security.Cryptography.CryptographicException;
+
+    private static string Sanitize(string message, FrpRunPlan plan) => RuntimeManagementClient.Redact(message,
+        plan.Secrets.Append(plan.AdminPassword).ToArray());
 
     public async Task<FrpOperationResult> SetFollowServiceAsync(
         bool follow,
@@ -343,6 +508,7 @@ public sealed class FrpTunnelService : IFrpTunnelService
             lock (_sync)
             {
                 _settings = patched.Settings with { InstalledVersion = _settings.InstalledVersion };
+                _effectiveSettings = _effectiveSettings with { FollowService = follow };
                 _settingsProblems = [];
             }
 
@@ -425,6 +591,7 @@ public sealed class FrpTunnelService : IFrpTunnelService
             lock (_sync)
             {
                 _settings = settings;
+                _effectiveSettings = _effectiveSettings with { InstalledVersion = settings.InstalledVersion };
                 _settingsProblems = [];
             }
 
@@ -485,8 +652,10 @@ public sealed class FrpTunnelService : IFrpTunnelService
         }
         catch (Exception error)
         {
-            _diagnostics.Record("停止穿透失败", error);
-            return Snapshot with { State = FrpTunnelState.Failed, Diagnostic = $"停止穿透失败：{error.Message}" };
+            var message = $"停止穿透失败：{error.Message}";
+            if (_lastPlan is { } plan) message = Sanitize(message, plan);
+            _diagnostics.Record(message);
+            return Snapshot with { State = FrpTunnelState.Failed, Diagnostic = message };
         }
     }
 
@@ -500,9 +669,10 @@ public sealed class FrpTunnelService : IFrpTunnelService
 
         var stdout = LogTail.Read(Path.Combine(plan.LogDirectory, $"{plan.LogFileName}-stdout.log"), lines);
         var stderr = LogTail.Read(Path.Combine(plan.LogDirectory, $"{plan.LogFileName}-stderr.log"), Math.Min(lines, 20));
-        return stderr == LogTail.MissingFileText
+        var tail = stderr == LogTail.MissingFileText
             ? stdout
             : $"{stdout}{Environment.NewLine}--- 标准错误 ---{Environment.NewLine}{stderr}";
+        return string.Join(Environment.NewLine, tail.Split('\n').Select(line => Sanitize(line.TrimEnd('\r'), plan)));
     }
 
     public Task<FrpOperationResult> ShutdownAsync()
@@ -645,7 +815,7 @@ public sealed class FrpTunnelService : IFrpTunnelService
 
         // 先把"配置本身能不能用"报清楚（设置非法、没装 frp、目录不可写……），
         // 再谈"现在能不能起"：两件事的顺序反了会把"没装 frp"的用户引到去启动服务。
-        var plan = BuildPlan(out var problems);
+        var (plan, problems) = await BuildPlanAsync(cancellationToken).ConfigureAwait(false);
         if (plan is null)
         {
             var message = string.Join("；", problems);
@@ -662,7 +832,8 @@ public sealed class FrpTunnelService : IFrpTunnelService
             return FrpOperationResult.Failure(reason);
         }
 
-        _lastPlan = plan;
+        if (!IsStartRequestCurrent(requestEpoch)) return InvalidStartRequest();
+        lock (_sync) { _lastPlan = plan; }
         FrpSnapshot snapshot;
         try
         {
@@ -676,11 +847,13 @@ public sealed class FrpTunnelService : IFrpTunnelService
         {
             // 监督器的状态机拒绝（例如状态不允许启动）与任何意外异常都必须变成"失败结果"：
             // 这些方法会被界面命令直接 await，抛出去就是未处理异常 → 应用闪退。
-            _diagnostics.Record("启动穿透失败", error);
-            return FrpOperationResult.Failure($"启动穿透失败：{error.Message}");
+            var safe = Sanitize($"启动穿透失败：{error.Message}", plan);
+            _diagnostics.Record(safe);
+            return FrpOperationResult.Failure(safe);
         }
 
         Publish(snapshot);
+        snapshot = Snapshot;
         if (snapshot.State != FrpTunnelState.Running)
         {
             return FrpOperationResult.Failure(snapshot.Diagnostic ?? "穿透未能启动。");
@@ -689,108 +862,101 @@ public sealed class FrpTunnelService : IFrpTunnelService
         return FrpOperationResult.Success(DescribeRunning(snapshot));
     }
 
-    private string DescribeRunning(FrpSnapshot snapshot) => Settings.Role == FrpRole.Client
+    private string DescribeRunning(FrpSnapshot snapshot) => EffectiveSettings.Role == FrpRole.Client
         ? snapshot.RemoteAddress is null
-            ? "穿透已启动，但 frp 没有返回远端地址。"
+            ? "穿透已启动；没有已确认指向本机弹幕服务的远端地址。"
             : $"穿透已启动：{snapshot.RemoteAddress}"
         : "穿透服务已启动："
-          + $"监听端口 {Settings.Server.BindPort.ToString(System.Globalization.CultureInfo.InvariantCulture)}，"
+          + $"监听端口 {EffectiveSettings.Server.BindPort.ToString(System.Globalization.CultureInfo.InvariantCulture)}，"
           + $"在线客户端 {snapshot.Server?.ClientCounts.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "未报告"}";
 
     /// <summary>
     /// 把当前设置变成一份可运行的配置。任何一步不成立都返回 null 与原因清单，绝不"先启动再说"：
     /// frpc 拿着半份配置只会以退出或 start error 收场，用户看到的将是一句无从下手的报错。
     /// </summary>
-    private FrpRunPlan? BuildPlan(out IReadOnlyList<string> problems)
-    {
-        var settings = Settings;
-        var problemsList = new List<string>(SettingsProblems);
-        problemsList.AddRange(settings.Validate());
-        if (!IsSupportedPlatform)
+    private Task<(FrpRunPlan? Plan, IReadOnlyList<string> Problems)> BuildPlanAsync(CancellationToken cancellationToken) =>
+        Task.Run(async () =>
         {
-            problemsList.Add(PlatformDiagnostic);
-        }
-
-        string version = string.Empty;
-        try
-        {
-            if (settings.InstalledVersion.Length > 0)
+            var settings = Settings;
+            var problems = new List<string>(SettingsProblems);
+            problems.AddRange(settings.Validate());
+            if (!IsSupportedPlatform) problems.Add(PlatformDiagnostic);
+            FrpNativeConfig? native = null;
+            var effective = settings;
+            try
             {
-                version = FrpReleaseCatalog.NormalizeVersion(settings.InstalledVersion);
-                if (!_installer.IsInstalled(version))
+                if (settings.ConfigMode == FrpConfigMode.Text)
                 {
-                    problemsList.Add(
-                        $"frp {version} 的可执行文件不在位（{_installer.ExecutablePath(version, settings.Role == FrpRole.Server)}），请重新安装。");
+                    // ReloadCore strictly reread the protected source immediately before this plan. Never use the form.
+                    native = FrpNativeConfig.Parse(settings.RawConfig);
+                    effective = native.Describe(settings);
                 }
             }
-            else
+            catch (FrpConfigurationException error) { problems.AddRange(error.Problems); }
+            var version = string.Empty;
+            try
             {
-                problemsList.Add("尚未安装 frp，请先在上方下载安装。");
+                if (settings.InstalledVersion.Length == 0) problems.Add("尚未安装 frp，请先在上方下载安装。");
+                else
+                {
+                    version = FrpReleaseCatalog.NormalizeVersion(settings.InstalledVersion);
+                    if (!_installer.IsInstalled(version)) problems.Add($"frp {version} 的可执行文件不在位，请重新安装。");
+                }
             }
-        }
-        catch (Exception error) when (error is FormatException or ArgumentException or IOException or InvalidDataException)
-        {
-            problemsList.Add($"已记录的 frp 版本（{settings.InstalledVersion}）无法使用：{error.Message}");
-        }
+            catch (Exception error) when (IsStorageError(error)) { problems.Add($"已记录的 frp 版本无法使用：{error.GetType().Name}"); }
+            var token = string.Empty;
+            var adminPassword = string.Empty;
+            try
+            {
+                if (settings.ConfigMode == FrpConfigMode.Visual) token = _store.ReadToken();
+                adminPassword = _store.EnsureAdminPassword();
+            }
+            catch (Exception error) when (IsStorageError(error)) { problems.Add($"读取穿透凭据失败：{error.GetType().Name}, HResult=0x{error.HResult:X8}"); }
+            if (problems.Count > 0) return ((FrpRunPlan?)null, (IReadOnlyList<string>)problems);
 
-        var token = string.Empty;
-        try
-        {
-            token = _store.ReadToken();
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
-        {
-            problemsList.Add($"读取穿透 Token 失败：{error.Message}");
-        }
-
-        var adminPassword = string.Empty;
-        try
-        {
-            adminPassword = _store.EnsureAdminPassword();
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
-        {
-            problemsList.Add($"准备本地管理密码失败：{error.Message}");
-        }
-
-        if (problemsList.Count > 0)
-        {
-            problems = problemsList;
-            return null;
-        }
-
-        var isServer = settings.Role == FrpRole.Server;
-        var configPath = Path.Combine(
-            EnsureDirectory(_paths.FrpConfigDirectory),
-            isServer ? FrpConfigWriter.ServerFileName : FrpConfigWriter.ClientFileName);
-        var content = isServer
-            ? FrpConfigWriter.WriteServer(settings.Server, token, FrpSettingsStore.AdminUser, adminPassword)
-            : FrpConfigWriter.WriteClient(settings.Client, token, FrpSettingsStore.AdminUser, adminPassword);
-
-        try
-        {
-            WriteConfigAtomically(configPath, content);
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-        {
-            problems = [$"写入 frp 配置失败：{error.Message}"];
-            return null;
-        }
-
-        problems = [];
-        return new FrpRunPlan(
-            settings.Role,
-            _installer.ExecutablePath(version, isServer),
-            configPath,
-            EnsureDirectory(_paths.FrpDirectory),
-            EnsureDirectory(_paths.FrpLogsDirectory),
-            isServer ? settings.Server.AdminPort : settings.Client.AdminPort,
-            FrpSettingsStore.AdminUser,
-            adminPassword,
-            isServer ? "server" : settings.Client.ProxyName,
-            StartupTimeout: TimeSpan.FromSeconds(25),
-            ShutdownTimeout: TimeSpan.FromSeconds(10));
-    }
+            var isServer = effective.Role == FrpRole.Server;
+            var configPath = ConfigFilePath(effective.Role, settings.ConfigMode);
+            FrpRunPlan? plan = null;
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var content = native is not null
+                    ? native.CreateRuntimeConfig(FrpSettingsStore.AdminUser, adminPassword)
+                    : isServer ? FrpConfigWriter.WriteServer(settings.Server, token, FrpSettingsStore.AdminUser, adminPassword)
+                        : FrpConfigWriter.WriteClient(settings.Client, token, FrpSettingsStore.AdminUser, adminPassword);
+                WriteConfigAtomically(configPath, content);
+                var registeredName = string.IsNullOrEmpty(effective.Client.User) ? effective.Client.ProxyName
+                    : effective.Client.User + "." + effective.Client.ProxyName;
+                var expected = native?.Proxies.ToArray() ?? (isServer ? [] :
+                    new[] { new FrpNativeProxy(registeredName, effective.Client.ProxyKind.ToFrpText(), effective.Client.LocalAddress, effective.Client.LocalPort)
+                        { AdminName = effective.Client.ProxyName } });
+                plan = new FrpRunPlan(effective.Role, _installer.ExecutablePath(version, isServer), configPath,
+                    EnsureDirectory(_paths.FrpDirectory), EnsureDirectory(_paths.FrpLogsDirectory),
+                    isServer ? effective.Server.AdminPort : effective.Client.AdminPort,
+                    FrpSettingsStore.AdminUser, adminPassword, isServer ? "server" : registeredName,
+                    TimeSpan.FromSeconds(25), TimeSpan.FromSeconds(10))
+                {
+                    ExpectedProxies = expected,
+                    Secrets = (native?.Secrets ?? new[] { token }).Append(adminPassword).Where(secret => secret.Length > 0).ToArray(),
+                    CapturedSettings = MetadataOnly(effective),
+                    CoreServicePort = _runtime.Snapshot.Port ?? _defaultLocalPort(),
+                    OwnedConfigPaths = [ConfigFilePath(effective.Role, FrpConfigMode.Visual), ConfigFilePath(effective.Role, FrpConfigMode.Text)],
+                };
+                if (native is not null)
+                {
+                    var verification = await _nativeVerifier.VerifyAsync(plan, cancellationToken).ConfigureAwait(false);
+                    if (!verification.Succeeded) return ((FrpRunPlan?)null, (IReadOnlyList<string>)new[] { Sanitize(verification.Diagnostic, plan) });
+                }
+                return (plan, (IReadOnlyList<string>)Array.Empty<string>());
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception error)
+            {
+                return ((FrpRunPlan?)null, (IReadOnlyList<string>)new[] { plan is null
+                    ? $"准备 frp 运行配置失败：{error.GetType().Name}, HResult=0x{error.HResult:X8}"
+                    : Sanitize($"准备 frp 运行配置失败：{error.Message}", plan) });
+            }
+        }, cancellationToken);
 
     private FrpOperationResult ReloadCore()
     {
@@ -799,11 +965,17 @@ public sealed class FrpTunnelService : IFrpTunnelService
         {
             read = _store.Read(_defaultLocalPort());
         }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or FormatException or ArgumentException)
+        catch (Exception error) when (IsStorageError(error))
         {
             lock (_sync)
             {
                 _settingsProblems = [$"读取穿透设置失败：{error.Message}"];
+                if (_settings.ConfigMode == FrpConfigMode.Text)
+                    _effectiveSettings = _effectiveSettings with
+                    {
+                        Client = _effectiveSettings.Client with { LocalPort = 0, LocalAddress = string.Empty, ProxyName = string.Empty, ServerAddress = string.Empty },
+                        Server = _effectiveSettings.Server with { BindPort = 0 },
+                    };
             }
 
             NotifyChanged();
@@ -822,9 +994,25 @@ public sealed class FrpTunnelService : IFrpTunnelService
             settings = settings with { InstalledVersion = onDisk ?? string.Empty };
         }
 
+        var effective = settings with { RawConfig = string.Empty };
+        if (settings.ConfigMode == FrpConfigMode.Text)
+        {
+            if (problems.Count == 0)
+            {
+                try { effective = FrpNativeConfig.Parse(settings.RawConfig).Describe(settings) with { RawConfig = string.Empty }; }
+                catch (FrpConfigurationException error) { problems.AddRange(error.Problems); }
+            }
+            if (problems.Count > 0)
+                effective = effective with
+                {
+                    Client = effective.Client with { LocalPort = 0, LocalAddress = string.Empty, ProxyName = string.Empty, ServerAddress = string.Empty },
+                    Server = effective.Server with { BindPort = 0 },
+                };
+        }
         lock (_sync)
         {
             _settings = settings;
+            _effectiveSettings = effective;
             _settingsProblems = problems;
         }
 
@@ -976,6 +1164,25 @@ public sealed class FrpTunnelService : IFrpTunnelService
     {
         lock (_sync)
         {
+            if (_lastPlan is { } plan)
+                snapshot = snapshot with
+                {
+                    Diagnostic = snapshot.Diagnostic is null ? null : Sanitize(snapshot.Diagnostic, plan),
+                    RemoteAddress = snapshot.RemoteAddress is null ? null : Sanitize(snapshot.RemoteAddress, plan),
+                    Proxies = snapshot.Proxies?.Select(proxy => proxy with
+                    {
+                        Name = Sanitize(proxy.Name, plan), Error = Sanitize(proxy.Error, plan),
+                        Status = proxy.State == FrpProxyState.Unknown ? Sanitize(proxy.Status, plan) : proxy.Status,
+                        LocalAddress = Sanitize(proxy.LocalAddress, plan), RemoteAddress = Sanitize(proxy.RemoteAddress, plan),
+                    }).ToArray(),
+                    ActiveSettings = snapshot.RequiresStop ? plan.CapturedSettings : null,
+                    ExpectedProxies = snapshot.RequiresStop ? plan.ExpectedProxies?.Select(target => target with
+                    {
+                        Name = Sanitize(target.Name, plan), AdminName = Sanitize(target.AdminName, plan),
+                        LocalAddress = Sanitize(target.LocalAddress, plan),
+                    }).ToArray() ?? [] : [],
+                    CoreServicePort = snapshot.RequiresStop ? plan.CoreServicePort : null,
+                };
             _snapshot = snapshot;
         }
 
