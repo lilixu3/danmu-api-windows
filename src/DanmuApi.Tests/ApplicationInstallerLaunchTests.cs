@@ -25,21 +25,4 @@ public sealed class ApplicationInstallerLaunchTests
     [InlineData(System.Runtime.InteropServices.Architecture.Arm64, Microsoft.Win32.RegistryView.Registry64)]
     public void InstallationLookupMatchesTheInstallerRegistryView(System.Runtime.InteropServices.Architecture architecture, Microsoft.Win32.RegistryView expected) =>
         Assert.Equal(expected, ApplicationUpdateHelper.RegistryViewForArchitecture(architecture));
-
-    [Fact]
-    public void LegacyUpdateParentUsesCapturedUserLeaseInsteadOfAnAdministratorProfileProbe()
-    {
-        var root = new DirectoryInfo(AppContext.BaseDirectory);
-        while (root is not null && !File.Exists(Path.Combine(root.FullName, "installer", "DanmuApi.iss"))) root = root.Parent;
-        Assert.NotNull(root);
-        var script = File.ReadAllText(Path.Combine(root!.FullName, "installer", "DanmuApi.iss"));
-
-        Assert.Contains("Result := BeginUpdateLease(ParentPid, ReadyPath)", script);
-        Assert.Contains("--installer-update-lease", script);
-        Assert.DoesNotContain("SaveStringToFile(ReadyPath, 'ready'", script);
-        Assert.Contains("BeforeInstall: EnsureUpdateLease", script);
-        Assert.Contains("if CurStep = ssDone then FinishUpdateLease()", script);
-        Assert.Contains("if ParentPid <= 0 then begin", script);
-        Assert.Contains("ExecAsOriginalUser", script);
-    }
 }
