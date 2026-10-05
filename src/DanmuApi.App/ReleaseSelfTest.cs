@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using DanmuApi.Core.ApplicationUpdates;
 using DanmuApi.App.Services;
 using DanmuApi.Platform;
 using Microsoft.Win32;
@@ -22,6 +23,7 @@ internal static class ReleaseSelfTest
             messages.Add($"隔离身份：{testId}；通知专用探针：{notificationOnly}");
             if (!notificationOnly)
             {
+            VerifyUpdateStartupReceipt(messages);
             var paths = new AppPaths(directory, Path.Combine(directory, "settings"));
             var preparationWatch = Stopwatch.StartNew();
             BundledRuntimePreparer.Prepare(Path.Combine(AppContext.BaseDirectory, "runtime-bundle"), paths);
@@ -114,6 +116,65 @@ internal static class ReleaseSelfTest
             File.WriteAllLines(reportPath, messages);
         }
         return code;
+    }
+
+    private static void VerifyUpdateStartupReceipt(List<string> messages)
+    {
+        var executable = Environment.ProcessPath ?? throw new IOException("发行探针缺少真实程序路径");
+        var productVersion = FileVersionInfo.GetVersionInfo(executable).ProductVersion
+            ?? throw new IOException("发行探针缺少程序版本");
+        _ = SemanticVersion.Parse(productVersion);
+        var metadata = productVersion.IndexOf('+');
+        if (metadata < 0) throw new IOException("发行探针要求验证包含构建元数据的真实程序");
+        var expectedVersion = productVersion[..metadata];
+        var directory = Path.Combine(ApplicationUpdateHelper.JobRoot, Guid.NewGuid().ToString("N"));
+        for (var ancestor = Path.GetDirectoryName(directory); ancestor is not null; ancestor = Path.GetDirectoryName(ancestor))
+            if ((File.Exists(ancestor) || Directory.Exists(ancestor)) && (File.GetAttributes(ancestor) & FileAttributes.ReparsePoint) != 0)
+                throw new IOException("发行回执探针目录不能包含链接");
+        if (File.Exists(directory) || Directory.Exists(directory)) throw new IOException("发行回执探针目录已存在");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            using var process = Process.GetCurrentProcess();
+            var args = new[] { "--app-update-receipt", directory };
+            var jobPath = Path.Combine(directory, "job.json");
+            var receiptPath = Path.Combine(directory, "startup.ok");
+            foreach (var resume in new[] { false, true })
+            {
+                var job = new ApplicationUpdateJob(process.Id, process.StartTime.ToUniversalTime().Ticks,
+                    AppContext.BaseDirectory, "release-self-test.exe", "installer", expectedVersion, resume);
+                var jobBytes = JsonSerializer.SerializeToUtf8Bytes(job);
+                File.WriteAllBytes(jobPath, jobBytes);
+                ApplicationUpdateHelper.ValidateJobDirectory(directory);
+                if (ApplicationUpdateHelper.ShouldResumeService(args) != resume)
+                    throw new IOException("发行回执探针服务恢复标志不一致");
+                ApplicationUpdateHelper.AcknowledgeStartup(args);
+                if (!File.ReadAllBytes(receiptPath).AsSpan().SequenceEqual(System.Text.Encoding.UTF8.GetBytes(expectedVersion))
+                    || File.Exists(receiptPath + ".tmp") || !File.ReadAllBytes(jobPath).AsSpan().SequenceEqual(jobBytes))
+                    throw new IOException("发行回执探针内容、原子发布或任务保留验证失败");
+                File.Delete(receiptPath);
+            }
+        }
+        catch (Exception error)
+        {
+            messages.Add("更新启动回执探针失败：" + error);
+            throw;
+        }
+        finally
+        {
+            try
+            {
+                ApplicationUpdateHelper.ValidateJobDirectory(directory);
+                Directory.Delete(directory, true);
+                if (Directory.Exists(directory)) throw new IOException("发行回执探针目录未清理");
+            }
+            catch (Exception error)
+            {
+                messages.Add("更新启动回执探针清理失败：" + error);
+                throw;
+            }
+        }
+        messages.Add($"UPDATE_STARTUP_RECEIPT=PASS; expected={expectedVersion}; product={productVersion}; resume=false,true; exactUtf8=true; jobUnchanged=true; temporaryAbsent=true; ownedJobRemoved=true");
     }
 
     private static void VerifyOutboundRuntime(AppPaths paths, List<string> messages)

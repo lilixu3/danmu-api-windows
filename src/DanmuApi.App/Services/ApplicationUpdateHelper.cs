@@ -88,7 +88,7 @@ internal static class ApplicationUpdateHelper
                 if (IsInstalled(targetExe)) throw new IOException("安装版不能使用便携替换");
                 files = PortableApplicationUpdate.Extract(package, stage);
                 AppUpdateTrust.VerifyExecutable(Path.Combine(stage, "DanmuApi.App.exe"));
-                if (SemanticVersion.Parse(FileVersionInfo.GetVersionInfo(Path.Combine(stage,"DanmuApi.App.exe")).ProductVersion!).Value != manifest.Version)
+                if (!VersionsMatch(FileVersionInfo.GetVersionInfo(Path.Combine(stage,"DanmuApi.App.exe")).ProductVersion!, manifest.Version))
                     throw new IOException("新程序实际版本与签名清单不符");
             }
             else
@@ -323,7 +323,7 @@ internal static class ApplicationUpdateHelper
             {
                 if (File.ReadAllText(receipt) != job.ExpectedVersion) throw new IOException("恢复任务启动回执不符");
                 AppUpdateTrust.VerifyExecutable(targetExe);
-                if (SemanticVersion.Parse(FileVersionInfo.GetVersionInfo(targetExe).ProductVersion!).Value != job.ExpectedVersion)
+                if (!VersionsMatch(FileVersionInfo.GetVersionInfo(targetExe).ProductVersion!, job.ExpectedVersion))
                     throw new IOException("恢复目标版本与启动回执不符");
                 confirmed = true;
                 PortableApplicationUpdate.MarkStartupConfirmed(job.TargetDirectory, backup);
@@ -362,19 +362,39 @@ internal static class ApplicationUpdateHelper
         return false;
     }
 
+    internal static bool VersionsMatch(string productVersion, string expectedVersion)
+    {
+        return ParseVersion(productVersion, "程序").CompareTo(ParseVersion(expectedVersion, "更新任务")) == 0;
+
+        static SemanticVersion ParseVersion(string value, string source)
+        {
+            try { return SemanticVersion.Parse(value); }
+            catch (FormatException error)
+            {
+                throw new FormatException($"应用更新{source}版本格式无效（{error.GetType().Name}，0x{error.HResult:X8}）");
+            }
+        }
+    }
+
     public static bool ShouldResumeService(string[] args)
     {
         if (args.Length != 2 || args[0] != "--app-update-receipt") return false;
+        return ShouldResumeService(args, AppContext.BaseDirectory, Environment.ProcessPath!);
+    }
+
+    internal static bool ShouldResumeService(string[] args, string baseDirectory, string executablePath)
+    {
+        if (args.Length != 2 || args[0] != "--app-update-receipt") return false;
         var directory = ValidateJobDirectory(args[1]);
-        var job = ReadStartupJob(directory);
+        var job = ReadStartupJob(directory, baseDirectory, executablePath);
         return job.ResumeService;
     }
 
-    private static ApplicationUpdateJob ReadStartupJob(string directory)
+    private static ApplicationUpdateJob ReadStartupJob(string directory, string baseDirectory, string executablePath)
     {
         var job = JsonSerializer.Deserialize<ApplicationUpdateJob>(File.ReadAllText(Path.Combine(directory, "job.json"))) ?? throw new IOException("更新回执任务缺失");
-        if (!string.Equals(Path.GetFullPath(job.TargetDirectory).TrimEnd(Path.DirectorySeparatorChar), AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase) ||
-            SemanticVersion.Parse(FileVersionInfo.GetVersionInfo(Environment.ProcessPath!).ProductVersion!).Value != job.ExpectedVersion)
+        if (!string.Equals(Path.GetFullPath(job.TargetDirectory).TrimEnd(Path.DirectorySeparatorChar), baseDirectory.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase) ||
+            !VersionsMatch(FileVersionInfo.GetVersionInfo(executablePath).ProductVersion!, job.ExpectedVersion))
             throw new IOException("更新回执版本或路径不符");
         return job;
     }
@@ -382,8 +402,14 @@ internal static class ApplicationUpdateHelper
     public static void AcknowledgeStartup(string[] args)
     {
         if (args.Length != 2 || args[0] != "--app-update-receipt") return;
+        AcknowledgeStartup(args, AppContext.BaseDirectory, Environment.ProcessPath!);
+    }
+
+    internal static void AcknowledgeStartup(string[] args, string baseDirectory, string executablePath)
+    {
+        if (args.Length != 2 || args[0] != "--app-update-receipt") return;
         var directory = ValidateJobDirectory(args[1]);
-        var job = ReadStartupJob(directory);
+        var job = ReadStartupJob(directory, baseDirectory, executablePath);
         var receipt = Path.Combine(directory, "startup.ok");
         using (var stream = new FileStream(receipt + ".tmp", FileMode.Create, FileAccess.Write, FileShare.None))
         {

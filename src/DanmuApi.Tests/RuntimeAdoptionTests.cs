@@ -2,11 +2,16 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using DanmuApi.Runtime;
+using Xunit.Abstractions;
 
 namespace DanmuApi.Tests;
 
 public sealed class RuntimeAdoptionTests
 {
+    private readonly ITestOutputHelper _output;
+
+    public RuntimeAdoptionTests(ITestOutputHelper output) => _output = output;
+
     [Fact]
     public async Task AdoptsOwnedLiveProcessAndStopsItThroughTerminator()
     {
@@ -159,15 +164,137 @@ public sealed class RuntimeAdoptionTests
         };
         File.WriteAllText(Path.Combine(config.ScriptDir, "main.js"), "setTimeout(() => {}, 60000);\n");
         var terminator = new KillingTerminator();
-        await using var supervisor = new NodeSupervisor(new RecordingHealthClient(), terminator);
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+        var healthClient = new BlockingStartupHealthClient();
+        await using var supervisor = new NodeSupervisor(healthClient, terminator);
+        using var cancellation = new CancellationTokenSource();
+        var startup = supervisor.StartAsync(config, cancellation.Token);
+        int createdPid;
+        Task stdoutPump;
+        Task stderrPump;
+        OperationCanceledException cancelled;
+        try
+        {
+            // Startup health is queried only after StartProcess has created both pumps
+            // and the supervisor has assigned _process. Starting alone is not that signal.
+            await Task.WhenAny(healthClient.Entered, startup).WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.True(healthClient.Entered.IsCompletedSuccessfully,
+                $"Startup ended before the post-spawn health checkpoint: {supervisor.Snapshot.FailureReason}");
+            Assert.True(supervisor.HasOwnedProcess);
+            var process = Assert.IsType<Process>(ReadSupervisorField(supervisor, "_process"));
+            Assert.False(process.HasExited);
+            createdPid = process.Id;
+            stdoutPump = Assert.IsAssignableFrom<Task>(ReadSupervisorField(supervisor, "_stdoutPump"));
+            stderrPump = Assert.IsAssignableFrom<Task>(ReadSupervisorField(supervisor, "_stderrPump"));
+            Assert.False(stdoutPump.IsCompleted);
+            Assert.False(stderrPump.IsCompleted);
+            _output.WriteLine($"Post-spawn health checkpoint: state={supervisor.Snapshot.State}, " +
+                $"owned={supervisor.HasOwnedProcess}, pid={createdPid}, " +
+                $"stdoutPumpCompleted={stdoutPump.IsCompleted}, stderrPumpCompleted={stderrPump.IsCompleted}");
+        }
+        finally
+        {
+            // Also unblock startup on assertion/observation failure so disposal can
+            // clean our child; the timeout only fails a missing observation/cleanup.
+            cancellation.Cancel();
+            cancelled = await Assert.ThrowsAsync<OperationCanceledException>(() => startup.WaitAsync(TimeSpan.FromSeconds(10)));
+        }
 
-        await Assert.ThrowsAsync<OperationCanceledException>(() => supervisor.StartAsync(config, cancellation.Token));
-
+        _output.WriteLine($"Cancellation cleanup: exception={cancelled.GetType().Name}, calls={terminator.Calls}, " +
+            $"lastPid={terminator.LastPid}, alive={IsProcessAlive(createdPid)}, " +
+            $"stdoutPump={stdoutPump.Status}, stderrPump={stderrPump.Status}, " +
+            $"owned={supervisor.HasOwnedProcess}, state={supervisor.Snapshot.State}, " +
+            $"reason={supervisor.Snapshot.FailureReason}");
         Assert.Equal(1, terminator.Calls);
         Assert.NotNull(terminator.LastPid);
+        Assert.Equal(createdPid, terminator.LastPid);
         Assert.False(IsProcessAlive(terminator.LastPid!.Value));
+        Assert.True(stdoutPump.IsCompletedSuccessfully);
+        Assert.True(stderrPump.IsCompletedSuccessfully);
+        Assert.Null(ReadSupervisorField(supervisor, "_stdoutPump"));
+        Assert.Null(ReadSupervisorField(supervisor, "_stderrPump"));
+        Assert.False(supervisor.HasOwnedProcess);
         Assert.Equal(DesktopRuntimeState.Failed, supervisor.Snapshot.State);
+        Assert.Equal("启动已取消", supervisor.Snapshot.FailureReason);
+    }
+
+    [Fact]
+    public async Task CancellingBeforeNodeCreationDoesNotCallTerminator()
+    {
+        using var directory = new TemporaryDirectory();
+        using var squat = new PortSquat();
+        var config = CreateConfig(directory.Path) with
+        {
+            Port = squat.Port,
+            NodeExe = Path.Combine(directory.Path, "node.exe"),
+        };
+        // A placeholder satisfies preparation validation but must never be executed.
+        File.WriteAllBytes(config.NodeExe, []);
+        var terminator = new KillingTerminator();
+        var healthClient = new RecordingHealthClient();
+        using var cancellation = new CancellationTokenSource();
+        var released = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var supervisor = new NodeSupervisor(
+            healthClient,
+            terminator,
+            diagnosticSink: diagnostic =>
+            {
+                // This real preflight callback runs before the explicit pre-spawn
+                // ThrowIfCancellationRequested, not inside the cancellable port wait.
+                if (diagnostic.StartsWith($"端口 {config.Port} 启动前被临时占用（无监听进程）", StringComparison.Ordinal))
+                {
+                    cancellation.Cancel();
+                    Assert.True(released.TrySetResult(diagnostic), "Unexpected second preflight-release diagnostic");
+                }
+            },
+            transientPortWait: TimeSpan.FromSeconds(10));
+        Assert.Equal(PortAvailabilityState.Unbindable, PortAvailability.Probe(config.Port));
+        var startup = supervisor.StartAsync(config, cancellation.Token);
+        OperationCanceledException cancelled;
+        try
+        {
+            // With the uncontended gate and held port, StartAsync has synchronously
+            // reached the pending preflight wait. Release it only after observing that.
+            Assert.False(startup.IsCompleted);
+            Assert.Equal(DesktopRuntimeState.Preparing, supervisor.Snapshot.State);
+            Assert.False(supervisor.HasOwnedProcess);
+            Assert.False(cancellation.IsCancellationRequested);
+            squat.Dispose();
+            await Task.WhenAny(released.Task, startup).WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.True(released.Task.IsCompletedSuccessfully,
+                $"Startup ended before the pre-spawn release checkpoint: {supervisor.Snapshot.FailureReason}");
+        }
+        finally
+        {
+            cancellation.Cancel();
+            cancelled = await Assert.ThrowsAsync<OperationCanceledException>(() => startup.WaitAsync(TimeSpan.FromSeconds(10)));
+        }
+
+        _output.WriteLine($"Pre-spawn checkpoint: diagnostic={await released.Task}; " +
+            $"exception={cancelled.GetType().Name}, calls={terminator.Calls}, lastPid={terminator.LastPid}, " +
+            $"owned={supervisor.HasOwnedProcess}, state={supervisor.Snapshot.State}, pid={supervisor.Snapshot.Pid}, " +
+            $"reason={supervisor.Snapshot.FailureReason}");
+        Assert.Contains("启动前被临时占用（无监听进程）", await released.Task, StringComparison.Ordinal);
+        Assert.Contains("已释放，继续启动", await released.Task, StringComparison.Ordinal);
+        Assert.Equal(cancellation.Token, cancelled.CancellationToken);
+        Assert.Equal(0, terminator.Calls);
+        Assert.Null(terminator.LastPid);
+        Assert.Equal(0, healthClient.Calls);
+        Assert.False(supervisor.HasOwnedProcess);
+        Assert.Null(ReadSupervisorField(supervisor, "_stdoutPump"));
+        Assert.Null(ReadSupervisorField(supervisor, "_stderrPump"));
+        Assert.Equal(DesktopRuntimeState.Failed, supervisor.Snapshot.State);
+        Assert.Null(supervisor.Snapshot.Pid);
+        Assert.Contains("启动已取消（创建 Node 进程前）", supervisor.Snapshot.FailureReason, StringComparison.Ordinal);
+        Assert.False(File.Exists(Path.Combine(config.ScriptDir, "logs", "node-stdout.log")));
+        Assert.False(File.Exists(Path.Combine(config.ScriptDir, "logs", "node-stderr.log")));
+    }
+
+    private static object? ReadSupervisorField(NodeSupervisor supervisor, string name)
+    {
+        var field = typeof(NodeSupervisor).GetField(name,
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        return field.GetValue(supervisor);
     }
 
     private static StartConfig CreateConfig(string scriptDir)
@@ -252,6 +379,23 @@ public sealed class RuntimeAdoptionTests
         catch (ArgumentException)
         {
             return false;
+        }
+    }
+
+    private sealed class BlockingStartupHealthClient : IRuntimeHealthClient
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<RuntimeHealthSnapshot> _response = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Entered => _entered.Task;
+
+        public Task<RuntimeHealthSnapshot> ReadAsync(string host, int port, CancellationToken cancellationToken = default)
+        {
+            // Occupancy probes use no cancellation token and are not post-spawn.
+            // Fail that unexpected path explicitly instead of parking preflight forever.
+            Assert.True(cancellationToken.CanBeCanceled, "Expected a cancellable post-spawn health check");
+            Assert.True(_entered.TrySetResult(), "Unexpected second startup health check");
+            return _response.Task.WaitAsync(cancellationToken);
         }
     }
 

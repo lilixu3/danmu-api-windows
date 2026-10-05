@@ -1,0 +1,135 @@
+{
+    "SchemaVersion":  1,
+    "Version":  "0.5.28",
+    "Tag":  "v0.5.28",
+    "ReleaseTitle":  "v0.5.28",
+    "RemoteSourceBaseline":  "c5870aeddf043c3380d8b9b464b66730766af03b",
+    "EmbeddedBuildGitBase":  "c1607deee183843555429312ed2ecce8883b776d",
+    "TagSourceContainsFrozenInputFiles":  580,
+    "SourceFingerprint":  "9CDA9A05056F49C4F60D37AA1B9BDD263C9F41B73945E4303DB49CA29C2FA810",
+    "LocalUncommittedChangesIncluded":  true,
+    "ArtifactsBuiltBeforeSourceCommit":  true,
+    "OriginalPreparedAssetBytesUsed":  true,
+    "RebuiltOrResignedForPublication":  false,
+    "ExistingCoreAutocrlf":  "true",
+    "DeclaredLineEndingNormalization":  "UTF-8 CRLF-to-LF only; UTF-8 BOM retained; binary bytes never normalized",
+    "BindingProof":  "v0.5.28-source-binding.json",
+    "CompleteRegressions":  [
+                                {
+                                    "Configuration":  "Debug",
+                                    "ExitCode":  0,
+                                    "Total":  2788,
+                                    "Passed":  2774,
+                                    "Failed":  0,
+                                    "Skipped":  14,
+                                    "ReceiptIdentityCasesPassed":  41,
+                                    "RealNodeTwentyCyclesPassed":  true
+                                },
+                                {
+                                    "Configuration":  "Release",
+                                    "ExitCode":  0,
+                                    "Total":  2788,
+                                    "Passed":  2774,
+                                    "Failed":  0,
+                                    "Skipped":  14,
+                                    "ReceiptIdentityCasesPassed":  41,
+                                    "RealNodeTwentyCyclesPassed":  true
+                                }
+                            ],
+    "ActualForcedLockedRestores":  8,
+    "FrozenLockFiles":  20,
+    "LockHashesUnchanged":  true,
+    "BeforeFixReceiptRegression":  {
+                                       "Total":  41,
+                                       "Passed":  23,
+                                       "Failed":  18,
+                                       "Skipped":  0,
+                                       "ExitCode":  1
+                                   },
+    "TargetedRegressions":  [
+                                {
+                                    "Configuration":  "Debug",
+                                    "Total":  127,
+                                    "Passed":  127,
+                                    "Failed":  0,
+                                    "Skipped":  0,
+                                    "ExitCode":  0
+                                },
+                                {
+                                    "Configuration":  "Release",
+                                    "Total":  127,
+                                    "Passed":  127,
+                                    "Failed":  0,
+                                    "Skipped":  0,
+                                    "ExitCode":  0
+                                }
+                            ],
+    "ArchitectureGates":  [
+                              {
+                                  "Architecture":  "win-x64",
+                                  "StructurePassed":  true,
+                                  "SigningIdentityAndTimestampChecked":  true,
+                                  "PortablePublishTreeFiles":  7442,
+                                  "PortablePublishTreeHashesMatched":  true,
+                                  "FinalExecutableExecuted":  true,
+                                  "VerifyAppReleaseExit":  0,
+                                  "ReleaseSelfTestExit":  0,
+                                  "ActualExecutableMetadataReceiptPassed":  true,
+                                  "NativeArm64ExecutionAccepted":  false,
+                                  "ProductionInstallerExecuted":  false
+                              },
+                              {
+                                  "Architecture":  "win-x86",
+                                  "StructurePassed":  true,
+                                  "SigningIdentityAndTimestampChecked":  true,
+                                  "PortablePublishTreeFiles":  7437,
+                                  "PortablePublishTreeHashesMatched":  true,
+                                  "FinalExecutableExecuted":  true,
+                                  "VerifyAppReleaseExit":  0,
+                                  "ReleaseSelfTestExit":  0,
+                                  "ActualExecutableMetadataReceiptPassed":  true,
+                                  "NativeArm64ExecutionAccepted":  false,
+                                  "ProductionInstallerExecuted":  false
+                              },
+                              {
+                                  "Architecture":  "win-arm64",
+                                  "StructurePassed":  true,
+                                  "SigningIdentityAndTimestampChecked":  true,
+                                  "PortablePublishTreeFiles":  7576,
+                                  "PortablePublishTreeHashesMatched":  true,
+                                  "FinalExecutableExecuted":  false,
+                                  "VerifyAppReleaseExit":  null,
+                                  "ReleaseSelfTestExit":  null,
+                                  "ActualExecutableMetadataReceiptPassed":  false,
+                                  "NativeArm64ExecutionAccepted":  false,
+                                  "ProductionInstallerExecuted":  false
+                              }
+                          ],
+    "ReceiptFix":  {
+                       "RootCause":  "ProductVersion.Value retained +build metadata and was compared exactly to the bare signed version",
+                       "Comparison":  "Shared strict semantic-version CompareTo ignores ONLY build metadata",
+                       "ExactSignedManifestAndRawReceiptChecksPreserved":  true,
+                       "TargetPathAndJobChecksPreserved":  true,
+                       "NodeCancellationAdjustmentIsTestSynchronizationOnly":  true,
+                       "NodeProductionBehaviorChangedByThatAdjustment":  false
+                   },
+    "NativeArm64RuntimeAccepted":  false,
+    "ProductionInstallerAndUacMatrixAccepted":  false,
+    "OldClientRealUpgradeMatrixAccepted":  false,
+    "PublicNetworkMatrixAccepted":  false,
+    "OptionalSkipsCountAsPassed":  false,
+    "ProtectedRemoteDocsAndImagesPreserved":  true,
+    "IgnoredInternalDocumentsPublished":  false,
+    "GitBinding":  {
+                       "BuildInventoryFiles":  580,
+                       "EntireBuildInventoryMatchesFreeze":  true,
+                       "ByteExactFiles":  365,
+                       "CRLFOnlyNormalizedFiles":  215,
+                       "ContentMismatches":  0,
+                       "ActualGitBlobBytesRead":  true,
+                       "UTF8BOMPreserved":  true,
+                       "BinaryNormalizationAllowed":  false,
+                       "ExistingCoreAutocrlf":  "true",
+                       "InitialStageWhitespaceCheckPassed":  true
+                   }
+}
