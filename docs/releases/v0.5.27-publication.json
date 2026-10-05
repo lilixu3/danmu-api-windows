@@ -1,0 +1,154 @@
+{
+    "SchemaVersion":  1,
+    "Version":  "0.5.27",
+    "Tag":  "v0.5.27",
+    "SourceCommit":  "b72c566a03ecb0ab95403fda5dc2046dbff3ca11",
+    "ReleaseId":  403599555,
+    "URL":  "https://github.com/lilixu3/danmu-api-windows/releases/tag/v0.5.27",
+    "FormalRelease":  true,
+    "Draft":  false,
+    "Prerelease":  false,
+    "LatestVerified":  true,
+    "Assets":  {
+                   "value":  [
+                                 {
+                                     "Name":  "DanmuApi-0.5.27-win-x64-setup.exe",
+                                     "URL":  "https://github.com/lilixu3/danmu-api-windows/releases/download/v0.5.27/DanmuApi-0.5.27-win-x64-setup.exe",
+                                     "Size":  94572880,
+                                     "SHA256":  "2696C8124B1307EF8E7B3E34127B92853C4AEB95D778AACF729351460011269F",
+                                     "CurlExitCode":  0,
+                                     "AnonymousDownload":  true,
+                                     "MatchesFrozenBytes":  true
+                                 },
+                                 {
+                                     "Name":  "DanmuApi-0.5.27-win-x64-portable.zip",
+                                     "URL":  "https://github.com/lilixu3/danmu-api-windows/releases/download/v0.5.27/DanmuApi-0.5.27-win-x64-portable.zip",
+                                     "Size":  149836954,
+                                     "SHA256":  "E31277FEFC9DE2194501E304B959675C9542FC7A70F60DA3B02440D8C60717ED",
+                                     "CurlExitCode":  0,
+                                     "AnonymousDownload":  true,
+                                     "MatchesFrozenBytes":  true
+                                 },
+                                 {
+                                     "Name":  "update-manifest.json",
+                                     "URL":  "https://github.com/lilixu3/danmu-api-windows/releases/download/v0.5.27/update-manifest.json",
+                                     "Size":  438,
+                                     "SHA256":  "CD6B5A0E667F9E7369C0D6F3B2D799F80275A19E076A2E0D405CDE6CC74940ED",
+                                     "CurlExitCode":  0,
+                                     "AnonymousDownload":  true,
+                                     "MatchesFrozenBytes":  true
+                                 },
+                                 {
+                                     "Name":  "update-manifest.json.sig",
+                                     "URL":  "https://github.com/lilixu3/danmu-api-windows/releases/download/v0.5.27/update-manifest.json.sig",
+                                     "Size":  384,
+                                     "SHA256":  "A6CF5127FBCF3C95AF489C63F26AEBABF564B1BACDC1F2F09481DA3E7BBBCE18",
+                                     "CurlExitCode":  0,
+                                     "AnonymousDownload":  true,
+                                     "MatchesFrozenBytes":  true
+                                 },
+                                 {
+                                     "Name":  "DanmuApi-0.5.27-win-x86-setup.exe",
+                                     "URL":  "https://github.com/lilixu3/danmu-api-windows/releases/download/v0.5.27/DanmuApi-0.5.27-win-x86-setup.exe",
+                                     "Size":  89787336,
+                                     "SHA256":  "0937B0CC8156BAB1E9B26F352C1E1B6123E875DCA0A2D0B823ACCDB204A56AA6",
+                                     "CurlExitCode":  0,
+                                     "AnonymousDownload":  true,
+                                     "MatchesFrozenBytes":  true
+                                 },
+                                 {
+                                     "Name":  "DanmuApi-0.5.27-win-x86-portable.zip",
+                                     "URL":  "https://github.com/lilixu3/danmu-api-windows/releases/download/v0.5.27/DanmuApi-0.5.27-win-x86-portable.zip",
+                                     "Size":  143943283,
+                                     "SHA256":  "318190C32493A1C0400401C9143E5FB46DE2268ABC64796CCE2D4462AF43131E",
+                                     "CurlExitCode":  0,
+                                     "AnonymousDownload":  true,
+                                     "MatchesFrozenBytes":  true
+                                 },
+                                 {
+                                     "Name":  "update-manifest-win-x86.json",
+                                     "URL":  "https://github.com/lilixu3/danmu-api-windows/releases/download/v0.5.27/update-manifest-win-x86.json",
+                                     "Size":  438,
+                                     "SHA256":  "D1BE3C03EC2B4ABCA0683228AD34817F87B02B8DD37CE1C695BE59AC8E3BE47F",
+                                     "CurlExitCode":  0,
+                                     "AnonymousDownload":  true,
+                                     "MatchesFrozenBytes":  true
+                                 },
+                                 {
+                                     "Name":  "update-manifest-win-x86.json.sig",
+                                     "URL":  "https://github.com/lilixu3/danmu-api-windows/releases/download/v0.5.27/update-manifest-win-x86.json.sig",
+                                     "Size":  384,
+                                     "SHA256":  "176513856071EEFFCE80513276BF931290FB2E33777326E4DBA7D39436923E02",
+                                     "CurlExitCode":  0,
+                                     "AnonymousDownload":  true,
+                                     "MatchesFrozenBytes":  true
+                                 },
+                                 {
+                                     "Name":  "DanmuApi-0.5.27-win-arm64-setup.exe",
+                                     "URL":  "https://github.com/lilixu3/danmu-api-windows/releases/download/v0.5.27/DanmuApi-0.5.27-win-arm64-setup.exe",
+                                     "Size":  88291152,
+                                     "SHA256":  "F537706FE88942B9F53822C5381B72EC413E7A0EB3F994303B930E3CE67F52C2",
+                                     "CurlExitCode":  0,
+                                     "AnonymousDownload":  true,
+                                     "MatchesFrozenBytes":  true
+                                 },
+                                 {
+                                     "Name":  "DanmuApi-0.5.27-win-arm64-portable.zip",
+                                     "URL":  "https://github.com/lilixu3/danmu-api-windows/releases/download/v0.5.27/DanmuApi-0.5.27-win-arm64-portable.zip",
+                                     "Size":  141880470,
+                                     "SHA256":  "45905400628BFF2099E7C831CA6A511181D7DCB72D533C8E00652750A02847E4",
+                                     "CurlExitCode":  0,
+                                     "AnonymousDownload":  true,
+                                     "MatchesFrozenBytes":  true
+                                 },
+                                 {
+                                     "Name":  "update-manifest-win-arm64.json",
+                                     "URL":  "https://github.com/lilixu3/danmu-api-windows/releases/download/v0.5.27/update-manifest-win-arm64.json",
+                                     "Size":  444,
+                                     "SHA256":  "F8EC99E4C6879FE6945D0B5A27B208744B56765845C072EF67C11E30F8400AE5",
+                                     "CurlExitCode":  0,
+                                     "AnonymousDownload":  true,
+                                     "MatchesFrozenBytes":  true
+                                 },
+                                 {
+                                     "Name":  "update-manifest-win-arm64.json.sig",
+                                     "URL":  "https://github.com/lilixu3/danmu-api-windows/releases/download/v0.5.27/update-manifest-win-arm64.json.sig",
+                                     "Size":  384,
+                                     "SHA256":  "85A3ACAE28D8A744CBDFE4A3C0DCE37F3A44364E44C3A56BDA93BA4F43A17346",
+                                     "CurlExitCode":  0,
+                                     "AnonymousDownload":  true,
+                                     "MatchesFrozenBytes":  true
+                                 }
+                             ],
+                   "Count":  12
+               },
+    "AnonymousDownloadAssetCount":  12,
+    "EveryDownloadedByteMatchedFrozenAssets":  true,
+    "FinalSignedExecutableVerifyExit":  0,
+    "RSA_ManifestsVerified":  3,
+    "InstallerSignaturesVerified":  3,
+    "Rebuilt":  false,
+    "Resigned":  false,
+    "BuildEmbeddedGitBase":  "c1607deee183843555429312ed2ecce8883b776d",
+    "SourceFingerprint":  "27ABDA09238EE15D2D939F79209BB35EEECCDBAD2BF7547502BB530A97818C9F",
+    "FrozenSourceFiles":  579,
+    "ByteExactGitInputs":  364,
+    "CRLFOnlyGitInputs":  215,
+    "OtherSourceDifferences":  0,
+    "DebugRegression":  {
+                            "Passed":  2732,
+                            "Failed":  0,
+                            "Skipped":  14
+                        },
+    "ReleaseRegression":  {
+                              "Passed":  2732,
+                              "Failed":  0,
+                              "Skipped":  14
+                          },
+    "ActualForcedLockRestores":  8,
+    "NativeArm64RuntimeAccepted":  false,
+    "ProductionInstallerOrCrossAccountUacMatrixAccepted":  false,
+    "RealOldClientOnlineUpgradeMatrixAccepted":  false,
+    "PublicH3EchMatrixAccepted":  false,
+    "VerifiedUtc":  "2026-10-05T10:37:57.1202819Z"
+}
