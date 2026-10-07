@@ -1,0 +1,138 @@
+{
+    "SchemaVersion":  1,
+    "Repository":  "lilixu3/danmu-api-windows",
+    "Version":  "0.5.34",
+    "Tag":  "v0.5.34",
+    "Title":  "v0.5.34",
+    "URL":  "https://github.com/lilixu3/danmu-api-windows/releases/tag/v0.5.34",
+    "ReleaseId":  406021306,
+    "PublishedUtc":  "2026-10-07T17:59:47Z",
+    "SourceCommit":  "805dd8a273758e6974d06984671a68fdac0d9512",
+    "AnnotatedTagObject":  "4d0dc70ef28a12874d9d31bc4b3b2f8238892271",
+    "EmbeddedBuildGitBase":  "2f481de5a06565e8b5ff368050b110c257da9fe5",
+    "FrozenSourceFingerprint":  "4814CB50849E8ECB16DAB0BA4188D31623C312A56EBBA4115D2842493B003F7C",
+    "FrozenSourceInputFiles":  615,
+    "ChangedSourceFiles":  20,
+    "ReleasePlanSHA256":  "29DED1A26896AB62C876CEB3DA2233D94DAE8B21913AD1CC66AF146E696C34C5",
+    "ReleaseNotesSHA256":  "418B6D6DCB65C25A91AE8BF7DF0149C719364362A583CE08F7E7C55E1F4269E1",
+    "PreparedStandaloneVerificationExit":  0,
+    "Draft":  false,
+    "Prerelease":  false,
+    "LatestVerified":  true,
+    "AssetCount":  12,
+    "Assets":  [
+                   {
+                       "Name":  "DanmuApi-0.5.34-win-x64-setup.exe",
+                       "Size":  94570576,
+                       "SHA256":  "FDF62C514CC78D17D615DB97E820112F0B39582BAE6D153B27852C6EEF64F5CD",
+                       "GitHubAssetId":  619396276,
+                       "GitHubDigest":  "sha256:fdf62c514cc78d17d615db97e820112f0b39582bae6d153b27852c6eef64f5cd",
+                       "State":  "uploaded"
+                   },
+                   {
+                       "Name":  "DanmuApi-0.5.34-win-x64-portable.zip",
+                       "Size":  149840872,
+                       "SHA256":  "B73EB5F415BBD23DC72FDF61B1DC8E0D605310E769FE256E507F0951A1A364B3",
+                       "GitHubAssetId":  619396937,
+                       "GitHubDigest":  "sha256:b73eb5f415bbd23dc72fdf61b1dc8e0d605310e769fe256e507f0951a1a364b3",
+                       "State":  "uploaded"
+                   },
+                   {
+                       "Name":  "update-manifest.json",
+                       "Size":  438,
+                       "SHA256":  "955FCF92B64CD6B9BAF9CD97ACF223017F5528576F3D6C2F5D8D24B42BF15EBF",
+                       "GitHubAssetId":  619397794,
+                       "GitHubDigest":  "sha256:955fcf92b64cd6b9baf9cd97acf223017f5528576f3d6c2f5d8d24b42bf15ebf",
+                       "State":  "uploaded"
+                   },
+                   {
+                       "Name":  "update-manifest.json.sig",
+                       "Size":  384,
+                       "SHA256":  "A942F942CEE7ABDCF84858830DD05AB3185F7C490379A9AFAD704178B1495E39",
+                       "GitHubAssetId":  619397852,
+                       "GitHubDigest":  "sha256:a942f942cee7abdcf84858830dd05ab3185f7c490379a9afad704178b1495e39",
+                       "State":  "uploaded"
+                   },
+                   {
+                       "Name":  "DanmuApi-0.5.34-win-x86-setup.exe",
+                       "Size":  89791528,
+                       "SHA256":  "84BD8B0BE616726386AC02065B68A893128EA58EACCF4FD1B931A4EBB63FA73B",
+                       "GitHubAssetId":  619397883,
+                       "GitHubDigest":  "sha256:84bd8b0be616726386ac02065b68a893128ea58eaccf4fd1b931a4ebb63fa73b",
+                       "State":  "uploaded"
+                   },
+                   {
+                       "Name":  "DanmuApi-0.5.34-win-x86-portable.zip",
+                       "Size":  143946259,
+                       "SHA256":  "7F1E62F3968AB0531655B1995B3CA83CE96CCEC73D137EFB4907F953106A410D",
+                       "GitHubAssetId":  619398629,
+                       "GitHubDigest":  "sha256:7f1e62f3968ab0531655b1995b3ca83ce96ccec73d137efb4907f953106a410d",
+                       "State":  "uploaded"
+                   },
+                   {
+                       "Name":  "update-manifest-win-x86.json",
+                       "Size":  438,
+                       "SHA256":  "4F44371476D19CE3CEA70225CDBEC3D4AD081F085336ED82D86DD536ED5CA772",
+                       "GitHubAssetId":  619399667,
+                       "GitHubDigest":  "sha256:4f44371476d19ce3cea70225cdbec3d4ad081f085336ed82d86dd536ed5ca772",
+                       "State":  "uploaded"
+                   },
+                   {
+                       "Name":  "update-manifest-win-x86.json.sig",
+                       "Size":  384,
+                       "SHA256":  "28E684F27F0B40CBE665022558D2DB79DA60F0ACB9EF63BB7D80AE83440C1F48",
+                       "GitHubAssetId":  619399724,
+                       "GitHubDigest":  "sha256:28e684f27f0b40cbe665022558d2db79da60f0acb9ef63bb7d80ae83440c1f48",
+                       "State":  "uploaded"
+                   },
+                   {
+                       "Name":  "DanmuApi-0.5.34-win-arm64-setup.exe",
+                       "Size":  88274616,
+                       "SHA256":  "3CC238F261060FD34245A666461801528434D653C54EA96F7981FB7ECE7019C2",
+                       "GitHubAssetId":  619399776,
+                       "GitHubDigest":  "sha256:3cc238f261060fd34245a666461801528434d653c54ea96f7981fb7ece7019c2",
+                       "State":  "uploaded"
+                   },
+                   {
+                       "Name":  "DanmuApi-0.5.34-win-arm64-portable.zip",
+                       "Size":  141884404,
+                       "SHA256":  "F3B6E5B32BCC45487CE21EA406871F24C8E997BD22BA3E3E0197AB313BE65164",
+                       "GitHubAssetId":  619400371,
+                       "GitHubDigest":  "sha256:f3b6e5b32bcc45487ce21ea406871f24c8e997bd22ba3e3e0197ab313be65164",
+                       "State":  "uploaded"
+                   },
+                   {
+                       "Name":  "update-manifest-win-arm64.json",
+                       "Size":  444,
+                       "SHA256":  "330DF99E0D11BC993AA947C8355EE41311B7FA3B2E73B40D00A2492B02B94501",
+                       "GitHubAssetId":  619401186,
+                       "GitHubDigest":  "sha256:330df99e0d11bc993aa947c8355ee41311b7fa3b2e73b40d00a2492b02b94501",
+                       "State":  "uploaded"
+                   },
+                   {
+                       "Name":  "update-manifest-win-arm64.json.sig",
+                       "Size":  384,
+                       "SHA256":  "7C92CF9EDD12E831BA097E02B246E69466FAEE9532A962827958F0A26E9F3A54",
+                       "GitHubAssetId":  619401205,
+                       "GitHubDigest":  "sha256:7c92cf9edd12e831ba097e02b246e69466faee9532a962827958f0a26e9f3a54",
+                       "State":  "uploaded"
+                   }
+               ],
+    "FinalExecutableSHA256":  "FDF62C514CC78D17D615DB97E820112F0B39582BAE6D153B27852C6EEF64F5CD",
+    "PublicAnonymousDownloadVerified":  true,
+    "PublicAnonymousDownloadCount":  12,
+    "PublicFinalExecutableVerifyExit":  0,
+    "ThreeRsaManifestsVerified":  true,
+    "SixPackageHashesVerified":  true,
+    "ThreeInstallerSignaturesVerified":  true,
+    "OriginalFrozenAssetBytesPublished":  true,
+    "RebuiltOrResigned":  false,
+    "PreviousFormalRelease":  "v0.5.28",
+    "PreviousReleaseRetained":  true,
+    "AllExistingTagsAndAssetsRetained":  true,
+    "MissingPreviousReleaseObservation":  "v0.5.33 Release object was absent from the repository before this publication (its git tag v0.5.33 still exists); it was not recreated, deleted or rewritten by this release. /releases/latest was v0.5.28 before and was replaced by v0.5.34.",
+    "NativeArm64ExecutionAccepted":  false,
+    "OldClientRealUpgradeMatrixAccepted":  false,
+    "ProductionInstallerUacMatrixAccepted":  false,
+    "PortableFirstHopStillUsesPreviousUpdater":  true
+}
