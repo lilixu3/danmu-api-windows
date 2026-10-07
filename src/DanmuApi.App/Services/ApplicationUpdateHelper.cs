@@ -86,7 +86,7 @@ internal static class ApplicationUpdateHelper
             if (job.Kind == "portable")
             {
                 if (IsInstalled(targetExe)) throw new IOException("安装版不能使用便携替换");
-                files = PortableApplicationUpdate.Extract(package, stage);
+                files = SelectPortableReplacementFiles(PortableApplicationUpdate.ExtractChanged(package, stage, job.TargetDirectory));
                 AppUpdateTrust.VerifyExecutable(Path.Combine(stage, "DanmuApi.App.exe"));
                 if (!VersionsMatch(FileVersionInfo.GetVersionInfo(Path.Combine(stage,"DanmuApi.App.exe")).ProductVersion!, manifest.Version))
                     throw new IOException("新程序实际版本与签名清单不符");
@@ -172,6 +172,18 @@ internal static class ApplicationUpdateHelper
             return 1;
         }
         finally { installer?.Dispose(); }
+    }
+
+    /// <summary>
+    /// 便携替换只处理与已安装文件内容不同的条目（比对由 <see cref="PortableApplicationUpdate.ExtractChanged"/> 完成），
+    /// 因此没有变化的依赖不会被备份、搬移或记账。签名清单版本必须高于当前版本，所以包内必须拿得出新的主程序：
+    /// 主程序与已安装版本字节相同时拒绝安装，而不是把一次"没有新主程序"的更新当成成功。
+    /// </summary>
+    internal static IReadOnlyList<string> SelectPortableReplacementFiles(PortableApplicationUpdate.ExtractResult extraction)
+    {
+        if (!extraction.Changed.Contains("DanmuApi.App.exe", StringComparer.OrdinalIgnoreCase))
+            throw new IOException("更新包的主程序与已安装版本字节相同，但签名清单版本更高：包与清单不一致，拒绝安装");
+        return extraction.Changed;
     }
 
     internal static ProcessStartInfo CreateInstallerStartInfo(string package, ApplicationUpdateJob job, string directory)

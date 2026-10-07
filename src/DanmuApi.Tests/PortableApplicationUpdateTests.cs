@@ -1,10 +1,151 @@
 using System.IO.Compression;
+using DanmuApi.App.Services;
 using DanmuApi.Platform;
 
 namespace DanmuApi.Tests;
 
 public sealed class PortableApplicationUpdateTests
 {
+    private static void WriteEntry(ZipArchive archive, string name, string content)
+    {
+        using var writer = new StreamWriter(archive.CreateEntry(name).Open());
+        writer.Write(content);
+    }
+
+    private static void WriteInstalledFile(string root, string relative, string content)
+    {
+        var path = Path.Combine(root, relative);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, content);
+    }
+
+    [Fact]
+    public void ExtractChangedSkipsFilesAlreadyIdenticalToTheInstalledCopy()
+    {
+        using var directory = new TemporaryDirectory();
+        var target = Path.Combine(directory.Path, "app");
+        var stage = Path.Combine(directory.Path, "stage");
+        var zip = Path.Combine(directory.Path, "update.zip");
+        var package = new (string Name, string Content)[]
+        {
+            ("DanmuApi.App.exe", "new-exe"),
+            ("libSkiaSharp.dll", "unchanged-dll"),
+            ("git/cmd/git.exe", "unchanged-git"),
+            ("runtime-bundle/SHA256SUMS.txt", "unchanged-sums"),
+        };
+        using (var archive = ZipFile.Open(zip, ZipArchiveMode.Create))
+            foreach (var (name, content) in package) WriteEntry(archive, name, content);
+        // 已安装副本与包内逐字节相同，只有主程序不同。
+        Directory.CreateDirectory(target);
+        WriteInstalledFile(target, "DanmuApi.App.exe", "old-exe");
+        WriteInstalledFile(target, "libSkiaSharp.dll", "unchanged-dll");
+        WriteInstalledFile(target, Path.Combine("git", "cmd", "git.exe"), "unchanged-git");
+        WriteInstalledFile(target, Path.Combine("runtime-bundle", "SHA256SUMS.txt"), "unchanged-sums");
+
+        var result = PortableApplicationUpdate.ExtractChanged(zip, stage, target);
+
+        Assert.Equal(["DanmuApi.App.exe"], result.Changed);
+        Assert.Equal(
+            [Path.Combine("libSkiaSharp.dll"), Path.Combine("git", "cmd", "git.exe"), Path.Combine("runtime-bundle", "SHA256SUMS.txt")],
+            result.Unchanged);
+        Assert.True(File.Exists(Path.Combine(stage, "DanmuApi.App.exe")));
+        Assert.False(File.Exists(Path.Combine(stage, "libSkiaSharp.dll")));
+        Assert.False(File.Exists(Path.Combine(stage, "git", "cmd", "git.exe")));
+        Assert.False(File.Exists(Path.Combine(stage, "runtime-bundle", "SHA256SUMS.txt")));
+    }
+
+    [Fact]
+    public void ExtractChangedRepairsInstalledFileWithSameLengthButDifferentContent()
+    {
+        using var directory = new TemporaryDirectory();
+        var target = Path.Combine(directory.Path, "app");
+        var stage = Path.Combine(directory.Path, "stage");
+        var zip = Path.Combine(directory.Path, "update.zip");
+        using (var archive = ZipFile.Open(zip, ZipArchiveMode.Create))
+        {
+            WriteEntry(archive, "DanmuApi.App.exe", "BBBB");
+            WriteEntry(archive, "git/cmd/git.exe", "unchanged-git");
+            WriteEntry(archive, "runtime-bundle/SHA256SUMS.txt", "unchanged-sums");
+        }
+        Directory.CreateDirectory(target);
+        WriteInstalledFile(target, "DanmuApi.App.exe", "AAAA");
+        WriteInstalledFile(target, Path.Combine("git", "cmd", "git.exe"), "unchanged-git");
+        WriteInstalledFile(target, Path.Combine("runtime-bundle", "SHA256SUMS.txt"), "unchanged-sums");
+
+        var result = PortableApplicationUpdate.ExtractChanged(zip, stage, target);
+
+        Assert.Equal(["DanmuApi.App.exe"], result.Changed);
+        Assert.Equal("BBBB", File.ReadAllText(Path.Combine(stage, "DanmuApi.App.exe")));
+    }
+
+    [Fact]
+    public void ExtractWithoutInstalledDirectoryStillReturnsEveryFile()
+    {
+        using var directory = new TemporaryDirectory();
+        var zip = Path.Combine(directory.Path, "update.zip");
+        using (var archive = ZipFile.Open(zip, ZipArchiveMode.Create))
+        {
+            WriteEntry(archive, "DanmuApi.App.exe", "exe");
+            WriteEntry(archive, "git/cmd/git.exe", "git");
+            WriteEntry(archive, "runtime-bundle/SHA256SUMS.txt", "sums");
+        }
+        var result = PortableApplicationUpdate.ExtractChanged(zip, Path.Combine(directory.Path, "stage"), null);
+        Assert.Equal(3, result.Changed.Count);
+        Assert.Empty(result.Unchanged);
+    }
+
+    [Fact]
+    public void ExtractChangedRejectsAJunctionInTheInstalledTreeEvenWhenContentMatches()
+    {
+        using var directory = new TemporaryDirectory();
+        using var external = new TemporaryDirectory();
+        var target = Path.Combine(directory.Path, "app");
+        var stage = Path.Combine(directory.Path, "stage");
+        var zip = Path.Combine(directory.Path, "update.zip");
+        using (var archive = ZipFile.Open(zip, ZipArchiveMode.Create))
+        {
+            WriteEntry(archive, "DanmuApi.App.exe", "exe");
+            WriteEntry(archive, "git/cmd/git.exe", "git");
+            WriteEntry(archive, "runtime-bundle/SHA256SUMS.txt", "sums");
+            WriteEntry(archive, "runtime-bundle/nodejs-project/main.js", "main");
+        }
+        Directory.CreateDirectory(target);
+        WriteInstalledFile(target, "DanmuApi.App.exe", "exe");
+        WriteInstalledFile(target, Path.Combine("git", "cmd", "git.exe"), "git");
+        WriteInstalledFile(target, Path.Combine("runtime-bundle", "SHA256SUMS.txt"), "sums");
+        // 链接目标里的内容与更新包一致：只有重解析点检查能挡住它，内容比对挡不住。
+        WriteInstalledFile(external.Path, "main.js", "main");
+        var link = Path.Combine(target, "runtime-bundle", "nodejs-project");
+        using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe")
+        {
+            Arguments = $"/c mklink /J \"{link}\" \"{external.Path}\"",
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        })!;
+        var output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        Assert.True(process.ExitCode == 0, output);
+        try
+        {
+            var error = Assert.Throws<IOException>(() => PortableApplicationUpdate.ExtractChanged(zip, stage, target));
+            Assert.Contains("链接", error.Message);
+        }
+        finally { Directory.Delete(link); }
+    }
+
+    [Fact]
+    public void PackageWithoutANewMainExecutableIsRejectedInsteadOfBecomingAnEmptyUpdate()
+    {
+        var error = Assert.Throws<IOException>(() => ApplicationUpdateHelper.SelectPortableReplacementFiles(
+            new PortableApplicationUpdate.ExtractResult([Path.Combine("runtime-bundle", "nodejs-project", "main.js")], ["DanmuApi.App.exe"])));
+        Assert.Contains("主程序", error.Message);
+        var files = ApplicationUpdateHelper.SelectPortableReplacementFiles(
+            new PortableApplicationUpdate.ExtractResult(["DanmuApi.App.exe", "libSkiaSharp.dll"], []));
+        Assert.Equal(["DanmuApi.App.exe", "libSkiaSharp.dll"], files);
+    }
+
     [Theory]
     [InlineData("../escape.exe")]
     [InlineData("C:/escape.exe")]

@@ -275,11 +275,20 @@ public partial class App : Application
                             error);
                     }
                 }
-                if (isAutostart) Dispatcher.UIThread.Post(BeginPreparation, DispatcherPriority.Background);
+                // 准备只跑一次：主窗口每被打开一次都会走下面这条 Opened 路径（托盘隐藏后再显示也算），
+                // 而它包含更新后的启动回执与服务恢复，重复执行会把回执、恢复报告和服务操作再写一遍。
+                var preparation = new SingleShotGate();
+                void RequestPreparation()
+                {
+                    if (!preparation.TryEnter()) return;
+                    Dispatcher.UIThread.Post(BeginPreparation, DispatcherPriority.Background);
+                }
+                if (isAutostart) RequestPreparation();
                 else mainWindow.Opened += (_, _) => mainWindow.RequestAnimationFrame(_ =>
                 {
+                    if (preparation.Entered) return;
                     StartupTiming.Record(paths, "主窗口首帧准备门控", System.Diagnostics.Stopwatch.GetElapsedTime(Program.StartTimestamp));
-                    Dispatcher.UIThread.Post(BeginPreparation, DispatcherPriority.Background);
+                    RequestPreparation();
                 });
             }
             desktop.Exit += (_, _) => CleanupDesktop();

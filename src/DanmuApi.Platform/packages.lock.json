@@ -8,7 +8,7 @@
       "danmuapi.runtime": {
         "type": "Project",
         "dependencies": {
-          "DanmuApi.Core": "[0.5.33, )"
+          "DanmuApi.Core": "[0.5.34, )"
         }
       }
     }

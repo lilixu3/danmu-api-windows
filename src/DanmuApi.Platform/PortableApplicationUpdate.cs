@@ -8,15 +8,33 @@ namespace DanmuApi.Platform;
 
 public static class PortableApplicationUpdate
 {
-    public static IReadOnlyList<string> Extract(string archivePath, string stagingDirectory)
+    /// <summary>解包结果：<paramref name="Changed"/> 需要进入替换事务，<paramref name="Unchanged"/> 已与磁盘一致、不被触碰。</summary>
+    public sealed record ExtractResult(IReadOnlyList<string> Changed, IReadOnlyList<string> Unchanged);
+
+    public static IReadOnlyList<string> Extract(string archivePath, string stagingDirectory) =>
+        ExtractChanged(archivePath, stagingDirectory, null).Changed;
+
+    /// <summary>
+    /// 解包更新包。<paramref name="targetDirectory"/> 非空时与已安装文件逐条比对（长度 + SHA256）：
+    /// 内容已经相同的条目既不写入暂存目录，也不进入替换事务。判定依据是内容摘要，不是时间戳或版本号，
+    /// 因此"跳过"只发生在磁盘上的字节确实等于更新包字节的时候——典型升级只有主程序变化，其余七千多个
+    /// 文件因此完全不必备份、搬移或记账。
+    /// </summary>
+    public static ExtractResult ExtractChanged(string archivePath, string stagingDirectory, string? targetDirectory)
     {
         stagingDirectory = Root(stagingDirectory);
+        var installed = targetDirectory is null ? null : Root(targetDirectory);
         if (Directory.Exists(stagingDirectory)) throw new IOException("更新暂存目录已存在");
         Directory.CreateDirectory(stagingDirectory);
         using var archive = ZipFile.OpenRead(archivePath);
         if (archive.Entries.Count > 30000) throw new IOException("更新包文件数量超出上限");
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var files = new List<string>();
+        var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var changed = new List<string>();
+        var unchanged = new List<string>();
+        // 比对阶段只读；同一目录前缀只验一次重解析点（写入阶段仍由 Replace 按文件复查）。
+        var verifiedStages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var verifiedInstalled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         long total = 0;
         foreach (var entry in archive.Entries)
         {
@@ -28,17 +46,35 @@ public static class PortableApplicationUpdate
             if (!IsManagedFile(relative)) throw new IOException($"更新包包含非应用文件：{relative}");
             total = checked(total + entry.Length);
             if (total > 2L * 1024 * 1024 * 1024) throw new IOException("更新解压大小超过2GiB限制");
-            EnsureNoReparsePoints(stagingDirectory, relative);
+            files.Add(relative);
+            EnsureNoReparsePointsOnce(stagingDirectory, relative, verifiedStages);
+            if (installed is not null && MatchesInstalledFile(installed, relative, entry, verifiedInstalled))
+            {
+                unchanged.Add(relative);
+                continue;
+            }
             var target = Path.Combine(stagingDirectory, relative);
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             entry.ExtractToFile(target, overwrite: false);
-            files.Add(relative);
+            changed.Add(relative);
         }
-        if (!files.Contains("DanmuApi.App.exe", StringComparer.OrdinalIgnoreCase) ||
-            !files.Contains(Path.Combine("runtime-bundle", "SHA256SUMS.txt"), StringComparer.OrdinalIgnoreCase) ||
-            !files.Contains(Path.Combine("git", "cmd", "git.exe"), StringComparer.OrdinalIgnoreCase))
+        if (!files.Contains("DanmuApi.App.exe") ||
+            !files.Contains(Path.Combine("runtime-bundle", "SHA256SUMS.txt")) ||
+            !files.Contains(Path.Combine("git", "cmd", "git.exe")))
             throw new IOException("更新包缺少主程序、运行环境清单或随包 Git");
-        return files;
+        return new(changed, unchanged);
+    }
+
+    /// <summary>已安装文件与包内条目长度和内容都相同才算命中；长度不同直接判为不同，避免为必然要写的文件多读一遍压缩流。</summary>
+    private static bool MatchesInstalledFile(string installedDirectory, string relative, ZipArchiveEntry entry, HashSet<string> verified)
+    {
+        EnsureNoReparsePointsOnce(installedDirectory, relative, verified);
+        var path = Path.Combine(installedDirectory, relative);
+        var existing = new FileInfo(path);
+        if (!existing.Exists || existing.Length != entry.Length) return false;
+        using var packed = entry.Open();
+        var packedHash = Convert.ToHexString(SHA256.HashData(packed));
+        return string.Equals(packedHash, Hash(path), StringComparison.OrdinalIgnoreCase);
     }
 
     public static bool IsManagedFile(string relative) =>
@@ -69,9 +105,18 @@ public static class PortableApplicationUpdate
     public static void Replace(string targetDirectory, string stagingDirectory, string backupDirectory, IReadOnlyList<string> files) =>
         Replace(targetDirectory, stagingDirectory, backupDirectory, files, null);
 
+    /// <summary>每文件提交一次事务日志时，整份日志（本仓库 7442 条时约 1.6 MB）要重写并落盘一次：
+    /// 一次完整替换约 22000 次提交 ≈ 36 GB 写入。按批提交把同一件事压到几十 MB，而崩溃恢复的判据不变
+    /// ——批内文件在被动到之前就已按整批标记为 Replacing，恢复只会多做无害的还原、不会漏还原。</summary>
+    internal const int JournalBatchSize = 1024;
+
     // The observer lets tests snapshot each durable boundary without changing production recovery behavior.
-    internal static void Replace(string targetDirectory, string stagingDirectory, string backupDirectory, IReadOnlyList<string> files, Action<string>? boundary)
+    internal static void Replace(string targetDirectory, string stagingDirectory, string backupDirectory, IReadOnlyList<string> files, Action<string>? boundary) =>
+        Replace(targetDirectory, stagingDirectory, backupDirectory, files, boundary, JournalBatchSize);
+
+    internal static void Replace(string targetDirectory, string stagingDirectory, string backupDirectory, IReadOnlyList<string> files, Action<string>? boundary, int batchSize)
     {
+        if (batchSize <= 0) throw new ArgumentOutOfRangeException(nameof(batchSize), "事务日志提交批次必须为正数");
         var target = Root(targetDirectory); var stage = Root(stagingDirectory); var backup = Root(backupDirectory);
         Separate(target, stage); Separate(target, backup); Separate(stage, backup);
         using var transactionLock = Lock(backup);
@@ -97,7 +142,12 @@ public static class PortableApplicationUpdate
         }
         Directory.CreateDirectory(backup);
         var journal = new Journal(1, target, backup, "Preparing", entries);
-        Save(journal);
+        void Commit()
+        {
+            Save(journal);
+            boundary?.Invoke("journal-saved");
+        }
+        Commit();
         try
         {
             boundary?.Invoke("journal-created");
@@ -111,23 +161,31 @@ public static class PortableApplicationUpdate
                     VerifyBackup(backup, entry);
                 }
                 entries[i] = entry with { State = "BackedUp" };
-                Save(journal); boundary?.Invoke("backed-up:" + entry.Path);
+                boundary?.Invoke("backed-up:" + entry.Path);
+                if (IsBatchBoundary(i, entries.Count, batchSize)) Commit();
             }
-            journal = journal with { State = "Replacing" }; Save(journal);
+            journal = journal with { State = "Replacing" }; Commit();
             for (var i = 0; i < entries.Count; i++)
             {
+                // 整批先记成 Replacing 再动手：批内任何文件都可能已被替换，恢复必须把它们全部还原。
+                if (i % batchSize == 0)
+                {
+                    for (var j = i; j < Math.Min(i + batchSize, entries.Count); j++)
+                        if (entries[j].State == "BackedUp") entries[j] = entries[j] with { State = "Replacing" };
+                    Commit();
+                }
                 var entry = entries[i];
-                entries[i] = entry with { State = "Replacing" };
-                Save(journal); boundary?.Invoke("replace-intent:" + entry.Path);
+                boundary?.Invoke("replace-intent:" + entry.Path);
                 EnsureNoReparsePoints(target, entry.Path); EnsureNoReparsePoints(stage, entry.Path);
                 var destination = Path.Combine(target, entry.Path);
                 Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
                 File.Move(Path.Combine(stage, entry.Path), destination, true);
                 boundary?.Invoke("file-replaced:" + entry.Path);
                 entries[i] = entry with { State = "Installed" };
-                Save(journal); boundary?.Invoke("installed:" + entry.Path);
+                boundary?.Invoke("installed:" + entry.Path);
+                if (IsBatchBoundary(i, entries.Count, batchSize)) Commit();
             }
-            journal = journal with { State = "FilesCommitted" }; Save(journal);
+            journal = journal with { State = "FilesCommitted" }; Commit();
             boundary?.Invoke("files-committed");
             // Retained for callers of the legacy Restore signature; recovery itself only trusts the journal.
             File.WriteAllLines(Path.Combine(backup, "replaced-files.txt"), entries.Select(e => e.Path));
@@ -140,6 +198,9 @@ public static class PortableApplicationUpdate
             throw new IOException($"应用替换失败，原版本已自动恢复；错误：{original.GetType().Name}/0x{original.HResult:X8}", original);
         }
     }
+
+    private static bool IsBatchBoundary(int index, int count, int batchSize) =>
+        (index + 1) % batchSize == 0 || index == count - 1;
 
     public static void Restore(string targetDirectory, string backupDirectory, IReadOnlyList<string> installed, IReadOnlyList<string> originals) =>
         Recover(targetDirectory, backupDirectory);
@@ -170,7 +231,8 @@ public static class PortableApplicationUpdate
             EnsureNoReparsePoints(journal.Target, entry.Path);
             var target = Path.Combine(journal.Target, entry.Path);
             if (entry.Original) DurableCopy(Path.Combine(journal.Backup, entry.Path), target, true);
-            else File.Delete(target);
+            // 新增文件按批标记后可能还没被搬进来，父目录也可能还没建；此时"文件不存在"已是恢复目标。
+            else if (File.Exists(target)) File.Delete(target);
             boundary?.Invoke("file-restored:" + entry.Path);
             journal.Files[i] = entry with { State = "Restored" }; Save(journal);
         }
@@ -318,6 +380,27 @@ public static class PortableApplicationUpdate
                 Root(child);
                 if (Directory.Exists(child)) pending.Push(child);
             }
+    }
+
+    /// <summary>
+    /// 与 <see cref="EnsureNoReparsePoints"/> 同样的判据，但同一串目录前缀在一次调用里只查一次：
+    /// 七千多个文件共享几十个目录，逐文件重走祖先与组件是纯重复开销。缓存只记录"已确认不是链接"的路径，
+    /// 所以在首次触碰时存在的链接仍会显式失败；真正写入目标目录的文件由 <see cref="Replace"/> 再按文件复查。
+    /// </summary>
+    private static void EnsureNoReparsePointsOnce(string root, string relative, HashSet<string> verified)
+    {
+        var current = Path.GetFullPath(root);
+        if (verified.Add(current))
+            for (var ancestor = current; ancestor is not null; ancestor = Path.GetDirectoryName(ancestor))
+                if ((File.Exists(ancestor) || Directory.Exists(ancestor)) && (File.GetAttributes(ancestor) & FileAttributes.ReparsePoint) != 0)
+                    throw new IOException("应用更新目录不能是链接");
+        foreach (var component in relative.Split(Path.DirectorySeparatorChar))
+        {
+            current = Path.Combine(current, component);
+            if (!verified.Add(current)) continue;
+            if ((File.Exists(current) || Directory.Exists(current)) && (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                throw new IOException("应用更新路径包含链接");
+        }
     }
 
     private static void EnsureNoReparsePoints(string root, string relative)

@@ -242,14 +242,14 @@
       "danmuapi.platform": {
         "type": "Project",
         "dependencies": {
-          "DanmuApi.Core": "[0.5.33, )",
-          "DanmuApi.Runtime": "[0.5.33, )"
+          "DanmuApi.Core": "[0.5.34, )",
+          "DanmuApi.Runtime": "[0.5.34, )"
         }
       },
       "danmuapi.runtime": {
         "type": "Project",
         "dependencies": {
-          "DanmuApi.Core": "[0.5.33, )"
+          "DanmuApi.Core": "[0.5.34, )"
         }
       }
     },

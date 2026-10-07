@@ -197,6 +197,56 @@ public sealed class PortableApplicationUpdateJournalTests
     }
 
     [Fact]
+    public void JournalIsCommittedPerBatchInsteadOfPerFile()
+    {
+        using var directory = new TemporaryDirectory();
+        var target = Path.Combine(directory.Path, "app");
+        var stage = Path.Combine(directory.Path, "stage");
+        var backup = Path.Combine(directory.Path, "backup");
+        const int count = 600, batchSize = 200;
+        Directory.CreateDirectory(target); Directory.CreateDirectory(stage);
+        var files = new string[count];
+        for (var i = 0; i < count; i++)
+        {
+            files[i] = Path.Combine("runtime-bundle", "file" + i.ToString("D4") + ".js");
+            var staged = Path.Combine(stage, files[i]);
+            Directory.CreateDirectory(Path.GetDirectoryName(staged)!);
+            File.WriteAllText(staged, "new-" + i);
+        }
+        var saves = 0;
+        PortableApplicationUpdate.Replace(target, stage, backup, files, step => { if (step == "journal-saved") saves++; }, batchSize);
+        // 备份批次 + 替换意图批次 + 安装批次，另加 Preparing / Replacing / FilesCommitted 三次状态提交。
+        Assert.Equal(3 * ((count + batchSize - 1) / batchSize) + 3, saves);
+        Assert.True(saves < count / 10, $"事务日志提交次数 {saves} 未明显低于文件数 {count}");
+        for (var i = 0; i < count; i++) Assert.Equal("new-" + i, File.ReadAllText(Path.Combine(target, files[i])));
+    }
+
+    [Fact]
+    public void InterruptionInALaterBatchRestoresEveryFileTheBatchMarkedAsReplacing()
+    {
+        using var directory = new TemporaryDirectory();
+        var target = Path.Combine(directory.Path, "app");
+        var stage = Path.Combine(directory.Path, "stage");
+        var backup = Path.Combine(directory.Path, "backup");
+        Directory.CreateDirectory(target); Directory.CreateDirectory(stage);
+        var files = new string[10];
+        for (var i = 0; i < files.Length; i++)
+        {
+            files[i] = Path.Combine("runtime-bundle", "file" + i + ".js");
+            var installed = Path.Combine(target, files[i]);
+            var staged = Path.Combine(stage, files[i]);
+            Directory.CreateDirectory(Path.GetDirectoryName(installed)!);
+            Directory.CreateDirectory(Path.GetDirectoryName(staged)!);
+            File.WriteAllText(installed, "old-" + i);
+            File.WriteAllText(staged, "new-" + i);
+        }
+        var error = Assert.Throws<IOException>(() => PortableApplicationUpdate.Replace(target, stage, backup, files,
+            step => { if (step == "replace-intent:" + files[5]) throw new IOException("injected IO failure"); }, 5));
+        Assert.Contains("原版本已自动恢复", error.Message);
+        for (var i = 0; i < files.Length; i++) Assert.Equal("old-" + i, File.ReadAllText(Path.Combine(target, files[i])));
+    }
+
+    [Fact]
     public void UncommittedJournalTemporaryFileDoesNotOverrideDurableJournal()
     {
         using var fixture = new Fixture();
