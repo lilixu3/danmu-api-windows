@@ -124,9 +124,11 @@ internal static class ReleaseSelfTest
         var productVersion = FileVersionInfo.GetVersionInfo(executable).ProductVersion
             ?? throw new IOException("发行探针缺少程序版本");
         _ = SemanticVersion.Parse(productVersion);
-        var metadata = productVersion.IndexOf('+');
-        if (metadata < 0) throw new IOException("发行探针要求验证包含构建元数据的真实程序");
-        var expectedVersion = productVersion[..metadata];
+        var assemblyVersion = typeof(ReleaseSelfTest).Assembly.GetName().Version
+            ?? throw new IOException("发行探针缺少程序集版本");
+        var expectedVersion = $"{assemblyVersion.Major}.{assemblyVersion.Minor}.{assemblyVersion.Build}";
+        if (!string.Equals(productVersion, expectedVersion, StringComparison.Ordinal))
+            throw new IOException("发行程序 ProductVersion 必须与签名清单使用的纯版本号精确一致，供旧便携助手校验");
         var directory = Path.Combine(ApplicationUpdateHelper.JobRoot, Guid.NewGuid().ToString("N"));
         for (var ancestor = Path.GetDirectoryName(directory); ancestor is not null; ancestor = Path.GetDirectoryName(ancestor))
             if ((File.Exists(ancestor) || Directory.Exists(ancestor)) && (File.GetAttributes(ancestor) & FileAttributes.ReparsePoint) != 0)
@@ -139,17 +141,18 @@ internal static class ReleaseSelfTest
             var args = new[] { "--app-update-receipt", directory };
             var jobPath = Path.Combine(directory, "job.json");
             var receiptPath = Path.Combine(directory, "startup.ok");
+            foreach (var receiptVersion in new[] { expectedVersion, expectedVersion + "+receipt.regression" })
             foreach (var resume in new[] { false, true })
             {
                 var job = new ApplicationUpdateJob(process.Id, process.StartTime.ToUniversalTime().Ticks,
-                    AppContext.BaseDirectory, "release-self-test.exe", "installer", expectedVersion, resume);
+                    AppContext.BaseDirectory, "release-self-test.exe", "installer", receiptVersion, resume);
                 var jobBytes = JsonSerializer.SerializeToUtf8Bytes(job);
                 File.WriteAllBytes(jobPath, jobBytes);
                 ApplicationUpdateHelper.ValidateJobDirectory(directory);
                 if (ApplicationUpdateHelper.ShouldResumeService(args) != resume)
                     throw new IOException("发行回执探针服务恢复标志不一致");
                 ApplicationUpdateHelper.AcknowledgeStartup(args);
-                if (!File.ReadAllBytes(receiptPath).AsSpan().SequenceEqual(System.Text.Encoding.UTF8.GetBytes(expectedVersion))
+                if (!File.ReadAllBytes(receiptPath).AsSpan().SequenceEqual(System.Text.Encoding.UTF8.GetBytes(receiptVersion))
                     || File.Exists(receiptPath + ".tmp") || !File.ReadAllBytes(jobPath).AsSpan().SequenceEqual(jobBytes))
                     throw new IOException("发行回执探针内容、原子发布或任务保留验证失败");
                 File.Delete(receiptPath);
@@ -174,7 +177,8 @@ internal static class ReleaseSelfTest
                 throw;
             }
         }
-        messages.Add($"UPDATE_STARTUP_RECEIPT=PASS; expected={expectedVersion}; product={productVersion}; resume=false,true; exactUtf8=true; jobUnchanged=true; temporaryAbsent=true; ownedJobRemoved=true");
+        messages.Add($"UPDATE_STARTUP_RECEIPT=PASS; expected={expectedVersion}; product={productVersion}; expectedMetadata=false,true; resume=false,true; exactUtf8=true; jobUnchanged=true; temporaryAbsent=true; ownedJobRemoved=true");
+        messages.Add($"LEGACY_PORTABLE_PRODUCT_VERSION=PASS; expected={expectedVersion}; product={productVersion}; exact=true");
     }
 
     private static void VerifyOutboundRuntime(AppPaths paths, List<string> messages)

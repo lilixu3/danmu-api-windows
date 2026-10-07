@@ -7,6 +7,28 @@ namespace DanmuApi.Tests;
 
 public sealed class ApplicationUpdateVersionIdentityTests
 {
+    [Fact]
+    public void AppNativeProductVersionMatchesTheBareVersionUsedByOldPortableHelpers()
+    {
+        var assembly = typeof(ApplicationUpdateHelper).Assembly;
+        var version = assembly.GetName().Version!;
+        var expected = $"{version.Major}.{version.Minor}.{version.Build}";
+        var actual = FileVersionInfo.GetVersionInfo(assembly.Location).ProductVersion;
+        Assert.Equal(expected, actual);
+        Assert.Equal(expected, DanmuApi.Core.ApplicationUpdates.SemanticVersion.Parse(actual!).Value);
+        Assert.Equal(expected, assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .Cast<System.Reflection.AssemblyInformationalVersionAttribute>().Single().InformationalVersion);
+    }
+
+    [Theory]
+    [InlineData("0.5.23+c1607deee183843555429312ed2ecce8883b776d", "0.5.33")]
+    [InlineData("0.5.28+c1607deee183843555429312ed2ecce8883b776d", "0.5.33")]
+    [InlineData("0.5.28+different.build", "0.5.33")]
+    [InlineData("0.5.32", "0.5.33")]
+    public void MetadataBearingCurrentVersionsCanUpgradeToTheNewerBareTarget(string current, string target) =>
+        Assert.True(DanmuApi.Core.ApplicationUpdates.SemanticVersion.Parse(target)
+            .CompareTo(DanmuApi.Core.ApplicationUpdates.SemanticVersion.Parse(current)) > 0);
+
     [Theory]
     [InlineData("0.5.27", "0.5.27")]
     [InlineData("0.5.27+c1607deee183843555429312ed2ecce8883b776d", "0.5.27")]
@@ -194,7 +216,7 @@ public sealed class ApplicationUpdateVersionIdentityTests
             directory = Path.Combine(ApplicationUpdateHelper.JobRoot, Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(directory);
             ExecutablePath = Path.Combine(target.Path, "DanmuApi.App.exe");
-            File.Copy(typeof(ApplicationUpdateHelper).Assembly.Location, ExecutablePath);
+            File.Copy(typeof(DanmuApi.Core.ApplicationUpdates.SemanticVersion).Assembly.Location, ExecutablePath);
             ProductVersion = FileVersionInfo.GetVersionInfo(ExecutablePath).ProductVersion!;
             var expectedVersion = ProductVersion.Split('+')[0] + (expectedHasMetadata ? "+manifest.7" : "");
             Job = new(123, 456, target.Path, "installer.exe", "installer", expectedVersion, resumeService);

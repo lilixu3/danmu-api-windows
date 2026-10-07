@@ -12,7 +12,17 @@
     <PublishTrimmed>false</PublishTrimmed>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <PublishReadyToRun>false</PublishReadyToRun>
+    <!-- Old portable updaters compare native ProductVersion with the signed manifest exactly. -->
+    <InformationalVersion>$(Version)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
+
+  <!-- Preserve source provenance separately from the native version used by old updaters. -->
+  <Target Name="AddSourceRevisionMetadata" BeforeTargets="GetAssemblyAttributes" DependsOnTargets="InitializeSourceControlInformation">
+    <ItemGroup Condition="'$(SourceRevisionId)' != ''">
+      <AssemblyMetadata Include="SourceRevisionId" Value="$(SourceRevisionId)" />
+    </ItemGroup>
+  </Target>
 
   <ItemGroup>
     <AvaloniaResource Include="Assets\**" />

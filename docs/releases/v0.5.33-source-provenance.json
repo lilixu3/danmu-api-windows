@@ -1,0 +1,143 @@
+{
+    "SchemaVersion":  1,
+    "Version":  "0.5.33",
+    "Tag":  "v0.5.33",
+    "SourceBaseline":  "2e6db51cb61843ae03c68d34ebd3ca93984376ef",
+    "EmbeddedBuildGitBase":  "2e6db51cb61843ae03c68d34ebd3ca93984376ef",
+    "SourceInputFiles":  609,
+    "SourceFingerprint":  "72A04F33D4E7E0B7AD81533B21A9B6FAB8755D367FCB30A51B4BACD9890586E8",
+    "ArtifactsBuiltBeforeSourceCommit":  true,
+    "OriginalPreparedAssetBytesUsed":  true,
+    "RebuiltOrResignedForPublication":  false,
+    "SourceBindingProof":  "v0.5.33-source-binding.json",
+    "LineEndingContract":  "UTF-8 CRLF-to-LF only; BOM retained; binary bytes exact",
+    "ChangedSourceFiles":  [
+                               "Directory.Build.props",
+                               "docs/更新日志.md",
+                               "src/DanmuApi.App/DanmuApi.App.csproj",
+                               "src/DanmuApi.App/ReleaseSelfTest.cs",
+                               "src/DanmuApi.App/packages.lock.win-arm64.json",
+                               "src/DanmuApi.App/packages.lock.win-x64.json",
+                               "src/DanmuApi.App/packages.lock.win-x86.json",
+                               "src/DanmuApi.Platform/packages.lock.json",
+                               "src/DanmuApi.Platform/packages.lock.win-arm64.json",
+                               "src/DanmuApi.Platform/packages.lock.win-x64.json",
+                               "src/DanmuApi.Platform/packages.lock.win-x86.json",
+                               "src/DanmuApi.Tests/ApplicationUpdateVersionIdentityTests.cs",
+                               "src/DanmuApi.Tests/packages.lock.json",
+                               "src/DanmuApi.Tests/packages.lock.win-arm64.json",
+                               "src/DanmuApi.Tests/packages.lock.win-x64.json",
+                               "src/DanmuApi.Tests/packages.lock.win-x86.json"
+                           ],
+    "Regressions":  [
+                        {
+                            "Configuration":  "Debug",
+                            "Passed":  2779,
+                            "Failed":  0,
+                            "Skipped":  14,
+                            "Total":  2793,
+                            "ExitCode":  0,
+                            "IdentityCasesPassed":  46,
+                            "RealNodeTwentyCyclesPassed":  true
+                        },
+                        {
+                            "Configuration":  "Release",
+                            "Passed":  2779,
+                            "Failed":  0,
+                            "Skipped":  14,
+                            "Total":  2793,
+                            "ExitCode":  0,
+                            "IdentityCasesPassed":  46,
+                            "RealNodeTwentyCyclesPassed":  true
+                        }
+                    ],
+    "ForcedLockedRestores":  8,
+    "LockHashesUnchanged":  20,
+    "NativeProductVersion":  "0.5.33",
+    "FileVersion":  "0.5.33.0",
+    "FixedSigningThumbprint":  "D6224E17E9B87EBB53F2DCF02936451343FF4826",
+    "Assets":  [
+                   {
+                       "Name":  "DanmuApi-0.5.33-win-x64-setup.exe",
+                       "Length":  94574832,
+                       "SHA256":  "8839FF755B6B75C3EC025CB265D019B82DC9A0C79A649F00D55D3829FBB12370",
+                       "Architecture":  "win-x64"
+                   },
+                   {
+                       "Name":  "DanmuApi-0.5.33-win-x64-portable.zip",
+                       "Length":  149839430,
+                       "SHA256":  "FF8EE92E02BB27CE9391F7832E25B5372DEEC04FE2D6E8851A48538F526A60D5",
+                       "Architecture":  "win-x64"
+                   },
+                   {
+                       "Name":  "update-manifest.json",
+                       "Length":  438,
+                       "SHA256":  "7C75C25C72542F4CFA64A29154A43374F74BF29DDEB011757A09A0BB0F541D70",
+                       "Architecture":  "win-x64"
+                   },
+                   {
+                       "Name":  "update-manifest.json.sig",
+                       "Length":  384,
+                       "SHA256":  "F6DA38D6A16EA8EFB3162BA73E02DB72D607070FBDF7A33114823512DEF4F62D",
+                       "Architecture":  "win-x64"
+                   },
+                   {
+                       "Name":  "DanmuApi-0.5.33-win-x86-setup.exe",
+                       "Length":  89773160,
+                       "SHA256":  "FD028F2E3C643318F3FE0B3C8610856B5289E8526E2EC3DD4C235BFC545B9B27",
+                       "Architecture":  "win-x86"
+                   },
+                   {
+                       "Name":  "DanmuApi-0.5.33-win-x86-portable.zip",
+                       "Length":  143944508,
+                       "SHA256":  "F1891F0920C0C49B11F21C05422D598431E531252A0E9184A7145F6C5FAA3519",
+                       "Architecture":  "win-x86"
+                   },
+                   {
+                       "Name":  "update-manifest-win-x86.json",
+                       "Length":  438,
+                       "SHA256":  "C5636B6069948F9CB41945F5E7C192248E5F56FDF9087078A5A59CE4230138DF",
+                       "Architecture":  "win-x86"
+                   },
+                   {
+                       "Name":  "update-manifest-win-x86.json.sig",
+                       "Length":  384,
+                       "SHA256":  "A867C5687ACFDE13C82A3FFEE513DA6871BFA9E31CAD42C57CD732C022C84576",
+                       "Architecture":  "win-x86"
+                   },
+                   {
+                       "Name":  "DanmuApi-0.5.33-win-arm64-setup.exe",
+                       "Length":  88305432,
+                       "SHA256":  "3E8BE11B3F585F62148F4601869EA88ECAEECA8C7920FDE4985AF730E47C5E96",
+                       "Architecture":  "win-arm64"
+                   },
+                   {
+                       "Name":  "DanmuApi-0.5.33-win-arm64-portable.zip",
+                       "Length":  141882335,
+                       "SHA256":  "0FA03D94500527B326911EBD91F06336BC1BA53B7FE2E617F89528CFEEC3178F",
+                       "Architecture":  "win-arm64"
+                   },
+                   {
+                       "Name":  "update-manifest-win-arm64.json",
+                       "Length":  444,
+                       "SHA256":  "D4E52EBC3D05F1862EFD05F9C72B02675D0CB982A67BD92140451691C843BD1A",
+                       "Architecture":  "win-arm64"
+                   },
+                   {
+                       "Name":  "update-manifest-win-arm64.json.sig",
+                       "Length":  384,
+                       "SHA256":  "F2DA5C579D5517EE8B9E7BE8603BCD249F4A25D01E99F815BD752D24C8D93BEA",
+                       "Architecture":  "win-arm64"
+                   }
+               ],
+    "RootCause":  "Old portable helpers compare ProductVersion.Value exactly with the bare signed manifest; SDK appended Git build metadata.",
+    "Fix":  "Application InformationalVersion is the bare Version; source revision is a separate assembly metadata item. Both installer and portable use the same application.",
+    "SharedStartupReceiptCompatibility":  "Formal v0.5.28 strict semantic identity remains; only build metadata is ignored.",
+    "FinalSignedX64X86SelfTestsPassed":  true,
+    "NativeArm64ExecutionAccepted":  false,
+    "OldClientRealUpgradeMatrixAccepted":  false,
+    "ProductionInstallerUacMatrixAccepted":  false,
+    "BackupTimeoutRootCauseResolved":  false,
+    "ExistingPublishedTagsAndAssetsRetained":  true,
+    "IgnoredInternalDocumentsPublished":  false
+}
