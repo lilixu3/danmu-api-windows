@@ -41,10 +41,12 @@ CloseApplications=no
 RestartApplications=no
 SignTool=DanmuSign
 SignedUninstaller=yes
+; 每次安装都写日志。旧文案让人“查看安装日志”，但双击安装默认不产生日志，失败后无从排查。
+SetupLogging=yes
 
 [Files]
-; Only the signed application bytes in this package may implement the manual-exit protocol.
-Source: "{#SourceDir}\DanmuApi.App.exe"; DestDir: "{tmp}"; DestName: "DanmuApi.InstallExit.exe"; Flags: dontcopy
+; 手工安装的停止逻辑只做“按精确路径结束目标进程”：枚举与结束由这份脚本完成，不再启动随包的退出控制器。
+Source: "Stop-TargetInstance.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "{#SourceDir}\*.exe"; DestDir: "{app}"; Flags: ignoreversion; BeforeInstall: EnsureManualExit
 Source: "{#SourceDir}\*.dll"; DestDir: "{app}"; Flags: ignoreversion; BeforeInstall: EnsureManualExit
 Source: "{#SourceDir}\runtime-bundle\*"; DestDir: "{app}\runtime-bundle"; Flags: ignoreversion recursesubdirs createallsubdirs; BeforeInstall: EnsureManualExit
@@ -694,6 +696,92 @@ begin
   Result := True;
 end;
 
+{ ===== 手工安装的停止策略（简化版：问一次 → 立即强制停止 → 确认可写后继续） =====
+  旧的手工退出控制器（原用户令牌/profile/会话/双锁证明、130 秒等待、证明不了即中止）不再进入手工
+  安装路径：没有目标实例在运行时根本不启动任何保护进程；有实例时由用户确认后直接结束它。
+  应用内更新（UPDATEPARENT）分支不受影响，仍是原有的 external 握手。 }
+
+function TargetAppExecutable(): String;
+begin
+  Result := ExpandConstant('{app}\DanmuApi.App.exe');
+end;
+
+{ 目标映像文件是否正在被使用：对映像文件申请独占打开，被映射的映像会以共享冲突(32)或拒绝访问(5)失败。
+  文件不存在（首次安装）直接返回 False。 }
+function TargetInstanceRunning(): Boolean;
+var
+  Handle, WinError: LongWord;
+begin
+  Result := False;
+  if not FileExists(TargetAppExecutable()) then exit;
+  Handle := CreateFile(TargetAppExecutable(), $40000000, 0, 0, 3, $80, 0);
+  if Handle = $FFFFFFFF then begin
+    WinError := NativeGetLastError();
+    Log('installer-stop-target probe_error=' + IntToStr(WinError));
+    Result := (WinError = 32) or (WinError = 5);
+    exit;
+  end;
+  if not CloseHandle(Handle) then
+    Log('installer-stop-target probe_close_failed=' + IntToStr(NativeGetLastError()));
+end;
+
+function StopTargetViaScript(): String;
+var
+  ScriptPath, Parameters: String;
+  ExitCode: Integer;
+begin
+  Result := '';
+  ExtractTemporaryFile('Stop-TargetInstance.ps1');
+  ScriptPath := ExpandConstant('{tmp}\Stop-TargetInstance.ps1');
+  Parameters := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + ScriptPath +
+    '" -Target "' + TargetAppExecutable() + '"';
+  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Parameters, '',
+      SW_HIDE, ewWaitUntilTerminated, ExitCode) then begin
+    Log('installer-stop-target reason=script_start_failed');
+    Result := '无法启动停止脚本，安装已停止。日志：' + ExpandConstant('{log}');
+    exit;
+  end;
+  Log('installer-stop-target script_exit=' + IntToStr(ExitCode));
+  if ExitCode <> 0 then
+    Result := '结束弹幕 API 进程失败（退出码 ' + IntToStr(ExitCode) + '），安装已停止。' + #13#10 +
+      '请从任务管理器结束 DanmuApi.App.exe 后重新运行安装器。日志：' + ExpandConstant('{log}');
+end;
+
+function StopRunningTarget(): String;
+var
+  Waited: LongWord;
+begin
+  Result := '';
+  if not TargetInstanceRunning() then begin
+    Log('installer-stop-target reason=no_running_instance');
+    exit;
+  end;
+  Log('installer-stop-target reason=running_instance_detected silent=' + IntToStr(Ord(WizardSilent)));
+  if not WizardSilent then
+    if MsgBox('弹幕 API 正在运行，安装前必须先停止它。' + #13#10 + #13#10 +
+        '安装器会强制结束正在运行的弹幕 API 进程（包括它托管的弹幕服务与内网穿透），然后继续安装。' + #13#10 +
+        '如果有正在进行的下载或其他操作，请选择「否」先自行处理。' + #13#10 + #13#10 +
+        '是否停止应用并继续安装？', mbConfirmation, MB_YESNO) <> IDYES then begin
+      Result := '安装已取消：弹幕 API 仍在运行。你也可以从托盘退出应用后重新运行安装器。';
+      exit;
+    end;
+  Result := StopTargetViaScript();
+  if Result <> '' then exit;
+  { 结束进程后确认映像文件已可独占打开；给系统一点回收时间，最多 20 秒。 }
+  Waited := 0;
+  while TargetInstanceRunning() do begin
+    if Waited >= 20000 then begin
+      Log('installer-stop-target reason=still_running_after_stop');
+      Result := '弹幕 API 进程仍在运行，安装已停止。' + #13#10 +
+        '请从任务管理器结束 DanmuApi.App.exe 后重新运行安装器。日志：' + ExpandConstant('{log}');
+      exit;
+    end;
+    Sleep(250);
+    Waited := Waited + 250;
+  end;
+  Log('installer-stop-target reason=stopped');
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   LockPath, ReadyPath: String;
@@ -737,9 +825,9 @@ begin
       CloseHandle(Handle);
     end;
   end else begin
-    { The helper holds the actual target user's locks. Setup must not probe its
-      administrator profile after manual preparation (including fresh installs). }
-    Result := BeginManualExit();
+    { 手工安装：没有运行实例就直接安装；有实例时问一次，同意后强制停止再继续。
+      旧的 BeginManualExit 控制器不再进入这条路径（代码与测试保留，未再调用）。 }
+    Result := StopRunningTarget();
     if Result <> '' then exit;
   end;
   { Autostart repair belongs to the application's startup token, never Setup's

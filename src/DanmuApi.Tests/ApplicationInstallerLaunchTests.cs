@@ -40,7 +40,7 @@ public sealed class ApplicationInstallerLaunchTests
         var cancel = script.IndexOf("FileExists(ExtractFilePath(ReadyPath) + 'cancel')", prepare, StringComparison.Ordinal);
         var modernLock = script.IndexOf("{userappdata}\\DanmuApi\\instance.lock", prepare, StringComparison.Ordinal);
         var legacyLock = script.IndexOf("{userappdata}\\DanmuApi\\app.lock", prepare, StringComparison.Ordinal);
-        var manual = script.IndexOf("Result := BeginManualExit()", prepare, StringComparison.Ordinal);
+        var manual = script.IndexOf("Result := StopRunningTarget()", prepare, StringComparison.Ordinal);
         Assert.True(prepare >= 0 && ready > prepare && wait > ready && cancel > wait &&
                     modernLock > cancel && legacyLock > modernLock && manual > legacyLock);
         Assert.DoesNotContain("BeginUpdateLease", script);

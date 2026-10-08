@@ -225,23 +225,27 @@ public sealed class RunningInstanceExitTests
         Assert.Equal(0, result);
     }
 
+    /// <summary>
+    /// v0.5.35 起手工安装按精确目标路径停止实例：随包的是 Stop-TargetInstance.ps1，而不是旧的
+    /// 退出助手。旧控制器的解析代码保留（不再被调用），相关源码断言继续成立。
+    /// </summary>
     [Fact]
-    public void InstallerOnlyExecutesProtectedPackageManualHelperAndChecksItsNativeExitCode()
+    public void InstallerStopsOnlyTheExactTargetInstanceInsteadOfRunningTheRetiredHelper()
     {
         var root = new DirectoryInfo(AppContext.BaseDirectory);
         while (root is not null && !File.Exists(Path.Combine(root.FullName, "installer", "DanmuApi.iss"))) root = root.Parent;
         Assert.NotNull(root);
         var script = File.ReadAllText(Path.Combine(root!.FullName, "installer", "DanmuApi.iss"));
-        Assert.Contains("DestName: \"DanmuApi.InstallExit.exe\"; Flags: dontcopy", script);
-        Assert.Contains("ExtractTemporaryFile('DanmuApi.InstallExit.exe')", script);
-        Assert.Contains("Started := CreateProcess(RelayPath, CommandLine", script);
+        Assert.Contains("Source: \"Stop-TargetInstance.ps1\"; DestDir: \"{tmp}\"; Flags: dontcopy", script);
+        Assert.Contains("ExtractTemporaryFile('Stop-TargetInstance.ps1')", script);
+        Assert.Contains("-Target \"' + TargetAppExecutable() + '\"", script);
+        Assert.DoesNotContain("DestName: \"DanmuApi.InstallExit.exe\"", script);
         Assert.DoesNotContain("ExecAsOriginalUser", script);
         Assert.DoesNotContain("ReadRunningExecutable", script);
         Assert.DoesNotContain("Exec(ExePath", script);
-        Assert.Contains("GetExitCodeProcess(ManualExitHandle, Code)", script);
-        Assert.Contains("if Code <> ExpectedCode then begin", script);
-        Assert.Contains("--installer-manual-exit", script);
         Assert.DoesNotContain("--installer-update-lease", script);
+        Assert.Contains("GetExitCodeProcess(ManualExitHandle, Code)", script);
+        Assert.Contains("--installer-manual-exit", script);
         Assert.Contains("0.5.13", script);
     }
 

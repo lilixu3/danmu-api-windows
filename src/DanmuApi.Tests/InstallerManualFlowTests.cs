@@ -16,7 +16,7 @@ public sealed class InstallerManualFlowTests
         Assert.Contains("{userappdata}\\DanmuApi\\app.lock", legacy);
         Assert.DoesNotContain("BeginManualExit", legacy);
         var manual = Section(prepare, "end else begin", "if LegacyPresent then begin");
-        Assert.Contains("Result := BeginManualExit()", manual);
+        Assert.Contains("Result := StopRunningTarget()", manual);
         Assert.Contains("if Result <> '' then exit", manual);
         Assert.DoesNotContain("LockPath", manual);
         Assert.DoesNotContain("BeginUpdateLease", script);
@@ -150,6 +150,36 @@ public sealed class InstallerManualFlowTests
         Assert.DoesNotContain("taskkill", script);
     }
 
+    /// <summary>2026-10-08（v0.5.35）起的手工安装合同：问一次 → 立即强制停止精确目标 → 确认可写后继续。</summary>
+    [Fact]
+    public void ManualInstallAsksOnceThenStopsOnlyTheExactTargetInstance()
+    {
+        var script = InstallerScript();
+        var stop = Section(script, "function StopRunningTarget(", "function PrepareToInstall(");
+        // 没有运行实例时什么都不做：不提问、不启动任何保护进程。
+        InOrder(stop, "if not TargetInstanceRunning() then begin", "reason=no_running_instance", "exit;");
+        // 先问一次，且说清会强制停止；拒绝时取消安装并且不执行停止动作。
+        var prompt = Section(stop, "if not WizardSilent then", "Result := StopTargetViaScript()");
+        InOrder(prompt, "MsgBox('弹幕 API 正在运行", "是否停止应用并继续安装", "安装已取消", "exit;");
+        Assert.DoesNotContain("StopTargetViaScript()", prompt);
+        // 停止后必须确认映像文件已可独占打开，超时即显式中止（给出日志路径）。
+        InOrder(stop, "Result := StopTargetViaScript()", "TargetInstanceRunning() do begin",
+            "Waited >= 20000", "reason=still_running_after_stop");
+        Assert.Contains("ExpandConstant('{log}')", stop);
+        // 停止脚本按精确路径匹配并结束目标进程树；不得按映像名盲杀，也不碰别处的副本。
+        var stopScript = StopTargetScript();
+        Assert.Contains("Name='DanmuApi.App.exe'", stopScript);
+        Assert.Contains("-ieq $full", stopScript);
+        Assert.Contains("/PID $row.ProcessId /T /F", stopScript);
+        Assert.DoesNotContain("Stop-Process -Name", stopScript);
+        Assert.DoesNotContain("taskkill /IM", stopScript);
+        // 打包方式随之改变：不再随包提取旧助手，但每次安装都写日志。
+        Assert.Contains("Source: \"Stop-TargetInstance.ps1\"; DestDir: \"{tmp}\"; Flags: dontcopy", script);
+        Assert.DoesNotContain("DestName: \"DanmuApi.InstallExit.exe\"", script);
+        Assert.Contains("SetupLogging=yes", script);
+        Assert.Contains(@"Result := ExpandConstant('{app}\DanmuApi.App.exe');", script);
+    }
+
     private static string InstallerScript()
     {
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
@@ -158,6 +188,16 @@ public sealed class InstallerManualFlowTests
             if (File.Exists(path)) return File.ReadAllText(path).Replace("\r\n", "\n");
         }
         throw new FileNotFoundException("Cannot locate the production installer template.");
+    }
+
+    private static string StopTargetScript()
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
+        {
+            var path = Path.Combine(directory.FullName, "installer", "Stop-TargetInstance.ps1");
+            if (File.Exists(path)) return File.ReadAllText(path).Replace("\r\n", "\n");
+        }
+        throw new FileNotFoundException("Cannot locate the packaged stop script.");
     }
 
     private static string Section(string script, string start, string end)
