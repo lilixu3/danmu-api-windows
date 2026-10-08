@@ -1,0 +1,131 @@
+{
+    "SchemaVersion":  1,
+    "Repository":  "lilixu3/danmu-api-windows",
+    "Version":  "0.5.36",
+    "Tag":  "v0.5.36",
+    "Title":  "v0.5.36",
+    "URL":  "https://github.com/lilixu3/danmu-api-windows/releases/tag/v0.5.36",
+    "ReleaseId":  407091506,
+    "PublishedUtc":  "2026-10-08T17:34:21Z",
+    "SourceCommit":  "3d2b860b37e72eb93e136f8137c026cad114db35",
+    "AnnotatedTagObject":  "78137e1dcc885c713f9e5630ea147a06cfd9a146",
+    "EmbeddedBuildGitBase":  "8733721bae9c374c4cace91ac8ad85a8314d0617",
+    "FrozenSourceFingerprint":  "56BB9E7668D83F2DE2950D3DC70D726DC4EB0D341C6DAD60CEE73EBA154167AE",
+    "FrozenSourceInputFiles":  617,
+    "ChangedSourceFiles":  18,
+    "ReleasePlanSHA256":  "33047278287C887FE997AA510EE49A0582936CF49A57C2E55CA7480A4F94E245",
+    "ReleaseNotesSHA256":  "8EC10F0097C046D7784DB1FE2C4C724CB81034DCBDE668DBC2B57A35EF63CF55",
+    "PartialBatchVerificationExit":  0,
+    "Draft":  false,
+    "Prerelease":  false,
+    "LatestVerified":  true,
+    "AssetCount":  12,
+    "Assets":  [
+                   {
+                       "Name":  "DanmuApi-0.5.36-win-arm64-portable.zip",
+                       "Size":  141884444,
+                       "GitHubAssetId":  622513437,
+                       "GitHubDigest":  "sha256:1a8c61a86f1ff0f61668a9e2dee81241e4fabb4d6d1123c9af47a996d7ddfc46",
+                       "State":  "uploaded"
+                   },
+                   {
+                       "Name":  "DanmuApi-0.5.36-win-arm64-setup.exe",
+                       "Size":  88284104,
+                       "GitHubAssetId":  622512221,
+                       "GitHubDigest":  "sha256:219cc23bd8837b639078deca8c5523d420005b005c57472e4227159b86274a21",
+                       "State":  "uploaded"
+                   },
+                   {
+                       "Name":  "DanmuApi-0.5.36-win-x64-portable.zip",
+                       "Size":  149840881,
+                       "GitHubAssetId":  622508010,
+                       "GitHubDigest":  "sha256:b6c67c3106f91de43cda9c4b9a6643922b6bcb3071db9c5512462507b238326e",
+                       "State":  "uploaded"
+                   },
+                   {
+                       "Name":  "DanmuApi-0.5.36-win-x64-setup.exe",
+                       "Size":  94583952,
+                       "GitHubAssetId":  622504641,
+                       "GitHubDigest":  "sha256:93e9bf3e566459afbdf66f81ed66a8b013272d489d33b0673a85866358350a4a",
+                       "State":  "uploaded"
+                   },
+                   {
+                       "Name":  "DanmuApi-0.5.36-win-x86-portable.zip",
+                       "Size":  143946296,
+                       "GitHubAssetId":  622580569,
+                       "GitHubDigest":  "sha256:e31164756f41be4bf9cc1129eb5143d9919e32bf3ef14b3195c2ee4c7a61c7da",
+                       "State":  "uploaded"
+                   },
+                   {
+                       "Name":  "DanmuApi-0.5.36-win-x86-setup.exe",
+                       "Size":  89783928,
+                       "GitHubAssetId":  622579832,
+                       "GitHubDigest":  "sha256:826c112db2f536f4c8c218bd0f2094f28c1b18e49ff4bdcdc982ed6f082b9791",
+                       "State":  "uploaded"
+                   },
+                   {
+                       "Name":  "update-manifest-win-arm64.json",
+                       "Size":  444,
+                       "GitHubAssetId":  622514822,
+                       "GitHubDigest":  "sha256:83337013849deed3c1ecf8305a050878fa8086909a51b908c1c225a2e4e503d1",
+                       "State":  "uploaded"
+                   },
+                   {
+                       "Name":  "update-manifest-win-arm64.json.sig",
+                       "Size":  384,
+                       "GitHubAssetId":  622514944,
+                       "GitHubDigest":  "sha256:4c9ac108d5c3276d81358d07ae9bd83f66c69c94e35b0f58c9605dbadb4bfe41",
+                       "State":  "uploaded"
+                   },
+                   {
+                       "Name":  "update-manifest-win-x86.json",
+                       "Size":  438,
+                       "GitHubAssetId":  622581659,
+                       "GitHubDigest":  "sha256:5aaa05263f6d20d7d8f14c0581abe56871b3b5c1d9a0d3a13eb1accd73fd9366",
+                       "State":  "uploaded"
+                   },
+                   {
+                       "Name":  "update-manifest-win-x86.json.sig",
+                       "Size":  384,
+                       "GitHubAssetId":  622581711,
+                       "GitHubDigest":  "sha256:3a1367281353b6bd25390067ab9ffe0a30b79e224eda7a028c2e8eb88a0913b5",
+                       "State":  "uploaded"
+                   },
+                   {
+                       "Name":  "update-manifest.json",
+                       "Size":  438,
+                       "GitHubAssetId":  622512073,
+                       "GitHubDigest":  "sha256:bd2dc3be827fba0ba495cb582dcea8ad5aebbc03c407259eb18a1c4920a5720d",
+                       "State":  "uploaded"
+                   },
+                   {
+                       "Name":  "update-manifest.json.sig",
+                       "Size":  384,
+                       "GitHubAssetId":  622512145,
+                       "GitHubDigest":  "sha256:04d87eebda7cb5df83f21a94c1e27beef36b1985bfa4a446c2ec68aa73c2dbe0",
+                       "State":  "uploaded"
+                   }
+               ],
+    "UploadOrder":  [
+                        "win-x64",
+                        "win-arm64",
+                        "win-x86"
+                    ],
+    "PublishStyle":  "batched: x64+arm64 published as latest first, x86 appended to the same published Release afterwards (user-requested order)",
+    "PublicAnonymousDownloadVerified":  true,
+    "PublicAnonymousDownloadCount":  12,
+    "PublicFinalExecutableVerifyExit":  0,
+    "ThreeRsaManifestsVerified":  true,
+    "SixPackageHashesVerified":  true,
+    "ThreeInstallerSignaturesVerified":  true,
+    "OriginalFrozenAssetBytesPublished":  true,
+    "RebuiltOrResigned":  false,
+    "PreviousFormalRelease":  "v0.5.34",
+    "PreviousReleaseRetained":  true,
+    "AllExistingTagsAndAssetsRetained":  true,
+    "InstallerStopPolicyChange":  "manual install: one prompt then forced stop of the exact target instance; no instance means no controller at all; SetupLogging=yes",
+    "NativeArm64ExecutionAccepted":  false,
+    "OldClientRealUpgradeMatrixAccepted":  false,
+    "ProductionInstallerUacMatrixAccepted":  false,
+    "SandboxInstallVerification":  "fresh install / install over running instance / locked-by-other-process all recorded in artifacts/install-fix-0.5.35-evidence (pre-release sandbox test; it also exposed that a /DIR sandbox install rewrites the shared uninstall key and shortcuts)"
+}
